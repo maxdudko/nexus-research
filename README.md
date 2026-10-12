@@ -31,7 +31,7 @@ A hands-on AI engineering project focused on Python, agent orchestration, retrie
 
 ## Development
 
-Phase 1 serves a versioned FastAPI application, local PostgreSQL and Qdrant, and Alembic migrations. Readiness checks are the next step.
+Phase 1 serves a versioned FastAPI application, local PostgreSQL and Qdrant, Alembic migrations, and readiness checks.
 
 ### Prerequisites
 
@@ -116,3 +116,24 @@ uv run alembic upgrade head
 ```
 
 The initial revision creates Alembic's version table and no research tables. `upgrade head` applies that revision. Running it again leaves the database at the current head. `downgrade base` removes the version stamp. The lifespan creates the async engine when the API starts and disposes it on shutdown. It does not connect during startup, so liveness can be served while Postgres is stopped.
+
+### Readiness
+
+With the API running:
+
+```bash
+curl --max-time 5 -fsS http://127.0.0.1:8000/api/v1/health/ready
+```
+
+A ready process returns HTTP 200 and `{"status":"ok","postgres":"ok","qdrant":"ok"}`. If either service is down, the same URL returns HTTP 503 and `"status":"unavailable"`. Each check is `ok` or `unavailable`. The response does not include exception text or connection details. Liveness stays HTTP 200.
+
+From the repository root, stop one service at a time. Both commands keep the named volumes:
+
+```bash
+docker compose stop postgres
+docker compose start postgres
+docker compose stop qdrant
+docker compose start qdrant
+```
+
+Start Postgres again and wait until `pg_isready` succeeds before stopping Qdrant. The readiness handler checks both services together, with a two-second budget from `NEXUS_READINESS_TIMEOUT_SECONDS`.
