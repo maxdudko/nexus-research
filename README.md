@@ -31,13 +31,13 @@ A hands-on AI engineering project focused on Python, agent orchestration, retrie
 
 ## Development
 
-Phase 1 serves a versioned FastAPI application. Readiness checks, Docker Compose services, and database migrations are later steps.
+Phase 1 serves a versioned FastAPI application and local PostgreSQL and Qdrant services. Readiness checks and database migrations are later steps.
 
 ### Prerequisites
 
 - Python 3.14
 - [uv](https://docs.astral.sh/uv/getting-started/installation/)
-- Docker and Docker Compose, used when the local PostgreSQL and Qdrant services are added
+- Docker and Docker Compose, for the local PostgreSQL and Qdrant services
 
 Install uv if it is not already on your `PATH`:
 
@@ -88,3 +88,18 @@ curl -fsS http://127.0.0.1:8000/openapi.json
 ```
 
 Liveness returns `{"status":"ok"}`. In `development`, OpenAPI is at `/openapi.json` and the docs UI is at `/docs`. A missing required variable such as `NEXUS_DATABASE_URL` stops the process before it serves requests and prints the variable name.
+
+### Local data services
+
+From the repository root, Compose starts PostgreSQL 18 and Qdrant. Both publish ports on `127.0.0.1` only. The database user, password, and name match `apps/api/.env.example` (`nexus` / `nexus` / `nexus`).
+
+```bash
+docker compose up -d
+docker compose ps
+docker compose exec postgres pg_isready -h 127.0.0.1 -U nexus -d nexus
+curl -fsS http://127.0.0.1:6333/readyz
+```
+
+`pg_isready` checks PostgreSQL over TCP. `GET /readyz` is the Qdrant readiness probe. The Qdrant image does not ship an in-container health check.
+
+`docker compose stop` stops the containers and keeps their named volumes. `docker compose down` removes the containers and keeps the volumes, so the next `up` restores the data. `docker compose down -v` deletes `nexus_postgres_data` and `nexus_qdrant_data`.
