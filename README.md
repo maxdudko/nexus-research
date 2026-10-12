@@ -31,7 +31,7 @@ A hands-on AI engineering project focused on Python, agent orchestration, retrie
 
 ## Development
 
-Phase 1 currently bootstraps the Python package. The HTTP API, Docker Compose services, and database migrations are later steps.
+Phase 1 serves a versioned FastAPI application. Readiness checks, Docker Compose services, and database migrations are later steps.
 
 ### Prerequisites
 
@@ -67,3 +67,24 @@ uv run python -c "import nexus; print(nexus.__version__)"
 | `src/nexus` | a compiled package whose imports resolve from the environment |
 
 Import `nexus` as an installed package. `uv sync` puts it on the environment path, which is how application imports resolve.
+
+`Settings` is process configuration loaded once at startup, the same role as Nest's `ConfigModule` validating the environment during boot. `async def` declares a route coroutine. The lifespan is the process startup and shutdown hook, the same role as `OnModuleInit` and `OnModuleDestroy`. `APIRouter` groups routes under `/api/v1`, the same role as a Nest module prefix. `Depends` is FastAPI's provider mechanism; the database session will use it in a later step. The liveness handler does no I/O.
+
+### Run the API
+
+From `apps/api`, copy the example environment and start the server. `.env` stays untracked.
+
+```bash
+cd apps/api
+cp .env.example .env
+uv run uvicorn nexus.main:app --reload
+```
+
+Uvicorn binds `127.0.0.1:8000` by default, which matches `NEXUS_HOST` and `NEXUS_PORT`. To use other values, pass the same `--host` and `--port` flags.
+
+```bash
+curl -fsS http://127.0.0.1:8000/api/v1/health/live
+curl -fsS http://127.0.0.1:8000/openapi.json
+```
+
+Liveness returns `{"status":"ok"}`. In `development`, OpenAPI is at `/openapi.json` and the docs UI is at `/docs`. A missing required variable such as `NEXUS_DATABASE_URL` stops the process before it serves requests and prints the variable name.
