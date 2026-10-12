@@ -31,7 +31,7 @@ A hands-on AI engineering project focused on Python, agent orchestration, retrie
 
 ## Development
 
-Phase 1 serves a versioned FastAPI application and local PostgreSQL and Qdrant services. Readiness checks and database migrations are later steps.
+Phase 1 serves a versioned FastAPI application, local PostgreSQL and Qdrant, and Alembic migrations. Readiness checks are the next step.
 
 ### Prerequisites
 
@@ -68,7 +68,7 @@ uv run python -c "import nexus; print(nexus.__version__)"
 
 Import `nexus` as an installed package. `uv sync` puts it on the environment path, which is how application imports resolve.
 
-`Settings` is process configuration loaded once at startup, the same role as Nest's `ConfigModule` validating the environment during boot. `async def` declares a route coroutine. The lifespan is the process startup and shutdown hook, the same role as `OnModuleInit` and `OnModuleDestroy`. `APIRouter` groups routes under `/api/v1`, the same role as a Nest module prefix. `Depends` is FastAPI's provider mechanism; the database session will use it in a later step. The liveness handler does no I/O.
+`Settings` is process configuration loaded once at startup, the same role as Nest's `ConfigModule` validating the environment during boot. `async def` declares a route coroutine. The lifespan is the process startup and shutdown hook, the same role as `OnModuleInit` and `OnModuleDestroy`. `APIRouter` groups routes under `/api/v1`, the same role as a Nest module prefix. `Depends(get_session)` opens one SQLAlchemy `AsyncSession` for a request and closes it when the request finishes, including on failure. That session is one unit of work, the same role as a TypeORM `QueryRunner` created in request scope and released in `finally`. The handler owns the transaction and commits when it is ready. The liveness handler does no I/O.
 
 ### Run the API
 
@@ -103,3 +103,16 @@ curl -fsS http://127.0.0.1:6333/readyz
 `pg_isready` checks PostgreSQL over TCP. `GET /readyz` is the Qdrant readiness probe. The Qdrant image does not ship an in-container health check.
 
 `docker compose stop` stops the containers and keeps their named volumes. `docker compose down` removes the containers and keeps the volumes, so the next `up` restores the data. `docker compose down -v` deletes `nexus_postgres_data` and `nexus_qdrant_data`.
+
+### Migrations
+
+From `apps/api`, with Postgres running and `.env` in place:
+
+```bash
+cd apps/api
+uv run alembic upgrade head
+uv run alembic downgrade base
+uv run alembic upgrade head
+```
+
+The initial revision creates Alembic's version table and no research tables. `upgrade head` applies that revision. Running it again leaves the database at the current head. `downgrade base` removes the version stamp. The lifespan creates the async engine when the API starts and disposes it on shutdown. It does not connect during startup, so liveness can be served while Postgres is stopped.
