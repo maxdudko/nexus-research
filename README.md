@@ -21,9 +21,9 @@ Nexus Research is an experimental, Python-first application that investigates co
 
 ## Status
 
-🚧 **Planning / initial development.** Features listed above are planned, not yet implemented.
+🚧 **Phase 1 foundation is implemented.** The API, local PostgreSQL and Qdrant, Alembic, and health checks are in place. Product features listed above are still planned.
 
-See the [development roadmap](docs/roadmap.md) for milestones and scope.
+See the [development roadmap](docs/roadmap.md) for milestones and scope. Notes on the Python concepts from this phase are in [Phase 1 learning notes](docs/learning/phase-1.md).
 
 ## Purpose
 
