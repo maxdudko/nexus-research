@@ -137,3 +137,25 @@ docker compose start qdrant
 ```
 
 Start Postgres again and wait until `pg_isready` succeeds before stopping Qdrant. The readiness handler checks both services together, with a two-second budget from `NEXUS_READINESS_TIMEOUT_SECONDS`.
+
+### Tests
+
+From `apps/api`, with Compose running and `.env` present:
+
+```bash
+cd apps/api
+uv sync --frozen
+uv run ruff check .
+uv run ruff format --check .
+uv run mypy src
+uv run pytest
+```
+
+`uv run pytest` runs the unit tests and the integration tests. Every test should pass. Integration tests create a database named `nexus_test`, migrate it, and drop it. They leave the development database `nexus` unchanged. `uv run pytest -m "not integration"` runs only the unit tests.
+
+### Troubleshooting
+
+- A missing `apps/api/.env`, or a missing `NEXUS_DATABASE_URL`, stops the process before it serves and prints the variable name. Copy `.env.example` to `.env`.
+- Integration tests fail to connect when Compose is not running. Start it from the repository root with `docker compose up -d`.
+- If port 5432 or 8000 is already taken, stop the other process. The published ports stay on `127.0.0.1` so they match `.env.example`.
+- Stop the API with Ctrl+C in the uvicorn terminal. `docker compose stop` stops the data services and keeps their volumes.
