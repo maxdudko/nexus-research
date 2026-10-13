@@ -2,7 +2,7 @@
 
 Phase 1 is a runnable API foundation. It does not research anything yet.
 
-The `nexus` package lives in `apps/api/src/nexus`. `create_app` builds a FastAPI application, stores `Settings` on `app.state`, and mounts routes under `/api/v1`. The lifespan creates one async SQLAlchemy engine and a session factory, then disposes the engine on shutdown. It does not ping PostgreSQL, so liveness stays available when the database is down. Readiness asks PostgreSQL for `SELECT 1` and Qdrant for `GET /readyz`, each inside a timeout, and returns 503 when either check fails. Docker Compose runs PostgreSQL 18 and Qdrant on localhost. Alembic's first revision records a version and creates no research tables.
+The `nexus` package lives in `apps/api/src/nexus`. `create_app` builds a FastAPI application, stores `Settings` on `app.state`, and mounts routes under `/api/v1`. The lifespan creates one async SQLAlchemy engine and a session factory, then disposes the engine on shutdown. It does not ping PostgreSQL, so liveness stays available when the database is down. Readiness asks PostgreSQL for `SELECT 1` and Qdrant for `GET /readyz`. PostgreSQL limits the connect and the query separately with the driver timeout, then invalidates that connection and disposes the probe engine before returning. Qdrant uses one HTTP timeout. Either failure returns 503. Docker Compose runs PostgreSQL 18 and Qdrant on localhost. Alembic's first revision records a version and creates no research tables.
 
 `uv tree` includes `opentelemetry-api` because FastAPI 0.143 requires it. It does not include `opentelemetry-sdk`, `langchain`, `langgraph`, `openai`, or `qdrant-client`.
 
@@ -40,12 +40,12 @@ The revision `79d871cb4dad` has empty `upgrade` and `downgrade` functions. `alem
 
 A fixture sets up something a test needs and tears it down afterwards. The integration fixture reads the configured database URL, replaces only the database name with `nexus_test`, creates that database, yields the URL, and drops the database when the test finishes. The development database `nexus` is never the target of that SQL.
 
-A unit test can replace a FastAPI dependency without stopping a container. `app.dependency_overrides[get_ready_status]` returns a `ReadyStatus` that says Postgres or Qdrant is unavailable. `GET /api/v1/health/ready` then returns 503, and the same app still returns 200 from `/live`. The override is the test double. The real containers stay up for the integration test that expects both checks to be `ok`.
+A unit test can replace a FastAPI dependency without stopping a container. `app.dependency_overrides[get_ready_status]` returns a `ReadyStatus` that says Postgres or Qdrant is unavailable. `GET /api/v1/health/ready` then returns 503, and the same app still returns 200 from `/live`. The override is the test double. Other unit tests call `postgres_is_ready` and `qdrant_is_ready` against a closed local port, so the real connection code fails without stopping Docker. The real containers stay up for the integration test that expects both checks to be `ok`.
 
 ## Technical debt
 
 - Uvicorn does not read `NEXUS_HOST` or `NEXUS_PORT`. The CLI flags must match those settings. The defaults are both `127.0.0.1:8000`.
-- Readiness opens its own engine and disposes it. A timed-out connection is not returned to the application pool.
+- Readiness opens its own engine. It invalidates and closes that connection before dispose, because dispose does not close a connection that is still checked out. The application pool is not used for the probe.
 - Qdrant has a documented `GET /readyz` probe and no Compose health check.
 - Integration tests require the local Compose services and `apps/api/.env`.
 - The initial Alembic revision creates no application tables.

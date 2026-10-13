@@ -1,12 +1,12 @@
 """Async SQLAlchemy engine and request-scoped sessions."""
 
-import asyncio
 import logging
 from collections.abc import AsyncIterator
 
 from fastapi import Request
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
+    AsyncConnection,
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
@@ -54,22 +54,55 @@ async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
 
 
 async def postgres_is_ready(url: str, timeout_seconds: float) -> bool:
-    """Return whether PostgreSQL accepts a bounded SELECT 1."""
-    engine: AsyncEngine | None = None
+    """Return whether PostgreSQL accepts a bounded SELECT 1.
+
+    asyncpg's connect ``timeout`` and ``command_timeout`` raise into this
+    function. They do not cancel the running task, so the connection can still
+    be closed. ``asyncio.timeout`` would cancel that cleanup, and
+    ``engine.dispose()`` does not close a connection that is still checked out.
+
+    A ``finally`` block runs before ``return``. If the cleanup raised, that
+    exception would replace the boolean result, so cleanup logs and swallows
+    its own failures.
+    """
+    engine = create_db_engine(
+        url,
+        null_pool=True,
+        connect_timeout=timeout_seconds,
+    )
+    connection: AsyncConnection | None = None
     try:
-        engine = create_db_engine(
-            url,
-            null_pool=True,
-            connect_timeout=timeout_seconds,
-        )
-        async with asyncio.timeout(timeout_seconds):
-            async with engine.connect() as connection:
-                await connection.execute(text("SELECT 1"))
-    except Exception as exc:
-        logger.warning("postgres readiness check failed: %s", type(exc).__name__)
-        return False
-    else:
-        return True
+        try:
+            connection = await engine.connect()
+            await connection.execute(text("SELECT 1"))
+        except Exception as exc:
+            logger.warning("postgres readiness check failed: %s", type(exc).__name__)
+            return False
+        else:
+            return True
     finally:
-        if engine is not None:
-            await engine.dispose()
+        await _close_readiness_probe(connection, engine)
+
+
+async def _close_readiness_probe(
+    connection: AsyncConnection | None,
+    engine: AsyncEngine,
+) -> None:
+    """Abort the probe connection, then dispose its engine.
+
+    ``invalidate`` terminates the socket instead of waiting for PostgreSQL to
+    acknowledge a graceful close. Dispose still runs when that step fails.
+    """
+    if connection is not None:
+        try:
+            await connection.invalidate()
+            await connection.close()
+        except Exception as exc:
+            logger.warning(
+                "postgres readiness cleanup failed: %s",
+                type(exc).__name__,
+            )
+    try:
+        await engine.dispose()
+    except Exception as exc:
+        logger.warning("postgres readiness cleanup failed: %s", type(exc).__name__)

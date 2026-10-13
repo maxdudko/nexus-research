@@ -136,7 +136,7 @@ docker compose stop qdrant
 docker compose start qdrant
 ```
 
-Start Postgres again and wait until `pg_isready` succeeds before stopping Qdrant. The readiness handler checks both services together, with a two-second budget from `NEXUS_READINESS_TIMEOUT_SECONDS`.
+Start Postgres again and wait until `pg_isready` succeeds before stopping Qdrant. The readiness handler checks both services together. PostgreSQL's connect and its `SELECT 1` are each limited by `NEXUS_READINESS_TIMEOUT_SECONDS`. Qdrant's HTTP call uses that same limit for the whole request. A failed PostgreSQL probe closes its connection and disposes its engine before the handler returns.
 
 ### Tests
 
