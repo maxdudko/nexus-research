@@ -38,7 +38,7 @@ The revision `79d871cb4dad` has empty `upgrade` and `downgrade` functions. `alem
 
 ### How do pytest fixtures and dependency overrides stand in for a failed dependency?
 
-A fixture sets up something a test needs and tears it down afterwards. The integration fixture reads the configured database URL, replaces only the database name with `nexus_test`, creates that database, yields the URL, and drops the database when the test finishes. The development database `nexus` is never the target of that SQL.
+A fixture sets up something a test needs and tears it down afterwards. The integration fixture reads the configured database URL. It recreates `nexus_test` only when the host is `localhost`, `127.0.0.1`, or `::1` and the URL names the development database. A URL that already names `nexus_test`, `postgres`, `template0`, or `template1` stops the fixture before any `DROP DATABASE`. `DROP DATABASE` cannot take a query parameter, so the fixture allowlists the name `nexus_test` before quoting it into that statement. It then creates that database, yields the URL, and drops it when the test finishes. The development database `nexus` is never the target of that SQL.
 
 A unit test can replace a FastAPI dependency without stopping a container. `app.dependency_overrides[get_ready_status]` returns a `ReadyStatus` that says Postgres or Qdrant is unavailable. `GET /api/v1/health/ready` then returns 503, and the same app still returns 200 from `/live`. The override is the test double. Other unit tests call `postgres_is_ready` and `qdrant_is_ready` against a closed local port, so the real connection code fails without stopping Docker. The real containers stay up for the integration test that expects both checks to be `ok`.
 

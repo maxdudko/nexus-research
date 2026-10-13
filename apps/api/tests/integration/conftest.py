@@ -1,5 +1,6 @@
 """Isolated Postgres database for integration tests."""
 
+import re
 from collections.abc import AsyncIterator
 
 import pytest
@@ -11,9 +12,45 @@ from sqlalchemy.pool import NullPool
 from nexus.core.config import get_settings
 
 TEST_DATABASE = "nexus_test"
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+_PROTECTED_DATABASES = frozenset({"nexus_test", "postgres", "template0", "template1"})
+_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
-async def _recreate_database(maintenance: URL, name: str) -> None:
+def require_local_test_database(configured: URL, name: str) -> None:
+    """Refuse destructive test SQL unless the target is local ``nexus_test``.
+
+    Call this before opening a connection. PostgreSQL identifiers cannot be
+    query parameters, so ``DROP DATABASE`` would otherwise copy ``name`` into
+    the SQL string. The error names the host and database only, never the URL,
+    because the URL contains the password.
+    """
+    host = configured.host
+    if host not in _LOOPBACK_HOSTS:
+        raise RuntimeError(
+            f"Refusing to drop a database on host {host!r}. "
+            "Integration tests only recreate a database on localhost, "
+            "127.0.0.1, or ::1."
+        )
+    if name != TEST_DATABASE or _IDENTIFIER.fullmatch(name) is None:
+        raise RuntimeError(
+            f"Refusing to drop database {name!r}. "
+            "The only allowed test database name is 'nexus_test'."
+        )
+    configured_name = configured.database
+    if configured_name in _PROTECTED_DATABASES:
+        raise RuntimeError(
+            "Refusing to recreate a test database when NEXUS_DATABASE_URL "
+            f"uses database {configured_name!r}. Point it at the development "
+            "database, not nexus_test, postgres, template0, or template1."
+        )
+
+
+async def _run_maintenance(configured: URL, name: str, *, create: bool) -> None:
+    """Terminate and drop ``nexus_test``, creating it again when requested."""
+    require_local_test_database(configured, name)
+    maintenance = configured.set(database="postgres")
+    quoted_name = f'"{name}"'
     engine = create_async_engine(
         maintenance.render_as_string(hide_password=False),
         isolation_level="AUTOCOMMIT",
@@ -28,28 +65,9 @@ async def _recreate_database(maintenance: URL, name: str) -> None:
                 ),
                 {"name": name},
             )
-            await connection.execute(text(f'DROP DATABASE IF EXISTS "{name}"'))
-            await connection.execute(text(f'CREATE DATABASE "{name}"'))
-    finally:
-        await engine.dispose()
-
-
-async def _drop_database(maintenance: URL, name: str) -> None:
-    engine = create_async_engine(
-        maintenance.render_as_string(hide_password=False),
-        isolation_level="AUTOCOMMIT",
-        poolclass=NullPool,
-    )
-    try:
-        async with engine.connect() as connection:
-            await connection.execute(
-                text(
-                    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-                    "WHERE datname = :name AND pid <> pg_backend_pid()"
-                ),
-                {"name": name},
-            )
-            await connection.execute(text(f'DROP DATABASE IF EXISTS "{name}"'))
+            await connection.execute(text(f"DROP DATABASE IF EXISTS {quoted_name}"))
+            if create:
+                await connection.execute(text(f"CREATE DATABASE {quoted_name}"))
     finally:
         await engine.dispose()
 
@@ -58,10 +76,9 @@ async def _drop_database(maintenance: URL, name: str) -> None:
 async def test_database_url() -> AsyncIterator[str]:
     """Create nexus_test and drop it after the test."""
     configured = make_url(str(get_settings().database_url))
-    maintenance = configured.set(database="postgres")
     test_url = configured.set(database=TEST_DATABASE)
-    await _recreate_database(maintenance, TEST_DATABASE)
+    await _run_maintenance(configured, TEST_DATABASE, create=True)
     try:
         yield test_url.render_as_string(hide_password=False)
     finally:
-        await _drop_database(maintenance, TEST_DATABASE)
+        await _run_maintenance(configured, TEST_DATABASE, create=False)
