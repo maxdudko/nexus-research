@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api:
+    name: API
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv and Python 3.14
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: "3.14"
+          working-directory: apps/api
+
+      - name: Start PostgreSQL and Qdrant
+        run: docker compose up -d
+
+      - name: Install dependencies
+        working-directory: apps/api
+        run: uv sync --frozen
+
+      - name: Ruff
+        working-directory: apps/api
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: Mypy
+        working-directory: apps/api
+        run: uv run mypy src
+
+      - name: Wait for PostgreSQL and Qdrant
+        run: |
+          for _ in $(seq 1 30); do
+            if docker compose exec -T postgres pg_isready -h 127.0.0.1 -U nexus -d nexus \
+              && curl -fsS http://127.0.0.1:6333/readyz >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose ps
+          docker compose logs
+          exit 1
+
+      - name: Create local env
+        working-directory: apps/api
+        run: cp .env.example .env
+
+      - name: Pytest
+        working-directory: apps/api
+        run: uv run pytest
+
+      - name: Alembic upgrade
+        working-directory: apps/api
+        run: |
+          uv run alembic upgrade head
+          uv run alembic upgrade head

@@ -153,6 +153,8 @@ uv run pytest
 
 `uv run pytest` runs the unit tests and the integration tests. Every test should pass. Integration tests create a database named `nexus_test`, migrate it, and drop it. They leave the development database `nexus` unchanged. The fixture only does that when the host is `localhost`, `127.0.0.1`, or `::1`, and it stops before any `DROP DATABASE` if `NEXUS_DATABASE_URL` already uses `nexus_test`. `uv run pytest -m "not integration"` runs only the unit tests.
 
+GitHub Actions runs these commands on every push and pull request. The workflow starts PostgreSQL and Qdrant with Docker Compose, copies `.env.example` to `.env`, then runs Ruff, mypy, pytest, and `alembic upgrade head` twice.
+
 ### Troubleshooting
 
 - A missing `apps/api/.env`, or a missing `NEXUS_DATABASE_URL`, stops the process before it serves and prints the variable name. Copy `.env.example` to `.env`.
