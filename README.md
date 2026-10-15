@@ -21,9 +21,9 @@ Nexus Research is an experimental, Python-first application that investigates co
 
 ## Status
 
-🚧 **Phase 1 foundation is implemented.** The API, local PostgreSQL and Qdrant, Alembic, and health checks are in place. Product features listed above are still planned.
+🚧 **Phase 1 foundation is implemented, and Phase 2 can plan a question.** The API, local PostgreSQL and Qdrant, Alembic, and health checks are in place. `POST /api/v1/research/plan` returns a structured research plan from OpenAI. Web search, LangGraph, and PDF retrieval are still planned.
 
-See the [development roadmap](docs/roadmap.md) for milestones and scope. Notes on the Python concepts from this phase are in [Phase 1 learning notes](docs/learning/phase-1.md).
+See the [development roadmap](docs/roadmap.md) for milestones and scope. Notes on the Python concepts from Phase 1 are in [Phase 1 learning notes](docs/learning/phase-1.md). Notes on settings, structured output, and error mapping are in [Phase 2 learning notes](docs/learning/phase-2.md).
 
 ## Purpose
 
@@ -154,6 +154,45 @@ uv run pytest
 `uv run pytest` runs the unit tests and the integration tests. Every test should pass. Integration tests create a database named `nexus_test`, migrate it, and drop it. They leave the development database `nexus` unchanged. The fixture only does that when the host is `localhost`, `127.0.0.1`, or `::1`, and it stops before any `DROP DATABASE` if `NEXUS_DATABASE_URL` already uses `nexus_test`. `uv run pytest -m "not integration"` runs only the unit tests.
 
 GitHub Actions runs these commands on every push and pull request. The workflow starts PostgreSQL and Qdrant with Docker Compose, copies `.env.example` to `.env`, then runs Ruff, mypy, pytest, and `alembic upgrade head` twice.
+
+### Research plan
+
+`POST /api/v1/research/plan` accepts a question of 10–2000 characters and returns a structured plan. The API still starts when `NEXUS_OPENAI_API_KEY` is empty. Health checks do not call OpenAI. A plan request without that key returns HTTP 503 and `provider_not_configured`.
+
+Copy `apps/api/.env.example` to `apps/api/.env` and set a key only on a machine where a paid call is acceptable. `NEXUS_OPENAI_MODEL` selects the model. The example value is `gpt-4o-mini`, which is OpenAI's current starting model for strict `json_schema` output. Do not point it at a `*-chat-latest` alias; some of those aliases reject `json_schema`. Each plan call uses that model once, waits up to `NEXUS_AI_TIMEOUT_SECONDS` (default 20), and lets the OpenAI SDK retry up to `NEXUS_AI_MAX_RETRIES` times (default 1, maximum 2). There is no second retry loop in the application. `NEXUS_TAVILY_API_KEY` and `NEXUS_DISCOVERY_TIMEOUT_SECONDS` are reserved for the next slice. `/api/v1/research/discover` does not exist yet.
+
+With the API running:
+
+```bash
+curl -sS -X POST http://127.0.0.1:8000/api/v1/research/plan \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"How do AI coding agents improve software development workflows?"}'
+```
+
+A successful response has `objective` and `tasks`. Each task has `question` and `search_queries`. The plan is not a finished report, and it does not mean a search already ran.
+
+Failures use `{ "error": { "code", "message" } }`:
+
+| HTTP | code | When |
+|---|---|---|
+| 422 | `invalid_request` | The question is missing or outside 10–2000 characters |
+| 429 | `provider_rate_limited` | OpenAI rate-limits the call |
+| 503 | `provider_not_configured` | `NEXUS_OPENAI_API_KEY` is empty |
+| 503 | `provider_unavailable` | Authentication, connection, or another provider failure |
+| 503 | `model_refused` | The model refuses the question |
+| 503 | `invalid_model_output` | The model output is empty or fails the plan bounds |
+| 504 | `provider_timeout` | The provider call times out |
+
+Messages are fixed. They do not include the key, the prompt, or the provider body. An invalid plan is rejected rather than rewritten into a successful response.
+
+Default `uv run pytest` does not call OpenAI. The live check is opt-in and can incur a charge:
+
+```bash
+cd apps/api
+NEXUS_RUN_LIVE_AI=1 NEXUS_OPENAI_API_KEY=sk-... uv run pytest -m live
+```
+
+The test still skips unless both `NEXUS_RUN_LIVE_AI=1` and `NEXUS_OPENAI_API_KEY` are set. It asks for one research plan and checks that the result matches `ResearchPlan`.
 
 ### Troubleshooting
 
