@@ -8,8 +8,10 @@ dependencies = [
     "asyncpg>=0.32.0,<1",
     "fastapi>=0.143.0,<1",
     "httpx>=0.28.1,<1",
+    "langchain-openai>=1.7.2,<2",
     "pydantic-settings>=2.15.0,<3",
     "sqlalchemy[asyncio]>=2.0.54,<2.1",
+    "tavily-python>=0.8.5,<0.9",
     "uvicorn[standard]>=0.54.0,<1",
 ]
 
@@ -42,4 +44,8 @@ testpaths = ["tests"]
 pythonpath = ["."]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-markers = ["integration: tests that require local Compose services"]
+addopts = ["-m", "not live"]
+markers = [
+    "integration: tests that require local Compose services",
+    "live: opt-in provider smoke tests that may incur charges",
+]
