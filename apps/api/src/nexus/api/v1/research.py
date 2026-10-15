@@ -6,7 +6,12 @@ from fastapi import APIRouter, Depends, Request
 
 from nexus.ai.planner import Planner
 from nexus.core.config import Settings
-from nexus.schemas.research import ResearchPlan, ResearchQuestionRequest
+from nexus.research.discovery import Discovery
+from nexus.schemas.research import (
+    DiscoveryResult,
+    ResearchPlan,
+    ResearchQuestionRequest,
+)
 
 router = APIRouter()
 
@@ -23,3 +28,17 @@ async def create_research_plan(
     planner: Annotated[Planner, Depends(get_planner)],
 ) -> ResearchPlan:
     return await planner.create_plan(body.question)
+
+
+def get_discovery(request: Request) -> Discovery:
+    """Build a discovery run for this request. Providers are created on use."""
+    settings: Settings = request.app.state.settings
+    return Discovery(settings)
+
+
+@router.post("/discover", response_model=DiscoveryResult)
+async def discover_research(
+    body: ResearchQuestionRequest,
+    discovery: Annotated[Discovery, Depends(get_discovery)],
+) -> DiscoveryResult:
+    return await discovery.discover(body.question)

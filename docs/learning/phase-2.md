@@ -1,6 +1,6 @@
 # Phase 2 learning notes
 
-This slice adds optional OpenAI settings and `POST /api/v1/research/plan`. It does not search the web. Tavily is installed and locked, and `NEXUS_DISCOVERY_TIMEOUT_SECONDS` is validated, but nothing calls Tavily yet. Tool calling, `ToolMessage`, and `/api/v1/research/discover` are the next slice.
+This slice adds optional OpenAI settings, `POST /api/v1/research/plan`, a Tavily search adapter, and `POST /api/v1/research/discover`. Discovery is a manual loop with hard caps. It is not a LangGraph agent.
 
 The planner builds one `ChatOpenAI` when a request needs it, asks for a `ResearchPlan` with `method="json_schema"`, and checks the result again in application code. A missing API key returns HTTP 503. Liveness does not read the key.
 
@@ -34,6 +34,14 @@ A Pydantic `BaseModel` is a Zod schema that is also the runtime class. `Field(mi
 
 The OpenAI SDK's `max_retries` is the only retry layer. The application does not add another one. `from None` on the mapped error drops the provider exception from the chain so a log of our error does not keep the prompt or the key.
 
-## Not in this slice
+### What does `bind_tools` do, and what is a `ToolMessage`?
 
-Web search, URL normalization, `bind_tools`, and the manual tool loop are not implemented. The learning notes for those belong with that code.
+`bind_tools([web_search], parallel_tool_calls=False)` gives the model a function declaration. It does not register a handler. The Python function `web_search` raises if something calls it. That is like handing an LLM a TypeScript function type and keeping the Nest provider private.
+
+`ainvoke` then returns an `AIMessage`. `tool_calls` lists the calls the model requested, each with a `name`, `args`, and `id`. The discovery service checks the name and arguments, and only then calls `WebSearch.search`. For every id it appends one `ToolMessage` with the same `tool_call_id`. That id is a correlation id. The next `ainvoke` sees the assistant message and the tool results together.
+
+The loop is a normal `while`. It stops when the model asks for nothing more, when the search cap (3) or model cap (4) is hit, or when `asyncio.timeout` cancels the request. `asyncio.timeout(90)` is `AbortSignal.timeout`: the current `await` raises `TimeoutError`, and the API returns 504. A single Tavily timeout is a different exception class and becomes a tool error instead of failing the whole request.
+
+`async with AsyncTavilyClient(...)` opens and closes the HTTP client around one search, including when the search raises. Tavily's client uses the project's `httpx`. The OpenAI SDK uses `httpx2`. They stay separate.
+
+Snippets are data. The tool message starts by saying so. A snippet that says to call another tool does not create a tool, because the only executed name is `web_search`, and only the discovery service calls it. The response sources are the adapter's normalized URLs. A summary that cites some other URL is replaced with a partial result.

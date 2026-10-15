@@ -159,7 +159,7 @@ GitHub Actions runs these commands on every push and pull request. The workflow 
 
 `POST /api/v1/research/plan` accepts a question of 10–2000 characters and returns a structured plan. The API still starts when `NEXUS_OPENAI_API_KEY` is empty. Health checks do not call OpenAI. A plan request without that key returns HTTP 503 and `provider_not_configured`.
 
-Copy `apps/api/.env.example` to `apps/api/.env` and set a key only on a machine where a paid call is acceptable. `NEXUS_OPENAI_MODEL` selects the model. The example value is `gpt-4o-mini`, which is OpenAI's current starting model for strict `json_schema` output. Do not point it at a `*-chat-latest` alias; some of those aliases reject `json_schema`. Each plan call uses that model once, waits up to `NEXUS_AI_TIMEOUT_SECONDS` (default 20), and lets the OpenAI SDK retry up to `NEXUS_AI_MAX_RETRIES` times (default 1, maximum 2). There is no second retry loop in the application. `NEXUS_TAVILY_API_KEY` and `NEXUS_DISCOVERY_TIMEOUT_SECONDS` are reserved for the next slice. `/api/v1/research/discover` does not exist yet.
+Copy `apps/api/.env.example` to `apps/api/.env` and set a key only on a machine where a paid call is acceptable. `NEXUS_OPENAI_MODEL` selects the model. The example value is `gpt-4o-mini`, which is OpenAI's current starting model for strict `json_schema` output. Do not point it at a `*-chat-latest` alias; some of those aliases reject `json_schema`. Each plan call uses that model once, waits up to `NEXUS_AI_TIMEOUT_SECONDS` (default 20), and lets the OpenAI SDK retry up to `NEXUS_AI_MAX_RETRIES` times (default 1, maximum 2). There is no second retry loop in the application.
 
 With the API running:
 
@@ -193,6 +193,30 @@ NEXUS_RUN_LIVE_AI=1 NEXUS_OPENAI_API_KEY=sk-... uv run pytest -m live
 ```
 
 The test still skips unless both `NEXUS_RUN_LIVE_AI=1` and `NEXUS_OPENAI_API_KEY` are set. It asks for one research plan and checks that the result matches `ResearchPlan`.
+
+### Discovery
+
+`POST /api/v1/research/discover` takes the same question. The model may request `web_search`. The API runs Tavily, sends the snippets back, and returns the sources it actually retrieved. A missing OpenAI key or a missing `NEXUS_TAVILY_API_KEY` returns 503 `provider_not_configured`. Health checks still do not call either provider.
+
+Each request allows at most 3 Tavily searches, 4 model calls, and 5 results per search. The whole request stops after `NEXUS_DISCOVERY_TIMEOUT_SECONDS` (default 90) with HTTP 504. One failed search stays inside the loop and adds the warning `search_failed`. A Tavily rate limit returns 429. An invalid Tavily key returns 503.
+
+`status` is `completed` or `partial`. `partial` with `insufficient_sources` means nothing was retrieved, and the summary does not answer the question. Sources are normalized `http` and `https` URLs with snippets. `published_at` is null unless Tavily returned a parseable timestamp.
+
+```bash
+curl -sS -X POST http://127.0.0.1:8000/api/v1/research/discover \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"How do AI coding agents improve software development workflows?"}'
+```
+
+A discover live test also calls OpenAI and Tavily. Set both keys:
+
+```bash
+cd apps/api
+NEXUS_RUN_LIVE_AI=1 \
+  NEXUS_OPENAI_API_KEY=sk-... \
+  NEXUS_TAVILY_API_KEY=tvly-... \
+  uv run pytest -m live
+```
 
 ### Troubleshooting
 

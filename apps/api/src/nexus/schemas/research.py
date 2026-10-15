@@ -1,8 +1,11 @@
-"""HTTP and provider contracts for a research plan."""
+"""HTTP and provider contracts for research planning and discovery."""
 
-from typing import Self
+from datetime import datetime
+from typing import Literal, Self
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+QUERY_MAX_LENGTH = 200
 
 
 class ResearchQuestionRequest(BaseModel):
@@ -48,7 +51,7 @@ class ResearchPlan(BaseModel):
                 trimmed = query.strip()
                 if not trimmed:
                     raise ValueError("search query must not be empty")
-                if len(trimmed) > 200:
+                if len(trimmed) > QUERY_MAX_LENGTH:
                     raise ValueError("search query must be at most 200 characters")
                 queries.append(trimmed)
             if not 1 <= len(queries) <= 3:
@@ -64,3 +67,23 @@ class ResearchPlan(BaseModel):
         self.objective = objective
         self.tasks = tasks
         return self
+
+
+class SearchResult(BaseModel):
+    """One normalized search hit. This contract is not sent to the model."""
+
+    title: str
+    url: str
+    snippet: str
+    published_at: datetime | None = None
+
+
+class DiscoveryResult(BaseModel):
+    """A bounded discovery response. Sources come from the search adapter."""
+
+    status: Literal["completed", "partial"]
+    summary: str
+    sources: list[SearchResult]
+    search_calls: int
+    llm_calls: int
+    warnings: list[str]
