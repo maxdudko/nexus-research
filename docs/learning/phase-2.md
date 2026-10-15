@@ -24,7 +24,7 @@ A Pydantic `BaseModel` is a Zod schema that is also the runtime class. `Field(mi
 
 `ResearchPlan` is the provider schema. Its JSON Schema is only strings and arrays: no `minLength`, `maxLength`, or defaults. OpenAI's strict `json_schema` mode rejects some of those keywords, and LangChain rejects Pydantic field metadata in that mode. The length rules live in a `model_validator`, which is like Zod `.superRefine()`. The validator runs when the model is constructed, including when LangChain parses the provider response. It is not copied into the JSON Schema. The plan must have 1–3 tasks, 1–3 queries each, queries of at most 200 characters, and at most 9 queries in total. Invalid output becomes `invalid_model_output`. It is not trimmed down into a fake success.
 
-`with_structured_output(..., method="json_schema", strict=True)` is the Python form of `zodResponseFormat` / structured parse. The provider is asked to return JSON matching the schema, and LangChain parses it into `ResearchPlan`. That is not tool calling. `ChatOpenAI` is constructed with the configured model, key, timeout, and retry count. Temperature is left unset because the current client has no temperature default and some models reject it.
+`with_structured_output(..., method="json_schema", strict=True)` is the Python form of `zodResponseFormat` / structured parse. The provider is asked to return JSON matching the schema, and LangChain parses it into `ResearchPlan`. That is not tool calling. The configured model is `gpt-4o-mini`. It accepts this strict schema, so the planner has no fallback method. `ChatOpenAI` is constructed with the configured model, key, timeout, and retry count. Temperature is left unset because the current client has no temperature default and some models reject it.
 
 ### How do research errors compare with a Nest exception filter?
 
@@ -45,3 +45,19 @@ The loop is a normal `while`. It stops when the model asks for nothing more, whe
 `async with AsyncTavilyClient(...)` opens and closes the HTTP client around one search, including when the search raises. Tavily's client uses the project's `httpx`. The OpenAI SDK uses `httpx2`. They stay separate.
 
 Snippets are data. The tool message starts by saying so. A snippet that says to call another tool does not create a tool, because the only executed name is `web_search`, and only the discovery service calls it. The response sources are the adapter's normalized URLs. A summary that cites some other URL is replaced with a partial result.
+
+### How does one Tavily search compare with `HttpService`?
+
+`WebSearch.search` is `async def`. `await client.search(...)` suspends until the HTTP call finishes, like `await httpService.get()` inside a Nest provider. A plain `def` would block the event loop.
+
+`async with AsyncTavilyClient(...)` is the cleanup for that one call. `__aenter__` opens the client and `__aexit__` closes it on success and on exception. A Nest provider's `onModuleDestroy` does the same job for the whole process. This client lasts for one search, and it is not built at import or in the FastAPI lifespan. If `NEXUS_TAVILY_API_KEY` is missing, the adapter raises before construction, so Tavily's keyless mode is never used.
+
+Tavily's SDK uses the project's `httpx`. The OpenAI SDK uses `httpx2`. They stay separate. A Tavily timeout, an `httpx` timeout, or a connection error is retried up to `NEXUS_AI_MAX_RETRIES` extra times, with a short sleep between attempts. An invalid key, a bad request, and a rate limit are not retried. One Tavily timeout becomes an error tool message and the warning `search_failed`. The discovery request continues. A rate limit or an auth failure leaves the loop and becomes the HTTP 429 or 503 response.
+
+### How do the budgets stop the loop?
+
+The caps live in the discovery module: 3 Tavily calls, 4 model calls, 5 results per search, and `asyncio.timeout` around the whole request (90 seconds by default). The prompt can ask the model to stop, but the `while` loop is what enforces the caps. A model that keeps requesting searches cannot add a fourth Tavily call or a fifth model call.
+
+Each model call increments `llm_calls` before `ainvoke`. Each real search increments `search_calls` before Tavily runs. A duplicate query, an unknown tool, and invalid arguments do not increment it. An empty result list still counts, because Tavily was called. When the fourth model response still asks for tools, those calls are answered and the result is `partial` with `budget_exhausted`. There is no fifth `ainvoke`.
+
+`asyncio.timeout` cancels the coroutine when the deadline passes. That arrives as the builtin `TimeoutError` and the API returns 504. It is a different class from Tavily's timeout, which stays inside one search.

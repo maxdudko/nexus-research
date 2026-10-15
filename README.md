@@ -21,9 +21,9 @@ Nexus Research is an experimental, Python-first application that investigates co
 
 ## Status
 
-🚧 **Phase 1 foundation is implemented, and Phase 2 can plan a question.** The API, local PostgreSQL and Qdrant, Alembic, and health checks are in place. `POST /api/v1/research/plan` returns a structured research plan from OpenAI. Web search, LangGraph, and PDF retrieval are still planned.
+🚧 **Phase 1 foundation and Phase 2 planning and web search are implemented.** The API, local PostgreSQL and Qdrant, Alembic, and health checks are in place. `POST /api/v1/research/plan` returns a structured research plan from OpenAI. `POST /api/v1/research/discover` runs a bounded Tavily search and returns the snippets it retrieved. LangGraph, page extraction, and PDF retrieval are later phases.
 
-See the [development roadmap](docs/roadmap.md) for milestones and scope. Notes on the Python concepts from Phase 1 are in [Phase 1 learning notes](docs/learning/phase-1.md). Notes on settings, structured output, and error mapping are in [Phase 2 learning notes](docs/learning/phase-2.md).
+See the [development roadmap](docs/roadmap.md) for milestones and scope. Notes on the Python concepts from Phase 1 are in [Phase 1 learning notes](docs/learning/phase-1.md). Notes on structured output, tool calling, and search budgets are in [Phase 2 learning notes](docs/learning/phase-2.md).
 
 ## Purpose
 
@@ -196,11 +196,49 @@ The test still skips unless both `NEXUS_RUN_LIVE_AI=1` and `NEXUS_OPENAI_API_KEY
 
 ### Discovery
 
-`POST /api/v1/research/discover` takes the same question. The model may request `web_search`. The API runs Tavily, sends the snippets back, and returns the sources it actually retrieved. A missing OpenAI key or a missing `NEXUS_TAVILY_API_KEY` returns 503 `provider_not_configured`. Health checks still do not call either provider.
+`POST /api/v1/research/discover` takes the same question. The model may request `web_search`. The API runs Tavily, sends the snippets back, and returns the sources it actually retrieved. Those snippets are search results, not fetched pages. A missing OpenAI key or a missing `NEXUS_TAVILY_API_KEY` returns 503 `provider_not_configured`. Health checks still do not call either provider.
 
-Each request allows at most 3 Tavily searches, 4 model calls, and 5 results per search. The whole request stops after `NEXUS_DISCOVERY_TIMEOUT_SECONDS` (default 90) with HTTP 504. One failed search stays inside the loop and adds the warning `search_failed`. A Tavily rate limit returns 429. An invalid Tavily key returns 503.
+A plan request is one model call. A discover request is at most 4 model calls and 3 Tavily searches, with 5 results per search. The whole request stops after `NEXUS_DISCOVERY_TIMEOUT_SECONDS` (default 90). Default `uv run pytest` and GitHub Actions do not call either provider. The live command below can charge both.
 
-`status` is `completed` or `partial`. `partial` with `insufficient_sources` means nothing was retrieved, and the summary does not answer the question. Sources are normalized `http` and `https` URLs with snippets. `published_at` is null unless Tavily returned a parseable timestamp.
+A successful or partial response looks like this. The values are a contract example, not a verified source:
+
+```json
+{
+  "status": "completed",
+  "summary": "The retrieved sources discuss agent-assisted code review and testing.",
+  "sources": [
+    {
+      "title": "Example source",
+      "url": "https://example.org/research",
+      "snippet": "A retrieved snippet from Tavily.",
+      "published_at": null
+    }
+  ],
+  "search_calls": 1,
+  "llm_calls": 2,
+  "warnings": []
+}
+```
+
+`status` is `completed` or `partial`. `published_at` is null unless Tavily returned a parseable timestamp. These warnings stay on HTTP 200:
+
+| warning | When |
+|---|---|
+| `insufficient_sources` | Nothing was retrieved. The summary does not answer the question |
+| `ungrounded_summary` | The model summary cites a URL that was not retrieved |
+| `budget_exhausted` | The search cap or the model cap was hit |
+| `search_failed` | One Tavily timeout or connection failure stayed inside the loop |
+| `malformed_tool_call` | A tool call had no id, so the loop stopped |
+
+Provider failures use the same `{ "error": { "code", "message" } }` envelope as planning:
+
+| HTTP | code | When |
+|---|---|---|
+| 422 | `invalid_request` | The question is missing or outside 10–2000 characters |
+| 429 | `provider_rate_limited` | Tavily or OpenAI rate-limits the call |
+| 503 | `provider_not_configured` | The OpenAI key or the Tavily key is empty |
+| 503 | `provider_unavailable` | The Tavily key is invalid, or another provider failure |
+| 504 | `provider_timeout` | The overall deadline or an OpenAI call times out |
 
 ```bash
 curl -sS -X POST http://127.0.0.1:8000/api/v1/research/discover \
@@ -208,7 +246,7 @@ curl -sS -X POST http://127.0.0.1:8000/api/v1/research/discover \
   -d '{"question":"How do AI coding agents improve software development workflows?"}'
 ```
 
-A discover live test also calls OpenAI and Tavily. Set both keys:
+A discover live test also calls OpenAI and Tavily. It stays out of default pytest and CI. Set both keys:
 
 ```bash
 cd apps/api
