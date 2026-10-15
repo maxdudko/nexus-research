@@ -20,8 +20,8 @@ PROVIDER_NOT_CONFIGURED = "Research provider is not configured."
 PROVIDER_TIMEOUT = "Research provider timed out."
 PROVIDER_RATE_LIMITED = "Research provider is rate limited."
 PROVIDER_UNAVAILABLE = "Research provider is temporarily unavailable."
-MODEL_REFUSED = "The research model declined to produce a plan."
-INVALID_MODEL_OUTPUT = "The research model returned an invalid plan."
+MODEL_REFUSED = "The research model declined the request."
+INVALID_MODEL_OUTPUT = "The research model returned invalid output."
 
 
 def provider_not_configured() -> ResearchError:

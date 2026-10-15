@@ -10,6 +10,7 @@ from nexus.ai.errors import (
     ResearchError,
     provider_rate_limited,
     provider_timeout,
+    provider_unavailable,
     search_failed,
 )
 from nexus.ai.prompts import DISCOVERY_SYSTEM_PROMPT
@@ -226,6 +227,71 @@ async def test_search_timeout_stays_inside_the_loop() -> None:
     assert result.status == "partial"
     assert "search_failed" in result.warnings
     assert "search_failed" in _tool_messages(model.seen[1])[0].content
+
+
+async def test_tool_call_without_id_stops_the_loop() -> None:
+    discovery, model, search = _discovery(
+        [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "web_search",
+                        "args": {"query": "AI agents"},
+                        "id": "",
+                        "type": "tool_call",
+                    }
+                ],
+            ),
+            AIMessage(content="This reply must not be requested."),
+        ],
+        [[_source()]],
+    )
+
+    result = await discovery.discover(QUESTION)
+
+    assert search.queries == []
+    assert len(model.seen) == 1
+    assert result.status == "partial"
+    assert result.llm_calls == 1
+    assert "malformed_tool_call" in result.warnings
+
+
+async def test_duplicate_url_across_searches_is_kept_once() -> None:
+    shared = _source("https://example.org/notes")
+    discovery, _model, search = _discovery(
+        [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    _call("call_1", "first query"),
+                    _call("call_2", "second query"),
+                ],
+            ),
+            AIMessage(content="The notes describe code review."),
+        ],
+        [[shared], [shared]],
+    )
+
+    result = await discovery.discover(QUESTION)
+
+    assert search.queries == ["first query", "second query"]
+    assert result.sources == [shared]
+    assert result.status == "completed"
+
+
+async def test_search_auth_failure_aborts_the_request() -> None:
+    discovery, model, _search = _discovery(
+        [AIMessage(content="", tool_calls=[_call("call_1", "AI agents")])],
+        [provider_unavailable()],
+    )
+
+    with pytest.raises(ResearchError) as exc_info:
+        await discovery.discover(QUESTION)
+
+    assert exc_info.value.code == "provider_unavailable"
+    assert exc_info.value.status_code == 503
+    assert len(model.seen) == 1
 
 
 async def test_rate_limit_aborts_the_request() -> None:

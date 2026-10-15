@@ -4,6 +4,7 @@ from langchain_core.messages import AIMessage
 from tests.conftest import client_for, make_settings
 
 from nexus.ai.planner import Planner
+from nexus.api.v1.health import ReadyStatus, get_ready_status
 from nexus.api.v1.research import get_discovery, get_planner
 from nexus.main import create_app
 from nexus.research.discovery import Discovery
@@ -206,3 +207,24 @@ async def test_discover_without_tavily_key_is_503_and_live_stays_ok() -> None:
     assert response.json()["error"]["code"] == "provider_not_configured"
     assert live.status_code == 200
     assert live.json() == {"status": "ok"}
+
+
+async def test_discover_without_openai_key_is_503_and_ready_stays_ok() -> None:
+    app = create_app(make_settings(openai_api_key=None, tavily_api_key="tvly-test"))
+
+    async def ready_override() -> ReadyStatus:
+        return ReadyStatus(status="ok", postgres="ok", qdrant="ok")
+
+    app.dependency_overrides[get_ready_status] = ready_override
+
+    async with client_for(app) as client:
+        response = await client.post(
+            "/api/v1/research/discover",
+            json={"question": QUESTION},
+        )
+        ready = await client.get("/api/v1/health/ready")
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "provider_not_configured"
+    assert ready.status_code == 200
+    assert ready.json() == {"status": "ok", "postgres": "ok", "qdrant": "ok"}

@@ -1,7 +1,8 @@
 """Tavily adapter tests. The provider call is injected."""
 
+import httpx
 import pytest
-from tavily.errors import InvalidAPIKeyError
+from tavily.errors import BadRequestError, InvalidAPIKeyError
 from tavily.errors import TimeoutError as TavilyTimeoutError
 from tests.conftest import make_settings
 
@@ -182,6 +183,57 @@ async def test_timeout_is_retried_once(monkeypatch: pytest.MonkeyPatch) -> None:
     assert calls["n"] == 2
     assert sleeps == [0.2]
     assert results[0].url == "https://example.org/a"
+
+
+async def test_connection_error_is_retried_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = {"n": 0}
+    sleeps: list[float] = []
+
+    async def search_fn(_query: str, _max_results: int) -> object:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise httpx.ConnectError("connection refused")
+        return {
+            "results": [
+                {
+                    "title": "Example",
+                    "url": "https://example.org/a",
+                    "content": "Snippet",
+                }
+            ]
+        }
+
+    async def sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    monkeypatch.setattr("nexus.tools.web_search.asyncio.sleep", sleep)
+
+    results = await WebSearch(_settings(ai_max_retries=1), search_fn=search_fn).search(
+        "openai models",
+    )
+
+    assert calls["n"] == 2
+    assert sleeps == [0.2]
+    assert results[0].url == "https://example.org/a"
+
+
+async def test_bad_request_is_not_retried() -> None:
+    calls = {"n": 0}
+
+    async def search_fn(_query: str, _max_results: int) -> object:
+        calls["n"] += 1
+        raise BadRequestError("bad query secret")
+
+    with pytest.raises(ResearchError) as exc_info:
+        await WebSearch(_settings(ai_max_retries=2), search_fn=search_fn).search(
+            "openai models",
+        )
+
+    assert calls["n"] == 1
+    assert exc_info.value.code == "provider_unavailable"
+    assert "bad query secret" not in exc_info.value.message
 
 
 async def test_invalid_key_is_not_retried() -> None:
