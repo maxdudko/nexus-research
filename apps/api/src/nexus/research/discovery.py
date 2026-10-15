@@ -3,6 +3,7 @@
 import asyncio
 import json
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Literal, Protocol
 
@@ -124,6 +125,7 @@ class Discovery:
             if state.llm_calls >= MAX_LLM_CALLS:
                 _warn(state, "budget_exhausted")
                 return _finish(state, "", clean_stop=False)
+            # One logical model call. Provider retries stay inside ainvoke.
             state.llm_calls += 1
             message = await _invoke(model, state.messages)
             state.messages.append(message)
@@ -149,11 +151,14 @@ async def _invoke(model: ToolModel, messages: list[BaseMessage]) -> AIMessage:
 
 
 async def _answer_calls(state: _Run, message: AIMessage, search: SearchClient) -> bool:
-    """Answer every tool call. Return True when a call has no id."""
+    """Answer every tool call. Return True when the ids cannot be paired."""
     tool_calls = list(message.tool_calls)
     invalid_calls = list(message.invalid_tool_calls)
+    calls = [*tool_calls, *invalid_calls]
+    if _ids_are_malformed(calls):
+        return True
     invalid_ids = {id(item) for item in invalid_calls}
-    for call in [*tool_calls, *invalid_calls]:
+    for call in calls:
         tool_call_id = _call_id(call)
         if tool_call_id is None:
             return True
@@ -183,6 +188,7 @@ async def _execute_call(
         _warn(state, "budget_exhausted")
         return _error_message(tool_call_id, "budget_exhausted")
     state.seen_queries.add(query.casefold())
+    # One logical search. Retries inside WebSearch.search do not increment this.
     state.search_calls += 1
     try:
         found = await search.search(query, max_results=MAX_RESULTS)
@@ -200,6 +206,10 @@ async def _execute_call(
 
 
 def _finish(state: _Run, summary_text: str, *, clean_stop: bool) -> DiscoveryResult:
+    """Choose the summary.
+
+    `completed` means the loop finished, not that the claims were checked.
+    """
     status: Literal["completed", "partial"]
     if not state.sources:
         _warn(state, "insufficient_sources")
@@ -244,6 +254,17 @@ def _query(call: object) -> str | None:
     if not stripped or len(stripped) > QUERY_MAX_LENGTH:
         return None
     return stripped
+
+
+def _ids_are_malformed(calls: Sequence[object]) -> bool:
+    """A missing, empty, or repeated id makes the whole batch unusable."""
+    seen: set[str] = set()
+    for call in calls:
+        tool_call_id = _call_id(call)
+        if tool_call_id is None or tool_call_id in seen:
+            return True
+        seen.add(tool_call_id)
+    return False
 
 
 def _call_id(call: object) -> str | None:

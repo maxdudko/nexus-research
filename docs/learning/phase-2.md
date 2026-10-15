@@ -44,7 +44,7 @@ The loop is a normal `while`. It stops when the model asks for nothing more, whe
 
 `async with AsyncTavilyClient(...)` opens and closes the HTTP client around one search, including when the search raises. Tavily's client uses the project's `httpx`. The OpenAI SDK uses `httpx2`. They stay separate.
 
-Snippets are data. The tool message starts by saying so. A snippet that says to call another tool does not create a tool, because the only executed name is `web_search`, and only the discovery service calls it. The response sources are the adapter's normalized URLs. A summary that cites some other URL is replaced with a partial result.
+Snippets are data. The tool message starts by saying so. A snippet that says to call another tool does not create a tool, because the only executed name is `web_search`, and only the discovery service calls it. The response sources are the adapter's normalized URLs. A summary that cites some other URL is replaced with a partial result. `completed` means the loop stopped inside the budget and the summary cites only those URLs. It does not fact-check the summary, and the snippets are not fetched pages. The `sources` list is the provenance.
 
 ### How does one Tavily search compare with `HttpService`?
 
@@ -58,6 +58,6 @@ Tavily's SDK uses the project's `httpx`. The OpenAI SDK uses `httpx2`. They stay
 
 The caps live in the discovery module: 3 Tavily calls, 4 model calls, 5 results per search, and `asyncio.timeout` around the whole request (90 seconds by default). The prompt can ask the model to stop, but the `while` loop is what enforces the caps. A model that keeps requesting searches cannot add a fourth Tavily call or a fifth model call.
 
-Each model call increments `llm_calls` before `ainvoke`. Each real search increments `search_calls` before Tavily runs. A duplicate query, an unknown tool, and invalid arguments do not increment it. An empty result list still counts, because Tavily was called. When the fourth model response still asks for tools, those calls are answered and the result is `partial` with `budget_exhausted`. There is no fifth `ainvoke`.
+Each model call increments `llm_calls` before `ainvoke`. Each real search increments `search_calls` before Tavily runs. Those counters are logical calls. A timeout retry inside `WebSearch.search`, or an OpenAI SDK retry inside `ainvoke`, does not add another count. A duplicate query, an unknown tool, and invalid arguments do not increment `search_calls`. An empty result list still counts, because Tavily was called. A payload that is not a result list is `search_failed`, not an empty success. Before any search in a batch, the loop checks every tool-call id. A missing id or a repeated id stops that batch with `malformed_tool_call` and does not call Tavily. When the fourth model response still asks for tools, those calls are answered and the result is `partial` with `budget_exhausted`. There is no fifth `ainvoke`.
 
 `asyncio.timeout` cancels the coroutine when the deadline passes. That arrives as the builtin `TimeoutError` and the API returns 504. It is a different class from Tavily's timeout, which stays inside one search.

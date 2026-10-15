@@ -38,12 +38,17 @@ def register_exception_handlers(app: FastAPI) -> None:
 
 
 def _validation_message(exc: RequestValidationError) -> str:
+    """Name the field only. Provider and Pydantic text can contain the value."""
     parts: list[str] = []
     for error in exc.errors():
+        if not isinstance(error, dict):
+            continue
         location = error.get("loc", ())
-        field = ".".join(str(part) for part in location if part != "body")
-        message = str(error.get("msg", "Invalid value"))
-        parts.append(f"{field}: {message}" if field else message)
+        if isinstance(location, tuple | list):
+            field = ".".join(str(part) for part in location if part != "body")
+        else:
+            field = ""
+        parts.append(f"{field}: invalid value" if field else "invalid value")
     if not parts:
         return "Request validation failed."
     return "; ".join(parts)

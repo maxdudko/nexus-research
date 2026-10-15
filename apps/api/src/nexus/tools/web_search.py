@@ -56,7 +56,10 @@ class WebSearch:
         if not 1 <= max_results <= MAX_RESULTS:
             raise ValueError("max_results must be from 1 to 5")
         payload = await self._fetch(stripped, max_results)
-        return normalize_results(payload)
+        try:
+            return normalize_results(payload, max_results=max_results)
+        except MalformedSearchResponse:
+            raise search_failed() from None
 
     async def _fetch(self, query: str, max_results: int) -> object:
         search_fn = self._search_fn
@@ -98,13 +101,17 @@ class WebSearch:
         raise search_failed()
 
 
-def normalize_results(payload: object) -> list[SearchResult]:
+class MalformedSearchResponse(Exception):
+    """The provider payload is not a result list. An empty list is valid."""
+
+
+def normalize_results(payload: object, *, max_results: int) -> list[SearchResult]:
     """Turn a Tavily response dict into deduplicated search results."""
-    if not isinstance(payload, dict):
-        return []
-    raw_results = payload.get("results", [])
+    if not isinstance(payload, dict) or "results" not in payload:
+        raise MalformedSearchResponse
+    raw_results = payload["results"]
     if not isinstance(raw_results, list):
-        return []
+        raise MalformedSearchResponse
     seen: set[str] = set()
     results: list[SearchResult] = []
     for item in raw_results:
@@ -127,7 +134,7 @@ def normalize_results(payload: object) -> list[SearchResult]:
                 published_at=_published_at(item.get("published_date")),
             )
         )
-    return results
+    return results[:max_results]
 
 
 def normalize_url(value: str) -> str | None:

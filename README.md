@@ -220,15 +220,17 @@ A successful or partial response looks like this. The values are a contract exam
 }
 ```
 
-`status` is `completed` or `partial`. `published_at` is null unless Tavily returned a parseable timestamp. These warnings stay on HTTP 200:
+`status` is `completed` or `partial`. `completed` means the tool loop stopped inside the budget and the summary cites only retrieved URLs. It does not fact-check the summary, and it does not mean the pages were fetched. `sources` is the provenance: each item keeps the title, URL, and snippet returned by search. `published_at` is null unless Tavily returned a parseable timestamp. `search_calls` and `llm_calls` count logical calls. A retry inside one Tavily search or one model call does not increase either number.
+
+These warnings stay on HTTP 200:
 
 | warning | When |
 |---|---|
 | `insufficient_sources` | Nothing was retrieved. The summary does not answer the question |
 | `ungrounded_summary` | The model summary cites a URL that was not retrieved |
 | `budget_exhausted` | The search cap or the model cap was hit |
-| `search_failed` | One Tavily timeout or connection failure stayed inside the loop |
-| `malformed_tool_call` | A tool call had no id, so the loop stopped |
+| `search_failed` | One Tavily timeout, connection failure, or malformed payload stayed inside the loop |
+| `malformed_tool_call` | A call had no id, or two calls shared an id, so that batch was not searched |
 
 Provider failures use the same `{ "error": { "code", "message" } }` envelope as planning:
 
