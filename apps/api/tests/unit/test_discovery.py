@@ -4,6 +4,7 @@ import asyncio
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from tavily.errors import TimeoutError as TavilyTimeoutError
 from tests.conftest import make_settings
 
 from nexus.ai.errors import (
@@ -22,6 +23,7 @@ from nexus.research.discovery import (
     web_search,
 )
 from nexus.schemas.research import SearchResult
+from nexus.tools.web_search import WebSearch
 
 QUESTION = "How do AI coding agents improve software development workflows?"
 SECRET = "sk-test-openai"
@@ -255,6 +257,103 @@ async def test_tool_call_without_id_stops_the_loop() -> None:
     assert result.status == "partial"
     assert result.llm_calls == 1
     assert "malformed_tool_call" in result.warnings
+
+
+async def test_missing_id_after_a_valid_call_skips_every_search() -> None:
+    discovery, model, search = _discovery(
+        [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    _call("call_1", "first query"),
+                    {
+                        "name": "web_search",
+                        "args": {"query": "second query"},
+                        "id": "",
+                        "type": "tool_call",
+                    },
+                ],
+            ),
+            AIMessage(content="This reply must not be requested."),
+        ],
+        [[_source()], [_source("https://example.org/two")]],
+    )
+
+    result = await discovery.discover(QUESTION)
+
+    assert search.queries == []
+    assert len(model.seen) == 1
+    assert result.status == "partial"
+    assert result.search_calls == 0
+    assert "malformed_tool_call" in result.warnings
+
+
+async def test_duplicate_tool_call_id_skips_every_search() -> None:
+    discovery, model, search = _discovery(
+        [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    _call("call_1", "first query"),
+                    _call("call_1", "second query"),
+                ],
+            ),
+            AIMessage(content="This reply must not be requested."),
+        ],
+        [[_source()], [_source("https://example.org/two")]],
+    )
+
+    result = await discovery.discover(QUESTION)
+
+    assert search.queries == []
+    assert len(model.seen) == 1
+    assert result.status == "partial"
+    assert result.search_calls == 0
+    assert "malformed_tool_call" in result.warnings
+
+
+async def test_provider_retry_counts_as_one_search(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = {"n": 0}
+
+    async def search_fn(_query: str, _max_results: int) -> object:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise TavilyTimeoutError(1.0)
+        return {
+            "results": [
+                {
+                    "title": "Notes",
+                    "url": "https://example.org/notes",
+                    "content": "Review notes",
+                }
+            ]
+        }
+
+    async def sleep(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr("nexus.tools.web_search.asyncio.sleep", sleep)
+    settings = _settings(ai_max_retries=1)
+    discovery = Discovery(
+        settings,
+        model=ScriptedModel(
+            [
+                AIMessage(content="", tool_calls=[_call("call_1", "AI agents")]),
+                AIMessage(content="The notes describe code review."),
+            ]
+        ),
+        search=WebSearch(settings, search_fn=search_fn),
+    )
+
+    result = await discovery.discover(QUESTION)
+
+    assert calls["n"] == 2
+    assert result.search_calls == 1
+    assert result.llm_calls == 2
+    assert result.status == "completed"
+    assert result.sources[0].url == "https://example.org/notes"
 
 
 async def test_duplicate_url_across_searches_is_kept_once() -> None:

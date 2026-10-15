@@ -72,14 +72,53 @@ async def test_unparseable_date_is_null() -> None:
     assert results[0].published_at is None
 
 
-@pytest.mark.parametrize("payload", [{}, {"results": []}, {"results": None}, []])
-async def test_empty_results_are_valid(payload: object) -> None:
+async def test_empty_result_list_is_valid() -> None:
     async def search_fn(_query: str, _max_results: int) -> object:
-        return payload
+        return {"results": []}
 
     results = await WebSearch(_settings(), search_fn=search_fn).search("openai models")
 
     assert results == []
+
+
+@pytest.mark.parametrize("payload", [{}, {"results": None}, {"results": "nope"}, []])
+async def test_malformed_payload_is_search_failed(payload: object) -> None:
+    calls = {"n": 0}
+
+    async def search_fn(_query: str, _max_results: int) -> object:
+        calls["n"] += 1
+        return payload
+
+    with pytest.raises(ResearchError) as exc_info:
+        await WebSearch(_settings(ai_max_retries=2), search_fn=search_fn).search(
+            "openai models",
+        )
+
+    assert calls["n"] == 1
+    assert exc_info.value.code == "search_failed"
+
+
+async def test_normalized_results_are_capped_at_max_results() -> None:
+    async def search_fn(_query: str, _max_results: int) -> object:
+        return {
+            "results": [
+                {
+                    "title": f"Item {index}",
+                    "url": f"https://example.org/{index}",
+                    "content": "Snippet",
+                }
+                for index in range(6)
+            ]
+        }
+
+    results = await WebSearch(_settings(), search_fn=search_fn).search(
+        "openai models",
+        max_results=5,
+    )
+
+    assert [result.url for result in results] == [
+        f"https://example.org/{index}" for index in range(5)
+    ]
 
 
 @pytest.mark.parametrize("query", ["", "   ", "q" * 201])

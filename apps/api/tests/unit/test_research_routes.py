@@ -1,5 +1,6 @@
 """Planning routes stay independent of health and hide provider details."""
 
+import pytest
 from langchain_core.messages import AIMessage
 from tests.conftest import client_for, make_settings
 
@@ -62,6 +63,53 @@ async def test_plan_returns_the_contract_and_live_stays_ok() -> None:
     }
     assert live.status_code == 200
     assert live.json() == {"status": "ok"}
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"question": {"secret": "sk-echoed"}},
+        {"question": f"sk-echoed {'x' * 2000}"},
+    ],
+)
+@pytest.mark.parametrize("path", ["/api/v1/research/plan", "/api/v1/research/discover"])
+async def test_invalid_question_does_not_echo_the_body(
+    path: str,
+    payload: object,
+) -> None:
+    app = create_app(make_settings())
+
+    async with client_for(app) as client:
+        response = await client.post(path, json=payload)
+
+    assert response.status_code == 422
+    body = response.json()
+    assert set(body) == {"error"}
+    assert body["error"]["code"] == "invalid_request"
+    assert "question: invalid value" == body["error"]["message"]
+    assert "sk-echoed" not in response.text
+
+
+async def test_invalid_json_does_not_echo_the_body() -> None:
+    app = create_app(make_settings())
+    secret = "sk-echoed"
+
+    async with client_for(app) as client:
+        plan = await client.post(
+            "/api/v1/research/plan",
+            content=f'{{"question": "{secret}"',
+            headers={"Content-Type": "application/json"},
+        )
+        discover = await client.post(
+            "/api/v1/research/discover",
+            content=f'{{"question": "{secret}"',
+            headers={"Content-Type": "application/json"},
+        )
+
+    for response in (plan, discover):
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "invalid_request"
+        assert secret not in response.text
 
 
 async def test_invalid_question_is_422_and_does_not_echo_the_body() -> None:
