@@ -36,6 +36,26 @@ def invalid_model_output() -> ResearchError:
     return ResearchError("invalid_model_output", 503, INVALID_MODEL_OUTPUT)
 
 
+def provider_timeout() -> ResearchError:
+    return ResearchError("provider_timeout", 504, PROVIDER_TIMEOUT)
+
+
+def provider_rate_limited() -> ResearchError:
+    return ResearchError("provider_rate_limited", 429, PROVIDER_RATE_LIMITED)
+
+
+def provider_unavailable() -> ResearchError:
+    return ResearchError("provider_unavailable", 503, PROVIDER_UNAVAILABLE)
+
+
+def search_failed() -> ResearchError:
+    return ResearchError(
+        "search_failed",
+        503,
+        "Web search is temporarily unavailable.",
+    )
+
+
 def map_provider_exception(exc: Exception) -> ResearchError:
     """Map a provider failure to a fixed error. Discard the original text."""
     if isinstance(exc, ResearchError):
@@ -43,9 +63,9 @@ def map_provider_exception(exc: Exception) -> ResearchError:
     if isinstance(exc, OpenAIRefusalError):
         return ResearchError("model_refused", 503, MODEL_REFUSED)
     if isinstance(exc, (APITimeoutError, TimeoutError)):
-        return ResearchError("provider_timeout", 504, PROVIDER_TIMEOUT)
+        return provider_timeout()
     if isinstance(exc, RateLimitError):
-        return ResearchError("provider_rate_limited", 429, PROVIDER_RATE_LIMITED)
+        return provider_rate_limited()
     if isinstance(exc, (ValidationError, ValueError, OutputParserException)):
         return invalid_model_output()
-    return ResearchError("provider_unavailable", 503, PROVIDER_UNAVAILABLE)
+    return provider_unavailable()
