@@ -32,13 +32,28 @@ class Settings(BaseSettings):
     qdrant_url: AnyHttpUrl
     readiness_timeout_seconds: float = Field(default=2.0, gt=0)
     openai_api_key: SecretStr | None = None
+    openai_model: str = "gpt-4o-mini"
+    tavily_api_key: SecretStr | None = None
+    ai_timeout_seconds: float = Field(default=20.0, gt=0)
+    ai_max_retries: int = Field(default=1, ge=0, le=2)
+    discovery_timeout_seconds: float = Field(default=90.0, gt=0)
 
-    @field_validator("openai_api_key", mode="before")
+    @field_validator("openai_api_key", "tavily_api_key", mode="before")
     @classmethod
-    def blank_openai_api_key(cls, value: object) -> object:
+    def blank_secret(cls, value: object) -> object:
         if value is None or value == "":
             return None
         return value
+
+    @field_validator("openai_model", mode="before")
+    @classmethod
+    def strip_openai_model(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be empty")
+        return stripped
 
 
 def _format_settings_error(exc: ValidationError) -> str:
