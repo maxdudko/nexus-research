@@ -48,6 +48,15 @@ def provider_unavailable() -> ResearchError:
     return ResearchError("provider_unavailable", 503, PROVIDER_UNAVAILABLE)
 
 
+def collection_mismatch() -> ResearchError:
+    """The Qdrant collection exists but does not match this index contract."""
+    return ResearchError(
+        "collection_mismatch",
+        503,
+        "The evidence index configuration does not match this service.",
+    )
+
+
 def search_failed() -> ResearchError:
     return ResearchError(
         "search_failed",

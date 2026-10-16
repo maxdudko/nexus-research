@@ -1,5 +1,6 @@
 """Process configuration loaded once at startup."""
 
+import re
 import sys
 from functools import lru_cache
 from typing import Literal
@@ -33,10 +34,15 @@ class Settings(BaseSettings):
     readiness_timeout_seconds: float = Field(default=2.0, gt=0)
     openai_api_key: SecretStr | None = None
     openai_model: str = "gpt-4o-mini"
+    openai_embedding_model: str = "text-embedding-3-small"
     tavily_api_key: SecretStr | None = None
     ai_timeout_seconds: float = Field(default=20.0, gt=0)
     ai_max_retries: int = Field(default=1, ge=0, le=2)
     discovery_timeout_seconds: float = Field(default=90.0, gt=0)
+    rag_collection: str = "nexus_evidence_v1"
+    rag_vector_size: int = Field(default=1536, gt=0)
+    embedding_timeout_seconds: float = Field(default=20.0, gt=0)
+    embedding_batch_size: int = Field(default=64, ge=1, le=128)
 
     @field_validator("openai_api_key", "tavily_api_key", mode="before")
     @classmethod
@@ -45,14 +51,24 @@ class Settings(BaseSettings):
             return None
         return value
 
-    @field_validator("openai_model", mode="before")
+    @field_validator("openai_model", "openai_embedding_model", mode="before")
     @classmethod
-    def strip_openai_model(cls, value: object) -> object:
+    def strip_model_name(cls, value: object) -> object:
         if not isinstance(value, str):
             return value
         stripped = value.strip()
         if not stripped:
             raise ValueError("must not be empty")
+        return stripped
+
+    @field_validator("rag_collection", mode="before")
+    @classmethod
+    def collection_name(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        stripped = value.strip()
+        if re.fullmatch(r"[a-z][a-z0-9_]{0,63}", stripped) is None:
+            raise ValueError("must be a lowercase identifier")
         return stripped
 
 

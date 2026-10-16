@@ -8,13 +8,15 @@ from sqlalchemy.engine import Connection
 
 from nexus.core.config import get_settings
 from nexus.infrastructure.database import create_db_engine
+from nexus.models import Base
 
 config = context.config
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-target_metadata = None
+# nexus.models imports Source, so this registry includes the sources table.
+target_metadata = Base.metadata
 
 
 def _database_url() -> str:

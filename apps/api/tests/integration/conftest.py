@@ -1,7 +1,13 @@
 """Isolated Postgres database for integration tests."""
 
+import asyncio
+import os
 import re
+import subprocess
+import sys
 from collections.abc import AsyncIterator
+from pathlib import Path
+from urllib.parse import urlsplit
 
 import pytest
 from sqlalchemy import text
@@ -12,6 +18,7 @@ from sqlalchemy.pool import NullPool
 from nexus.core.config import get_settings
 
 TEST_DATABASE = "nexus_test"
+API_ROOT = Path(__file__).resolve().parents[2]
 _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 _PROTECTED_DATABASES = frozenset({"nexus_test", "postgres", "template0", "template1"})
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -44,6 +51,34 @@ def require_local_test_database(configured: URL, name: str) -> None:
             f"uses database {configured_name!r}. Point it at the development "
             "database, not nexus_test, postgres, template0, or template1."
         )
+
+
+def require_local_qdrant(url: str) -> None:
+    """Refuse evidence tests that would change a non-local Qdrant."""
+    host = urlsplit(url).hostname
+    if host not in _LOOPBACK_HOSTS:
+        raise RuntimeError(
+            f"Refusing to modify Qdrant on host {host!r}. "
+            "Evidence tests only use localhost, 127.0.0.1, or ::1."
+        )
+
+
+async def run_alembic(
+    database_url: str,
+    *args: str,
+) -> subprocess.CompletedProcess[str]:
+    """Run Alembic against ``database_url`` without using the cached app settings."""
+    env = os.environ.copy()
+    env["NEXUS_DATABASE_URL"] = database_url
+    return await asyncio.to_thread(
+        subprocess.run,
+        [sys.executable, "-m", "alembic", *args],
+        check=False,
+        cwd=API_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
 
 
 async def _run_maintenance(configured: URL, name: str, *, create: bool) -> None:

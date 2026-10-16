@@ -2,7 +2,7 @@
 
 import pytest
 from sqlalchemy.engine.url import make_url
-from tests.integration.conftest import require_local_test_database
+from tests.integration.conftest import require_local_qdrant, require_local_test_database
 
 
 def _url(host: str, database: str) -> str:
@@ -43,6 +43,18 @@ def test_only_nexus_test_may_be_dropped(name: str) -> None:
     with pytest.raises(RuntimeError, match="Refusing to drop database") as exc_info:
         require_local_test_database(configured, name)
     assert "super-secret" not in str(exc_info.value)
+
+
+def test_local_qdrant_is_allowed() -> None:
+    require_local_qdrant("http://127.0.0.1:6333")
+
+
+def test_remote_qdrant_is_refused_without_the_url() -> None:
+    with pytest.raises(RuntimeError, match="qdrant.example.com") as exc_info:
+        require_local_qdrant("http://user:super-secret@qdrant.example.com:6333")
+    message = str(exc_info.value)
+    assert "super-secret" not in message
+    assert "http" not in message
 
 
 @pytest.mark.parametrize(
