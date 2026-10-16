@@ -7,15 +7,45 @@ from tests.conftest import make_settings
 
 def test_ai_defaults_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("NEXUS_OPENAI_MODEL", raising=False)
+    monkeypatch.delenv("NEXUS_OPENAI_EMBEDDING_MODEL", raising=False)
     monkeypatch.delenv("NEXUS_AI_TIMEOUT_SECONDS", raising=False)
     monkeypatch.delenv("NEXUS_AI_MAX_RETRIES", raising=False)
     monkeypatch.delenv("NEXUS_DISCOVERY_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.delenv("NEXUS_RAG_COLLECTION", raising=False)
+    monkeypatch.delenv("NEXUS_RAG_VECTOR_SIZE", raising=False)
+    monkeypatch.delenv("NEXUS_EMBEDDING_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.delenv("NEXUS_EMBEDDING_BATCH_SIZE", raising=False)
+    monkeypatch.delenv("NEXUS_PDF_MAX_BYTES", raising=False)
+    monkeypatch.delenv("NEXUS_PDF_MAX_PAGES", raising=False)
+    monkeypatch.delenv("NEXUS_WEB_MAX_BYTES", raising=False)
+    monkeypatch.delenv("NEXUS_WEB_MAX_REDIRECTS", raising=False)
+    monkeypatch.delenv("NEXUS_CHUNK_TOKENS", raising=False)
+    monkeypatch.delenv("NEXUS_CHUNK_OVERLAP_TOKENS", raising=False)
+    monkeypatch.delenv("NEXUS_MAX_CHUNKS", raising=False)
+    monkeypatch.delenv("NEXUS_EXTRACTED_TEXT_MAX_CHARS", raising=False)
+    monkeypatch.delenv("NEXUS_INGESTION_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.delenv("NEXUS_WEB_TIMEOUT_SECONDS", raising=False)
 
     settings = make_settings()
 
     assert settings.openai_api_key is None
     assert settings.tavily_api_key is None
     assert settings.openai_model == "gpt-4o-mini"
+    assert settings.openai_embedding_model == "text-embedding-3-small"
+    assert settings.rag_collection == "nexus_evidence_v1"
+    assert settings.rag_vector_size == 1536
+    assert settings.embedding_timeout_seconds == 20.0
+    assert settings.embedding_batch_size == 64
+    assert settings.pdf_max_bytes == 10 * 1024 * 1024
+    assert settings.pdf_max_pages == 100
+    assert settings.web_max_bytes == 2 * 1024 * 1024
+    assert settings.web_max_redirects == 3
+    assert settings.chunk_tokens == 800
+    assert settings.chunk_overlap_tokens == 120
+    assert settings.max_chunks == 200
+    assert settings.extracted_text_max_chars == 1_000_000
+    assert settings.ingestion_timeout_seconds == 60.0
+    assert settings.web_timeout_seconds == 10.0
     assert settings.ai_timeout_seconds == 20.0
     assert settings.ai_max_retries == 1
     assert settings.discovery_timeout_seconds == 90.0
@@ -69,3 +99,46 @@ def test_retries_outside_range_fail(retries: int) -> None:
 def test_retries_at_bounds_are_accepted(retries: int) -> None:
     settings = make_settings(ai_max_retries=retries)
     assert settings.ai_max_retries == retries
+
+
+def test_embedding_model_does_not_replace_the_chat_model() -> None:
+    settings = make_settings(
+        openai_model="gpt-4o-mini",
+        openai_embedding_model="  text-embedding-3-small  ",
+    )
+    assert settings.openai_model == "gpt-4o-mini"
+    assert settings.openai_embedding_model == "text-embedding-3-small"
+
+
+@pytest.mark.parametrize("model_name", ["", "   "])
+def test_blank_embedding_model_fails(model_name: str) -> None:
+    with pytest.raises(ValidationError):
+        make_settings(openai_embedding_model=model_name)
+
+
+@pytest.mark.parametrize("name", ["Nexus", "nexus-evidence", "1abc", "a" * 65])
+def test_collection_name_must_be_a_lowercase_identifier(name: str) -> None:
+    with pytest.raises(ValidationError):
+        make_settings(rag_collection=name)
+
+
+@pytest.mark.parametrize("size", [0, -1])
+def test_vector_size_must_be_positive(size: int) -> None:
+    with pytest.raises(ValidationError):
+        make_settings(rag_vector_size=size)
+
+
+@pytest.mark.parametrize("batch_size", [0, 129])
+def test_embedding_batch_size_is_bounded(batch_size: int) -> None:
+    with pytest.raises(ValidationError):
+        make_settings(embedding_batch_size=batch_size)
+
+
+def test_embedding_timeout_must_be_positive() -> None:
+    with pytest.raises(ValidationError):
+        make_settings(embedding_timeout_seconds=0)
+
+
+def test_chunk_overlap_must_fit_in_the_chunk() -> None:
+    with pytest.raises(ValidationError):
+        make_settings(chunk_tokens=120, chunk_overlap_tokens=120)

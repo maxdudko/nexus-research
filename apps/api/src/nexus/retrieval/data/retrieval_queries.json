@@ -1,0 +1,51 @@
+{
+  "documents": [
+    {
+      "id": "harbor",
+      "pages": [
+        "lumenharbor buoys mark the north channel for night pilots.",
+        "cedarwharf crews replace worn dock timbers each spring."
+      ]
+    },
+    {
+      "id": "kiln",
+      "pages": [
+        "ashkiln ceramics hold the glaze temperature through the long firing.",
+        "saggerclay shelves stay stacked beside the cooling arch."
+      ]
+    },
+    {
+      "id": "orchard",
+      "pages": [
+        "briarorchard yields late pears after the valley frost.",
+        "spurprune cuts open the canopy before blossom week."
+      ]
+    },
+    {
+      "id": "archive",
+      "pages": [
+        "vellumarchive stores the treaty draft in a dry cabinet.",
+        "waxseal copies travel only with the courier ledger."
+      ]
+    },
+    {
+      "id": "signal",
+      "pages": [
+        "quartzrelay carries the night beacon across the ridge.",
+        "cellbank packs replace the beacon battery before winter."
+      ]
+    }
+  ],
+  "queries": [
+    {"query": "lumenharbor north channel", "document_id": "harbor", "page": 1},
+    {"query": "cedarwharf dock timbers", "document_id": "harbor", "page": 2},
+    {"query": "ashkiln glaze temperature", "document_id": "kiln", "page": 1},
+    {"query": "saggerclay cooling arch", "document_id": "kiln", "page": 2},
+    {"query": "briarorchard late pears", "document_id": "orchard", "page": 1},
+    {"query": "spurprune blossom week", "document_id": "orchard", "page": 2},
+    {"query": "vellumarchive treaty draft", "document_id": "archive", "page": 1},
+    {"query": "waxseal courier ledger", "document_id": "archive", "page": 2},
+    {"query": "quartzrelay night beacon", "document_id": "signal", "page": 1},
+    {"query": "cellbank beacon battery", "document_id": "signal", "page": 2}
+  ]
+}
