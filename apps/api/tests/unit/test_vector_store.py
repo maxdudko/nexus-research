@@ -343,6 +343,8 @@ async def test_malformed_payloads_are_dropped() -> None:
                         if key != "claim_token"
                     },
                 ),
+                SimpleNamespace(score=float("nan"), payload=good),
+                SimpleNamespace(score=float("inf"), payload=good),
             ],
         )
 

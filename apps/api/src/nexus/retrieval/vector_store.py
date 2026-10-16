@@ -30,7 +30,7 @@ from nexus.retrieval.versions import AcceptedVersion
 logger = logging.getLogger(__name__)
 
 SCHEMA_VERSION = 1
-_SEARCH_LIMIT = 10
+SEARCH_LIMIT = 10
 _PAYLOAD_FIELDS = ("research_id", "source_id")
 
 
@@ -377,7 +377,7 @@ def _accepted_filter(
 
 
 def _require_query(vector: Sequence[float], limit: int, width: int) -> list[float]:
-    if not 1 <= limit <= _SEARCH_LIMIT:
+    if not 1 <= limit <= SEARCH_LIMIT:
         raise ValueError("limit must be from 1 to 10")
     if len(vector) != width or not _finite(vector):
         raise ValueError("vector length must match the configured dimension")
@@ -507,6 +507,12 @@ def _match_from_point(
     accepted_only: bool = False,
 ) -> EvidenceMatch | None:
     if not isinstance(payload, Mapping) or score is None:
+        return None
+    if (
+        isinstance(score, bool)
+        or not isinstance(score, int | float)
+        or not math.isfinite(score)
+    ):
         return None
     try:
         parsed_research = uuid.UUID(str(payload["research_id"]))

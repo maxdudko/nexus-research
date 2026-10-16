@@ -10,8 +10,15 @@ from nexus.core.config import Settings
 from nexus.ingestion.pdf import close_upload, filename_display_name, read_bounded
 from nexus.ingestion.service import IngestionResult, IngestionService
 from nexus.retrieval.embeddings import OpenAIEmbedder
+from nexus.retrieval.service import RetrievalService
 from nexus.retrieval.vector_store import EvidenceVectorStore
-from nexus.schemas.evidence import IngestionResponse, WebIngestionRequest
+from nexus.schemas.evidence import (
+    IngestionResponse,
+    SearchMatch,
+    SearchRequest,
+    SearchResponse,
+    WebIngestionRequest,
+)
 
 router = APIRouter()
 
@@ -57,3 +64,41 @@ async def ingest_web(
 ) -> IngestionResult:
     """Index one public HTML page."""
     return await service.ingest_web(body.research_id, body.url)
+
+
+async def get_retrieval(request: Request) -> AsyncIterator[RetrievalService]:
+    """Build a request-scoped searcher and close its Qdrant client afterwards."""
+    settings: Settings = request.app.state.settings
+    store = EvidenceVectorStore(settings)
+    service = RetrievalService(
+        request.app.state.session_factory,
+        store,
+        OpenAIEmbedder(settings),
+    )
+    try:
+        yield service
+    finally:
+        await store.close()
+
+
+@router.post("/search", response_model=SearchResponse)
+async def search_evidence(
+    body: SearchRequest,
+    service: Annotated[RetrievalService, Depends(get_retrieval)],
+) -> SearchResponse:
+    """Return scoped evidence. The score is similarity, not an answer."""
+    matches = await service.search(body.research_id, body.query, body.top_k)
+    return SearchResponse(
+        matches=[
+            SearchMatch(
+                chunk_id=match.chunk_id,
+                source_id=match.source_id,
+                research_id=match.research_id,
+                score=match.score,
+                text=match.text,
+                page_number=match.page_number,
+                url=match.url,
+            )
+            for match in matches
+        ],
+    )

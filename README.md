@@ -21,9 +21,19 @@ Nexus Research is an experimental, Python-first application that investigates co
 
 ## Status
 
-🚧 **Phase 1 foundation and Phase 2 planning and web search are implemented.** The API, local PostgreSQL and Qdrant, Alembic, and health checks are in place. `POST /api/v1/research/plan` returns a structured research plan from OpenAI. `POST /api/v1/research/discover` runs a bounded Tavily search and returns the snippets it retrieved. LangGraph, page extraction, and PDF retrieval are later phases.
+🚧 **Phase 1 foundation, Phase 2 planning and web search, and Phase 3 evidence ingestion and search are implemented.** The API, local PostgreSQL and Qdrant, Alembic, and health checks are in place. `POST /api/v1/research/plan` returns a structured research plan from OpenAI. `POST /api/v1/research/discover` runs a bounded Tavily search and returns the snippets it retrieved. `POST /api/v1/evidence/pdf`, `POST /api/v1/evidence/web`, and `POST /api/v1/evidence/search` index a text PDF or one public HTML page and return scoped passages. LangGraph is a later phase.
 
-See the [development roadmap](docs/roadmap.md) for milestones and scope. Notes on the Python concepts from Phase 1 are in [Phase 1 learning notes](docs/learning/phase-1.md). Notes on structured output, tool calling, and search budgets are in [Phase 2 learning notes](docs/learning/phase-2.md).
+See the [development roadmap](docs/roadmap.md) for milestones and scope. Notes on the Python concepts from Phase 1 are in [Phase 1 learning notes](docs/learning/phase-1.md). Notes on structured output, tool calling, and search budgets are in [Phase 2 learning notes](docs/learning/phase-2.md). Notes on scoped retrieval are in [Phase 3 learning notes](docs/learning/phase-3.md).
+
+## Evidence
+
+`RetrievalService` loads the accepted digest of each source in one `research_id`, embeds the query, and searches Qdrant with that filter on the server. The HTTP handler does not contain that logic. Phase 4 can call the service without importing the route.
+
+`research_id` selects which evidence a query may see. It is not authentication or tenant isolation. Do not expose this API as a multi-user service without authorization.
+
+A search score is cosine similarity between the query and a passage. It is not a probability that the passage is true. The response is the passages and their stored page number or URL. It does not call a chat model and it does not write an answer.
+
+The original PDF bytes are not stored. Rebuilding a lost PDF index means uploading the file again. Scanned pages are not read. There is no keyword index and no reranker. Changing the chunk size or the point-id formula requires a new `NEXUS_RAG_COLLECTION`.
 
 ## Purpose
 
@@ -115,7 +125,7 @@ uv run alembic downgrade base
 uv run alembic upgrade head
 ```
 
-The initial revision creates Alembic's version table and no research tables. `upgrade head` applies that revision. Running it again leaves the database at the current head. `downgrade base` removes the version stamp. The lifespan creates the async engine when the API starts and disposes it on shutdown. It does not connect during startup, so liveness can be served while Postgres is stopped.
+`upgrade head` creates the `sources` table used by evidence ingestion. Running it again leaves the database at the current head. `downgrade base` drops that table and the version stamp. The lifespan creates the async engine when the API starts and disposes it on shutdown. It does not connect during startup, so liveness can be served while Postgres is stopped.
 
 ### Readiness
 
