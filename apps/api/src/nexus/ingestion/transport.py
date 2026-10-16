@@ -147,12 +147,16 @@ async def fetch_public_page(
             follow_redirects=False,
             timeout=httpx.Timeout(timeout_seconds),
         ) as client:
-            return await _follow(
-                client,
-                current,
-                max_bytes=max_bytes,
-                max_redirects=max_redirects,
-            )
+            try:
+                async with asyncio.timeout(timeout_seconds):
+                    return await _follow(
+                        client,
+                        current,
+                        max_bytes=max_bytes,
+                        max_redirects=max_redirects,
+                    )
+            except TimeoutError:
+                raise fetch_timeout() from None
     finally:
         await pinned.aclose()
 

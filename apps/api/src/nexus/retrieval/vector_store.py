@@ -6,9 +6,10 @@ collection in place. Every search filter includes ``research_id`` on the server.
 
 Each point stores the ``claim_token`` that wrote it. The point id includes
 that token, so two attempts do not share ids. Upsert stores ``accepted`` as
-false. ``retire_other_claims`` sets it true and then deletes other tokens
-while the row lock is held. ``delete_claim`` removes only its own token.
-``search`` can see every stored digest. Group C calls ``search_accepted`` with
+false. ``retire_other_claims`` sets it true while the row lock is held.
+Other accepted tokens are deleted only after PostgreSQL commits that version.
+``delete_claim`` removes only its own token, accepted or not. ``search`` can
+see every stored digest. Group C calls ``search_accepted`` with
 ``accepted_versions``; that filter also requires ``accepted`` true.
 """
 
@@ -149,10 +150,10 @@ class EvidenceVectorStore:
         source_id: uuid.UUID,
         claim_token: uuid.UUID,
     ) -> None:
-        """Delete this source's points written by a different claim token.
+        """Delete this source's accepted points written by another token.
 
-        Group B calls ``retire_other_claims``, which holds the row lock and
-        checks the token before this delete runs.
+        Unaccepted points stay, including a claim that started after publish.
+        ``delete_claim`` still removes one token whether or not it is accepted.
         """
         await self._delete(
             _claim_filter(research_id, source_id, claim_token, exclude=True),
@@ -348,6 +349,7 @@ def _claim_filter(
     ]
     token = _match_field("claim_token", str(claim_token))
     if exclude:
+        must.append(_match_bool("accepted", True))
         return models.Filter(must=must, must_not=[token])
     must.append(token)
     return models.Filter(must=must)

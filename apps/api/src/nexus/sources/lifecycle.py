@@ -16,14 +16,15 @@ Group B indexes one attempt in this order:
 5. Reload the row again. When the token was replaced, call ``abandon_claim``
    and stop.
 6. ``retire_other_claims`` and ``finish_indexed`` in one transaction, then
-   commit.
+   commit. Only after that commit deletes other accepted tokens.
 
 Embedding and the upsert stay outside the row lock. ``retire_other_claims``
-holds that lock while it marks this token accepted and deletes other tokens,
-so a newer claim cannot commit until those writes return. A crash after the
-delete and before commit leaves the row ``INDEXING``. The next claim upserts
-and retires again. A late upsert uses a different point id and stays
-unaccepted until its own retire.
+holds that lock while it marks this token accepted. It does not delete.
+The previous accepted points stay until the commit succeeds, so a rollback
+still has them. The delete after commit matches ``accepted=true`` and skips
+this token, so an attempt that started after the lock was released is kept.
+A late upsert uses a different point id and stays unaccepted until its own
+retire.
 
 A later claim replaces ``indexing_token``. ``finish_*`` and
 ``retire_other_claims`` then raise ``StaleClaim`` and do not write. A stale
@@ -349,20 +350,15 @@ async def retire_other_claims(
     source_id: uuid.UUID,
     token: uuid.UUID,
 ) -> None:
-    """Accept this token's points and delete points written by other tokens.
+    """Accept this token's points while the row lock is held.
 
-    Holds the row lock across both Qdrant writes. The caller commits afterward,
-    together with ``finish_indexed``. A replaced token raises ``StaleClaim``
-    before either write.
+    The caller commits afterward, together with ``finish_indexed``, and only
+    then deletes other accepted tokens. A replaced token raises ``StaleClaim``
+    before the accept.
     """
     source = await _lock_id(session, source_id)
     _require_owner(source.status, source.indexing_token, token)
     await store.accept_claim(
-        research_id=source.research_id,
-        source_id=source.id,
-        claim_token=token,
-    )
-    await store.delete_other_claims(
         research_id=source.research_id,
         source_id=source.id,
         claim_token=token,

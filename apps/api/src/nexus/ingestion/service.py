@@ -12,6 +12,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Literal
 
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from nexus.ai.errors import (
@@ -66,6 +67,8 @@ class _Attempt:
     token: uuid.UUID | None = None
     digest: str | None = None
     upsert_started: bool = False
+    published: bool = False
+    result: IngestionResult | None = None
 
 
 class IngestionService:
@@ -166,6 +169,9 @@ class IngestionService:
             async with asyncio.timeout(self._settings.ingestion_timeout_seconds):
                 return await prepare()
         except TimeoutError:
+            if attempt.published and attempt.result is not None:
+                logger.warning("superseded delete interrupted")
+                return attempt.result
             await self._recover(attempt, "ingestion_timeout")
             raise ingestion_timeout() from None
         except asyncio.CancelledError:
@@ -278,20 +284,30 @@ class IngestionService:
                         chunk_count=len(chunks),
                     )
         except StaleClaim:
-            await abandon_claim(
-                self._store,
-                research_id=research_id,
-                source_id=claim.source_id,
-                token=claim.token,
-            )
+            await self._abandon_own(attempt)
             return await self._stale(claim.source_id, content_hash)
-        return IngestionResult(
+        except TimeoutError:
+            raise
+        except Exception as exc:
+            try:
+                await self._fail(attempt, _failure_code(exc))
+            except Exception as cleanup_exc:
+                logger.warning(
+                    "ingestion cleanup failed: %s",
+                    type(cleanup_exc).__name__,
+                )
+            raise
+        result = IngestionResult(
             source_id=claim.source_id,
             research_id=research_id,
             status="indexed",
             chunk_count=len(chunks),
             deduplicated=False,
         )
+        attempt.published = True
+        attempt.result = result
+        await self._drop_superseded(attempt)
+        return result
 
     async def _owns(self, source_id: uuid.UUID, token: uuid.UUID) -> bool:
         async with self._sessions() as session:
@@ -319,6 +335,41 @@ class IngestionService:
             )
         raise indexing_in_progress()
 
+    async def _drop_superseded(self, attempt: _Attempt) -> None:
+        """Delete other accepted tokens. A failure leaves the new version in place."""
+        if (
+            attempt.research_id is None
+            or attempt.source_id is None
+            or attempt.token is None
+        ):
+            return
+        try:
+            await self._store.delete_other_claims(
+                research_id=attempt.research_id,
+                source_id=attempt.source_id,
+                claim_token=attempt.token,
+            )
+        except Exception as exc:
+            logger.warning("superseded delete failed: %s", type(exc).__name__)
+
+    async def _abandon_own(self, attempt: _Attempt) -> None:
+        if (
+            not attempt.upsert_started
+            or attempt.research_id is None
+            or attempt.source_id is None
+            or attempt.token is None
+        ):
+            return
+        try:
+            await abandon_claim(
+                self._store,
+                research_id=attempt.research_id,
+                source_id=attempt.source_id,
+                token=attempt.token,
+            )
+        except Exception as exc:
+            logger.warning("ingestion abandon failed: %s", type(exc).__name__)
+
     async def _recover(self, attempt: _Attempt, code: str) -> None:
         try:
             await self._fail(attempt, code)
@@ -326,19 +377,15 @@ class IngestionService:
             logger.warning("ingestion cleanup failed: %s", type(exc).__name__)
 
     async def _fail(self, attempt: _Attempt, code: str) -> None:
+        if attempt.published:
+            return
         if (
             attempt.token is None
             or attempt.source_id is None
             or attempt.research_id is None
         ):
             return
-        if attempt.upsert_started:
-            await abandon_claim(
-                self._store,
-                research_id=attempt.research_id,
-                source_id=attempt.source_id,
-                token=attempt.token,
-            )
+        await self._abandon_own(attempt)
         try:
             async with self._sessions() as session:
                 async with session.begin():
@@ -350,6 +397,17 @@ class IngestionService:
                     )
         except StaleClaim:
             return
+        except Exception as exc:
+            logger.warning("ingestion fail status failed: %s", type(exc).__name__)
+            raise
+
+
+def _failure_code(exc: Exception) -> str:
+    if isinstance(exc, ResearchError):
+        return _public_code(exc.code)
+    if isinstance(exc, SQLAlchemyError):
+        logger.warning("ingestion publish failed: %s", type(exc).__name__)
+    return "provider_unavailable"
 
 
 def _public_code(code: str) -> str:

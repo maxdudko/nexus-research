@@ -1,12 +1,20 @@
 """Public URL checks and connection pinning."""
 
+import asyncio
 import gzip
+import socket
+import time
 
+import httpcore
 import httpx
 import pytest
 
 from nexus.ai.errors import ResearchError
-from nexus.ingestion.transport import fetch_public_page, parse_public_url
+from nexus.ingestion.transport import (
+    fetch_public_page,
+    parse_public_url,
+    system_resolver,
+)
 
 PUBLIC = "93.184.216.34"
 HOST = "example.org"
@@ -327,3 +335,150 @@ def test_parse_rejects_before_a_resolver_exists() -> None:
     with pytest.raises(ResearchError) as exc_info:
         parse_public_url("http://127.0.0.1/secret")
     assert exc_info.value.code == "unsafe_url"
+
+
+class _TlsBackend(httpcore.AsyncNetworkBackend):
+    """Record the TCP destination used by the real HTTPX transport."""
+
+    def __init__(self) -> None:
+        self.hosts: list[str] = []
+        self.tls: list[tuple[str | None, bool | None]] = []
+
+    async def connect_tcp(
+        self,
+        host: str,
+        port: int,
+        **kwargs: object,
+    ) -> httpcore.AsyncNetworkStream:
+        self.hosts.append(host)
+        return _TlsStream(self)
+
+    async def sleep(self, seconds: float) -> None:
+        return None
+
+
+class _TlsStream(httpcore.AsyncNetworkStream):
+    """Record the TLS hostname, then stop before a handshake."""
+
+    def __init__(self, backend: _TlsBackend) -> None:
+        self._backend = backend
+
+    async def start_tls(
+        self,
+        ssl_context: object,
+        server_hostname: str | None = None,
+        **kwargs: object,
+    ) -> httpcore.AsyncNetworkStream:
+        check_hostname = getattr(ssl_context, "check_hostname", None)
+        self._backend.tls.append((server_hostname, check_hostname))
+        raise httpcore.ConnectError("stop after tls arguments")
+
+    async def aclose(self) -> None:
+        return None
+
+
+async def test_tls_checks_the_original_hostname() -> None:
+    backend = _TlsBackend()
+    inner = httpx.AsyncHTTPTransport(trust_env=False)
+    inner._pool._network_backend = backend
+    lookups: list[str] = []
+
+    async def resolver(host: str, port: int) -> list[str]:
+        lookups.append(host)
+        if len(lookups) == 1:
+            return [PUBLIC]
+        return ["127.0.0.1"]
+
+    with pytest.raises(ResearchError) as exc_info:
+        await fetch_public_page(
+            f"https://{HOST}/article",
+            max_bytes=1000,
+            max_redirects=1,
+            timeout_seconds=1,
+            resolver=resolver,
+            connection=inner,
+        )
+    assert exc_info.value.code == "fetch_failed"
+    assert backend.hosts == [PUBLIC]
+    assert backend.tls == [(HOST, True)]
+    assert "127.0.0.1" not in backend.hosts
+
+
+async def test_empty_dns_does_not_connect() -> None:
+    connection = RecordingTransport([_response(_html("hidden"))])
+
+    async def resolver(host: str, port: int) -> list[str]:
+        return []
+
+    with pytest.raises(ResearchError) as exc_info:
+        await fetch_public_page(
+            f"http://{HOST}/item",
+            max_bytes=1000,
+            max_redirects=0,
+            timeout_seconds=1,
+            resolver=resolver,
+            connection=connection,
+        )
+    assert exc_info.value.code == "unsafe_url"
+    assert connection.requests == []
+
+
+async def test_system_resolver_hides_dns_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fail_lookup(*args: object, **kwargs: object) -> list[object]:
+        raise socket.gaierror(8, "nodename nor servname provided")
+
+    monkeypatch.setattr(asyncio.get_running_loop(), "getaddrinfo", fail_lookup)
+    with pytest.raises(ResearchError) as exc_info:
+        await system_resolver(HOST, 443)
+    assert exc_info.value.code == "unsafe_url"
+    assert HOST not in exc_info.value.message
+
+
+async def test_redirect_to_loopback_stops_before_a_second_connection() -> None:
+    redirect = httpx.Response(
+        302,
+        headers={"location": "http://127.0.0.1/secret"},
+        stream=ChunkStream([b""]),
+    )
+    connection = RecordingTransport([redirect, _response(_html("hidden"))])
+
+    async def resolver(host: str, port: int) -> list[str]:
+        return [PUBLIC]
+
+    with pytest.raises(ResearchError) as exc_info:
+        await fetch_public_page(
+            f"https://{HOST}/start",
+            max_bytes=1000,
+            max_redirects=3,
+            timeout_seconds=1,
+            resolver=resolver,
+            connection=connection,
+        )
+    assert exc_info.value.code == "unsafe_url"
+    assert len(connection.requests) == 1
+    assert connection.requests[0].url.host == PUBLIC
+
+
+class _SlowTransport(httpx.AsyncBaseTransport):
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        await asyncio.sleep(30)
+        raise AssertionError("the fetch deadline did not cancel the connection")
+
+    async def aclose(self) -> None:
+        return None
+
+
+async def test_fetch_deadline_cancels_a_slow_connection() -> None:
+    started = time.monotonic()
+    with pytest.raises(ResearchError) as exc_info:
+        await fetch_public_page(
+            f"http://{PUBLIC}/article",
+            max_bytes=1000,
+            max_redirects=0,
+            timeout_seconds=0.05,
+            connection=_SlowTransport(),
+        )
+    assert exc_info.value.code == "fetch_timeout"
+    assert time.monotonic() - started < 2

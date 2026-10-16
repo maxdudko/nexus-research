@@ -24,7 +24,7 @@ Search loads source rows for the requested `research_id`, keeps the last `conten
 
 Hit@5 is the fraction of queries whose labeled page appears in the top 5. Recall@5 is the fraction of that page's chunks appearing in the top 5. On this fixture both the production window (800 tokens, 120 overlap) and an alternate window (200 tokens, 40 overlap) score Hit@5 1.0 and Recall@5 1.0. Every page is one chunk at both sizes, and each query uses a token from the labeled page.
 
-That result checks the fixture, the chunker, and the ranking arithmetic. It does not measure `text-embedding-3-small`, and it does not measure whether a later report quotes the right passage. Those are separate questions. Changing `NEXUS_CHUNK_TOKENS` does not rebuild an existing collection; a new chunk size needs a new `NEXUS_RAG_COLLECTION`.
+That result checks the fixture, the chunker, and the ranking arithmetic. It is a lexical baseline: the vectors are hashes of tokens, and Hit@5 1.0 is not a measurement of `text-embedding-3-small`. The only OpenAI embedding check is the opt-in live test, which checks that one query returns a finite vector of the configured size. It does not report Hit@5. Neither number says whether a later report quotes the right passage. Changing `NEXUS_CHUNK_TOKENS` does not rebuild an existing collection; a new chunk size needs a new `NEXUS_RAG_COLLECTION`.
 
 ## Limitations
 

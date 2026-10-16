@@ -145,6 +145,11 @@ async def test_research_filter_replacement_and_idempotent_upsert(
 
         async with factory() as session:
             async with session.begin():
+                await store.accept_claim(
+                    research_id=research_id,
+                    source_id=source_id,
+                    claim_token=token,
+                )
                 await finish_indexed(
                     session,
                     source_id=source_id,
@@ -224,6 +229,18 @@ async def test_research_filter_replacement_and_idempotent_upsert(
                 )
             source = await session.get(Source, source_id)
 
+        preserved = await store.search(
+            research_id=research_id,
+            vector=_vector(first_text),
+            limit=5,
+            content_hash=first_hash,
+        )
+        assert [match.text for match in preserved] == [first_text]
+        await store.delete_other_claims(
+            research_id=research_id,
+            source_id=source_id,
+            claim_token=replacement.token,
+        )
         stale = await store.search(
             research_id=research_id,
             vector=_vector(first_text),
@@ -586,8 +603,40 @@ async def test_concurrent_retire_keeps_the_winning_token(
             limit=5,
             content_hash=second_hash,
         )
-        assert removed == []
+        assert [match.text for match in removed] == [first_text]
         assert [match.text for match in kept] == [second_text]
+        await store.delete_other_claims(
+            research_id=research_id,
+            source_id=first.source_id,
+            claim_token=second.token,
+        )
+        still_unaccepted = await store.search(
+            research_id=research_id,
+            vector=_vector(first_text),
+            limit=5,
+            content_hash=first_hash,
+        )
+        assert [match.text for match in still_unaccepted] == [first_text]
+        await abandon_claim(
+            store,
+            research_id=research_id,
+            source_id=first.source_id,
+            token=first.token,
+        )
+        after_abandon = await store.search(
+            research_id=research_id,
+            vector=_vector(first_text),
+            limit=5,
+            content_hash=first_hash,
+        )
+        winner = await store.search(
+            research_id=research_id,
+            vector=_vector(second_text),
+            limit=5,
+            content_hash=second_hash,
+        )
+        assert after_abandon == []
+        assert [match.text for match in winner] == [second_text]
     finally:
         await engine.dispose()
 

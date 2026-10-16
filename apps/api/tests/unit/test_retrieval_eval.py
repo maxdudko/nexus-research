@@ -16,7 +16,8 @@ def test_fixture_has_five_documents_and_ten_queries() -> None:
     assert labeled == pages
 
 
-def test_production_window_hits_every_labeled_page() -> None:
+def test_lexical_baseline_hits_every_labeled_page() -> None:
+    """Hashed tokens, not an OpenAI embedding measurement."""
     production_hit, production_recall = evaluate_window(800, 120)
     alternate_hit, alternate_recall = evaluate_window(200, 40)
 

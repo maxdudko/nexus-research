@@ -339,3 +339,56 @@ async def test_store_failure_propagates() -> None:
 
     with pytest.raises(type(error)):
         await service.search(RESEARCH_ID, "kept passage", 5)
+
+
+class SequencedSession:
+    """Return a different source snapshot on each read."""
+
+    def __init__(self, batches: list[list[Row]]) -> None:
+        self._batches = batches
+        self._index = 0
+
+    async def __aenter__(self) -> SequencedSession:
+        return self
+
+    async def __aexit__(self, *args: object) -> None:
+        return None
+
+    async def scalars(self, statement: object) -> _Scalars:
+        rows = self._batches[self._index]
+        self._index += 1
+        research_id = statement.whereclause.right.value  # type: ignore[attr-defined]
+        matched = [row for row in rows if row.research_id == research_id]
+        return _Scalars(matched)
+
+
+async def test_recheck_drops_a_digest_replaced_during_search() -> None:
+    store = RecordingStore(
+        leak=[_match(text="old sentence", content_hash=OLD_HASH)],
+    )
+    session = SequencedSession(
+        [
+            [
+                Row(
+                    source_id=SOURCE_ID,
+                    research_id=RESEARCH_ID,
+                    status=SourceStatus.INDEXED,
+                    content_hash=OLD_HASH,
+                ),
+            ],
+            [
+                Row(
+                    source_id=SOURCE_ID,
+                    research_id=RESEARCH_ID,
+                    status=SourceStatus.INDEXED,
+                    content_hash=NEW_HASH,
+                ),
+            ],
+        ],
+    )
+    service = RetrievalService(lambda: session, store, RecordingEmbedder())  # type: ignore[arg-type]
+
+    assert await service.search(RESEARCH_ID, "old sentence", 5) == []
+    assert store.calls[0][2] == [
+        AcceptedVersion(source_id=SOURCE_ID, content_hash=OLD_HASH),
+    ]

@@ -277,6 +277,7 @@ async def test_claim_deletes_match_the_token() -> None:
     assert _values(others) == {
         "research_id": str(research_id),
         "source_id": str(source_id),
+        "accepted": "True",
     }
     assert others.must_not is not None
     excluded = others.must_not[0]

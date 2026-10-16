@@ -33,6 +33,8 @@ See the [development roadmap](docs/roadmap.md) for milestones and scope. Notes o
 
 A search score is cosine similarity between the query and a passage. It is not a probability that the passage is true. The response is the passages and their stored page number or URL. It does not call a chat model and it does not write an answer.
 
+The checked-in Hit@5 of 1.0 is a lexical baseline over hashed tokens. It is not a `text-embedding-3-small` result. The opt-in live test is the OpenAI embedding check, and it does not report Hit@5.
+
 The original PDF bytes are not stored. Rebuilding a lost PDF index means uploading the file again. Scanned pages are not read. There is no keyword index and no reranker. Changing the chunk size or the point-id formula requires a new `NEXUS_RAG_COLLECTION`.
 
 ## Purpose

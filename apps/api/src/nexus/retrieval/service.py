@@ -39,7 +39,8 @@ class RetrievalService:
         """Search the accepted evidence for ``research_id``.
 
         Matches keep the provenance stored on the point. A missing page or URL
-        stays missing.
+        stays missing. Versions are loaded again after Qdrant returns, and a
+        digest that was replaced in that window is dropped.
         """
         versions = await self._versions(research_id)
         if not versions:
@@ -51,7 +52,8 @@ class RetrievalService:
             limit=top_k,
             versions=versions,
         )
-        allowed = {(version.source_id, version.content_hash) for version in versions}
+        current = await self._versions(research_id)
+        allowed = {(version.source_id, version.content_hash) for version in current}
         return [
             match
             for match in matches
