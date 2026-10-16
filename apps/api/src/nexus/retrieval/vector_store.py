@@ -1,8 +1,14 @@
 """Qdrant collection contract for one versioned evidence index.
 
-The adapter never deletes or recreates a collection. A size or distance
-mismatch raises ``collection_mismatch`` and leaves the existing collection in
-place. Every search filter includes ``research_id`` on the server.
+The adapter never deletes or recreates a collection. A size, distance, or
+payload-index mismatch raises ``collection_mismatch`` and leaves the existing
+collection in place. Every search filter includes ``research_id`` on the server.
+
+Each point stores the ``claim_token`` that wrote it. ``delete_claim`` removes
+only that token. ``delete_other_claims`` removes every other token for one
+source; Group B calls it through ``retire_other_claims`` while that token owns
+the row. ``search`` can see every stored digest. Group C calls
+``search_accepted`` with ``accepted_versions``.
 """
 
 import logging
@@ -18,6 +24,7 @@ from nexus.ai.errors import ResearchError, collection_mismatch, provider_unavail
 from nexus.core.config import Settings
 from nexus.models.source import CONTENT_HASH
 from nexus.retrieval.ids import evidence_point_id
+from nexus.retrieval.versions import AcceptedVersion
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +43,7 @@ class EvidencePoint:
     text: str
     vector: Sequence[float]
     content_hash: str
+    claim_token: uuid.UUID
     page_number: int | None = None
     url: str | None = None
     title: str | None = None
@@ -118,30 +126,35 @@ class EvidenceVectorStore:
             _log_failure("qdrant upsert failed", exc)
             raise provider_unavailable() from None
 
-    async def delete_hash(
+    async def delete_claim(
         self,
         *,
         research_id: uuid.UUID,
         source_id: uuid.UUID,
-        content_hash: str,
+        claim_token: uuid.UUID,
     ) -> None:
-        """Delete one attempt's points after a newer claim has taken the token."""
-        digest = _require_hash(content_hash)
+        """Delete points tagged with this claim token.
+
+        Points tagged with another token stay in the collection.
+        """
         await self._delete(
-            _source_filter(research_id, source_id, content_hash=digest),
+            _claim_filter(research_id, source_id, claim_token, exclude=False),
         )
 
-    async def delete_except_hash(
+    async def delete_other_claims(
         self,
         *,
         research_id: uuid.UUID,
         source_id: uuid.UUID,
-        content_hash: str,
+        claim_token: uuid.UUID,
     ) -> None:
-        """Delete this source's points whose digest is not the accepted one."""
-        digest = _require_hash(content_hash)
+        """Delete this source's points written by a different claim token.
+
+        Group B calls ``retire_other_claims``, which holds the row lock and
+        checks the token before this delete runs.
+        """
         await self._delete(
-            _source_filter(research_id, source_id, excluded_hash=digest),
+            _claim_filter(research_id, source_id, claim_token, exclude=True),
         )
 
     async def search(
@@ -152,19 +165,55 @@ class EvidenceVectorStore:
         limit: int,
         content_hash: str | None = None,
     ) -> list[EvidenceMatch]:
-        """Search with a server-side research filter. ``research_id`` is required."""
-        if not 1 <= limit <= _SEARCH_LIMIT:
-            raise ValueError("limit must be from 1 to 10")
-        if len(vector) != self._settings.rag_vector_size:
-            raise ValueError("vector length must match the configured dimension")
+        """Search with a server-side research filter.
+
+        The result can include a digest that a newer attempt has replaced.
+        Group C calls ``search_accepted`` with ``accepted_versions(...)``.
+        """
         if content_hash is not None:
             content_hash = _require_hash(content_hash)
-        query_filter = _research_filter(research_id, content_hash)
+        query = _require_query(vector, limit, self._settings.rag_vector_size)
+        return await self._query(
+            research_id,
+            query,
+            limit,
+            _research_filter(research_id, content_hash),
+        )
+
+    async def search_accepted(
+        self,
+        *,
+        research_id: uuid.UUID,
+        vector: Sequence[float],
+        limit: int,
+        versions: Sequence[AcceptedVersion],
+    ) -> list[EvidenceMatch]:
+        """Search the accepted digest of each source.
+
+        An empty version list returns no matches and does not query Qdrant.
+        """
+        if not versions:
+            return []
+        query = _require_query(vector, limit, self._settings.rag_vector_size)
+        return await self._query(
+            research_id,
+            query,
+            limit,
+            _accepted_filter(research_id, versions),
+        )
+
+    async def _query(
+        self,
+        research_id: uuid.UUID,
+        vector: list[float],
+        limit: int,
+        query_filter: models.Filter,
+    ) -> list[EvidenceMatch]:
         try:
             await self._ensure_collection()
             response = await self._client.query_points(
                 collection_name=self._settings.rag_collection,
-                query=[float(value) for value in vector],
+                query=vector,
                 query_filter=query_filter,
                 limit=limit,
                 with_payload=True,
@@ -224,9 +273,8 @@ class EvidenceVectorStore:
         name: str,
         info: models.CollectionInfo,
     ) -> None:
-        indexed = set(info.payload_schema)
         for field_name in _PAYLOAD_FIELDS:
-            if field_name in indexed:
+            if _keyword_index(info, field_name):
                 continue
             try:
                 await self._client.create_payload_index(
@@ -237,9 +285,10 @@ class EvidenceVectorStore:
                 )
             except UnexpectedResponse as exc:
                 current = await self._client.get_collection(name)
-                if field_name not in current.payload_schema:
-                    _log_failure("qdrant payload index failed", exc)
-                    raise provider_unavailable() from None
+                if _keyword_index(current, field_name):
+                    continue
+                _log_failure("qdrant payload index failed", exc)
+                raise provider_unavailable() from None
 
 
 def _research_filter(research_id: uuid.UUID, content_hash: str | None) -> models.Filter:
@@ -249,23 +298,82 @@ def _research_filter(research_id: uuid.UUID, content_hash: str | None) -> models
     return models.Filter(must=must)
 
 
-def _source_filter(
+def _claim_filter(
     research_id: uuid.UUID,
     source_id: uuid.UUID,
+    claim_token: uuid.UUID,
     *,
-    content_hash: str | None = None,
-    excluded_hash: str | None = None,
+    exclude: bool,
 ) -> models.Filter:
     must: list[models.Condition] = [
         _match_field("research_id", str(research_id)),
         _match_field("source_id", str(source_id)),
     ]
-    if content_hash is not None:
-        must.append(_match_field("content_hash", content_hash))
-    must_not: list[models.Condition] | None = None
-    if excluded_hash is not None:
-        must_not = [_match_field("content_hash", excluded_hash)]
-    return models.Filter(must=must, must_not=must_not)
+    token = _match_field("claim_token", str(claim_token))
+    if exclude:
+        return models.Filter(must=must, must_not=[token])
+    must.append(token)
+    return models.Filter(must=must)
+
+
+def _accepted_filter(
+    research_id: uuid.UUID,
+    versions: Sequence[AcceptedVersion],
+) -> models.Filter:
+    should: list[models.Condition] = []
+    for version in versions:
+        digest = _require_hash(version.content_hash)
+        pair: list[models.Condition] = [
+            _match_field("source_id", str(version.source_id)),
+            _match_field("content_hash", digest),
+        ]
+        should.append(models.Filter(must=pair))
+    return models.Filter(
+        must=[_match_field("research_id", str(research_id))],
+        should=should,
+        min_should=models.MinShould(conditions=should, min_count=1),
+    )
+
+
+def _require_query(vector: Sequence[float], limit: int, width: int) -> list[float]:
+    if not 1 <= limit <= _SEARCH_LIMIT:
+        raise ValueError("limit must be from 1 to 10")
+    if len(vector) != width or not _finite(vector):
+        raise ValueError("vector length must match the configured dimension")
+    return [float(value) for value in vector]
+
+
+def _keyword_index(info: models.CollectionInfo, field_name: str) -> bool:
+    data_type = _payload_index_type(info, field_name)
+    if data_type is None:
+        return False
+    if data_type is models.PayloadSchemaType.KEYWORD:
+        return True
+    _reject_payload_index(info, field_name)
+    return False
+
+
+def _payload_index_type(
+    info: models.CollectionInfo,
+    field_name: str,
+) -> models.PayloadSchemaType | None:
+    if field_name not in info.payload_schema:
+        return None
+    data_type = getattr(info.payload_schema[field_name], "data_type", None)
+    if isinstance(data_type, models.PayloadSchemaType):
+        return data_type
+    logger.warning("qdrant payload index rejected: field=%s type=missing", field_name)
+    raise collection_mismatch()
+
+
+def _reject_payload_index(info: models.CollectionInfo, field_name: str) -> None:
+    data_type = _payload_index_type(info, field_name)
+    logger.warning(
+        "qdrant payload index rejected: field=%s type=%s",
+        field_name,
+        data_type,
+    )
+    raise collection_mismatch()
 
 
 def _match_field(key: str, value: str) -> models.FieldCondition:
@@ -300,6 +408,8 @@ def _point_struct(
     if point.page_number is not None and point.page_number < 1:
         raise ValueError("page_number must be at least 1")
     digest = _require_hash(point.content_hash)
+    if not isinstance(point.claim_token, uuid.UUID):
+        raise ValueError("claim_token must be a UUID")
     if len(point.vector) != width or not _finite(point.vector):
         raise ValueError("vector length must match the configured dimension")
     chunk_id = evidence_point_id(point.source_id, digest, point.chunk_index)
@@ -313,6 +423,7 @@ def _point_struct(
         "url": point.url,
         "title": point.title,
         "content_hash": digest,
+        "claim_token": str(point.claim_token),
         "schema_version": SCHEMA_VERSION,
     }
     return models.PointStruct(
@@ -352,10 +463,12 @@ def _match_from_point(
             return None
         text = payload["text"]
         digest = payload["content_hash"]
+        claim_token = payload["claim_token"]
         if not isinstance(text, str) or not text.strip():
             return None
-        if not isinstance(digest, str):
+        if not isinstance(digest, str) or not isinstance(claim_token, str):
             return None
+        uuid.UUID(claim_token)
         return EvidenceMatch(
             chunk_id=uuid.UUID(str(payload["chunk_id"])),
             source_id=uuid.UUID(str(payload["source_id"])),

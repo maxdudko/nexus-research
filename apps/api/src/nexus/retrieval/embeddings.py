@@ -1,5 +1,6 @@
 """Async OpenAI embeddings. Tests inject the batch call and make no network request."""
 
+import math
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Protocol
 
@@ -90,9 +91,26 @@ class OpenAIEmbedder:
         except Exception as exc:
             raise map_provider_exception(exc) from None
         try:
-            return [[float(value) for value in vector] for vector in raw]
+            return [_finite_vector(vector) for vector in raw]
+        except ResearchError:
+            raise
         except TypeError, ValueError:
             raise invalid_model_output() from None
+
+
+def _finite_vector(vector: object) -> list[float]:
+    """Reject a provider vector that is not a finite sequence of numbers."""
+    if isinstance(vector, str) or not isinstance(vector, Sequence):
+        raise invalid_model_output()
+    values: list[float] = []
+    for value in vector:
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            raise invalid_model_output()
+        number = float(value)
+        if not math.isfinite(number):
+            raise invalid_model_output()
+        values.append(number)
+    return values
 
 
 def _require_texts(texts: Sequence[str]) -> None:

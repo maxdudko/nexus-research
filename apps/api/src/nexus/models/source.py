@@ -1,4 +1,10 @@
-"""Research-scoped source identity and indexing state."""
+"""Research-scoped source identity and indexing state.
+
+A PDF row is one digest. The same extracted text claims the same row, and a
+different digest inserts another row. ``uri`` is ``pdf:{content_hash}``. A web
+row is one URL. A new digest updates that row, and ``content_hash`` remains
+the last accepted text.
+"""
 
 import enum
 import re
@@ -53,11 +59,14 @@ def _enum_values(enum_cls: type[enum.Enum]) -> list[str]:
 class Source(Base):
     """One document inside a research scope.
 
-    ``content_hash`` is the last digest whose vectors were accepted. For a PDF
-    it is also the identity, so a claim stores it before the attempt succeeds.
-    ``indexing_content_hash`` is only the attempt in progress. Web identity is
-    ``(research_id, uri)``. PDF identity is ``(research_id, content_hash)`` and
-    ``uri`` is ``pdf:{content_hash}``, never a filesystem path.
+    PDF identity is ``(research_id, content_hash)``. The same extracted text
+    collapses onto one row, and a new digest is a new row. The claim stores
+    that digest immediately, and ``uri`` is ``pdf:{content_hash}``.
+
+    Web identity is ``(research_id, uri)``. A new digest updates the same row.
+    ``content_hash`` stays empty until the first successful upsert, then remains
+    the last accepted text when a later attempt fails. ``indexing_content_hash``
+    is only the attempt in progress.
     """
 
     __tablename__ = "sources"

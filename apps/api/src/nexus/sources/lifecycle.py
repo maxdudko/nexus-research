@@ -1,19 +1,37 @@
 """Claim and finish a source without committing the session.
 
 Callers own the transaction. These functions flush so constraint failures
-surface before commit, then leave the transaction open. Embedding and Qdrant
-writes happen after commit: a row lock must not stay checked out during those
-calls.
+surface before commit, then leave the transaction open.
 
-A later claim replaces ``indexing_token``. ``finish_*`` then raises
-``StaleClaim`` and does not write, so the slower attempt cannot mark the row
-indexed. ``content_hash`` stays the last accepted digest. A failed attempt
-clears only the in-progress hash.
+A PDF row is one digest. The same extracted text claims the same row, and a
+different digest inserts another row. A web row is one URL. A new digest
+updates that row, and ``content_hash`` remains the last accepted text.
+
+Group B indexes one attempt in this order:
+
+1. ``claim_source``, then commit.
+2. Embed outside the transaction.
+3. Reload the row. When the token was replaced, call ``abandon_claim`` and stop.
+4. Upsert points tagged with this claim token.
+5. Reload the row again. When the token was replaced, call ``abandon_claim``
+   and stop.
+6. ``retire_other_claims`` and ``finish_indexed`` in one transaction, then
+   commit.
+
+Embedding and the upsert stay outside the row lock. ``retire_other_claims``
+holds that lock across one Qdrant delete, so a newer claim cannot commit until
+the delete returns. A crash after the delete and before commit leaves the row
+``INDEXING``. The next claim upserts and retires again.
+
+A later claim replaces ``indexing_token``. ``finish_*`` and
+``retire_other_claims`` then raise ``StaleClaim`` and do not write. A stale
+attempt deletes only points tagged with its own token.
 """
 
 import uuid
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Protocol
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -43,6 +61,26 @@ class StaleClaim(Exception):
 
     def __init__(self) -> None:
         super().__init__("The indexing token no longer owns this source.")
+
+
+class ClaimPoints(Protocol):
+    """The Qdrant deletes Group B uses while a claim token is in play."""
+
+    async def delete_claim(
+        self,
+        *,
+        research_id: uuid.UUID,
+        source_id: uuid.UUID,
+        claim_token: uuid.UUID,
+    ) -> None: ...
+
+    async def delete_other_claims(
+        self,
+        *,
+        research_id: uuid.UUID,
+        source_id: uuid.UUID,
+        claim_token: uuid.UUID,
+    ) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -292,6 +330,43 @@ async def finish_unchanged(
     source.indexing_content_hash = None
     source.error_code = None
     await session.flush()
+
+
+async def retire_other_claims(
+    session: AsyncSession,
+    store: ClaimPoints,
+    *,
+    source_id: uuid.UUID,
+    token: uuid.UUID,
+) -> None:
+    """Delete points written by other tokens while this token owns the row.
+
+    Holds the row lock across the Qdrant delete. The caller commits afterward,
+    together with ``finish_indexed``. A replaced token raises ``StaleClaim``
+    before any delete.
+    """
+    source = await _lock_id(session, source_id)
+    _require_owner(source.status, source.indexing_token, token)
+    await store.delete_other_claims(
+        research_id=source.research_id,
+        source_id=source.id,
+        claim_token=token,
+    )
+
+
+async def abandon_claim(
+    store: ClaimPoints,
+    *,
+    research_id: uuid.UUID,
+    source_id: uuid.UUID,
+    token: uuid.UUID,
+) -> None:
+    """Delete points tagged with this token. A newer token is left in place."""
+    await store.delete_claim(
+        research_id=research_id,
+        source_id=source_id,
+        claim_token=token,
+    )
 
 
 def _require_owner(

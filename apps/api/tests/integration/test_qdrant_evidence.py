@@ -1,5 +1,6 @@
 """Research-scoped Qdrant writes using deterministic vectors and PostgreSQL claims."""
 
+import asyncio
 import hashlib
 import uuid
 
@@ -18,12 +19,15 @@ from nexus.retrieval.vector_store import (
     EvidenceVectorStore,
     create_qdrant_client,
 )
+from nexus.retrieval.versions import AcceptedVersion
 from nexus.sources.lifecycle import (
     ClaimAction,
     StaleClaim,
+    abandon_claim,
     claim_source,
     finish_failed,
     finish_indexed,
+    retire_other_claims,
 )
 
 pytestmark = pytest.mark.integration
@@ -82,6 +86,7 @@ def _passage(
     source_id: uuid.UUID,
     text: str,
     content_hash: str,
+    claim_token: uuid.UUID,
     *,
     chunk_index: int = 0,
 ) -> EvidencePoint:
@@ -92,6 +97,7 @@ def _passage(
         text=text,
         vector=_vector(text),
         content_hash=content_hash,
+        claim_token=claim_token,
         page_number=2,
         url="https://example.org/article",
         title="Article",
@@ -128,11 +134,11 @@ async def test_research_filter_replacement_and_idempotent_upsert(
 
         await store.upsert(
             research_id=research_id,
-            points=[_passage(research_id, source_id, first_text, first_hash)],
+            points=[_passage(research_id, source_id, first_text, first_hash, token)],
         )
         await store.upsert(
             research_id=research_id,
-            points=[_passage(research_id, source_id, first_text, first_hash)],
+            points=[_passage(research_id, source_id, first_text, first_hash, token)],
         )
         counted = await client.count(name, exact=True)
         assert counted.count == 1
@@ -177,22 +183,38 @@ async def test_research_filter_replacement_and_idempotent_upsert(
 
         await store.upsert(
             research_id=research_id,
-            points=[_passage(research_id, source_id, second_text, second_hash)],
+            points=[
+                _passage(
+                    research_id,
+                    source_id,
+                    second_text,
+                    second_hash,
+                    replacement.token,
+                ),
+            ],
         )
         both = await store.search(
             research_id=research_id,
             vector=_vector(first_text),
             limit=5,
         )
-        assert {match.content_hash for match in both} == {first_hash, second_hash}
-
-        await store.delete_except_hash(
+        accepted = await store.search_accepted(
             research_id=research_id,
-            source_id=source_id,
-            content_hash=second_hash,
+            vector=_vector(second_text),
+            limit=5,
+            versions=[AcceptedVersion(source_id=source_id, content_hash=second_hash)],
         )
+        assert {match.content_hash for match in both} == {first_hash, second_hash}
+        assert [match.content_hash for match in accepted] == [second_hash]
+
         async with factory() as session:
             async with session.begin():
+                await retire_other_claims(
+                    session,
+                    store,
+                    source_id=source_id,
+                    token=replacement.token,
+                )
                 await finish_indexed(
                     session,
                     source_id=source_id,
@@ -220,7 +242,11 @@ async def test_research_filter_replacement_and_idempotent_upsert(
         assert source.status is SourceStatus.INDEXED
         assert source.content_hash == second_hash
         info = await client.get_collection(name)
-        assert set(info.payload_schema) >= {"research_id", "source_id"}
+        for field_name in ("research_id", "source_id"):
+            assert (
+                info.payload_schema[field_name].data_type
+                is models.PayloadSchemaType.KEYWORD
+            )
     finally:
         await engine.dispose()
 
@@ -260,6 +286,7 @@ async def test_upsert_failure_does_not_mark_the_source_indexed(
                             claim.source_id,
                             "failed attempt",
                             content_hash,
+                            claim.token,
                         )
                     ],
                 )
@@ -279,7 +306,7 @@ async def test_upsert_failure_does_not_mark_the_source_indexed(
         await engine.dispose()
 
 
-async def test_losing_claim_deletes_only_its_own_hash(
+async def test_stale_claim_cannot_delete_newer_points(
     test_database_url: str,
     evidence_store: tuple[EvidenceVectorStore, object, str],
 ) -> None:
@@ -305,7 +332,15 @@ async def test_losing_claim_deletes_only_its_own_hash(
             assert first.token is not None
             await store.upsert(
                 research_id=research_id,
-                points=[_passage(research_id, first.source_id, first_text, first_hash)],
+                points=[
+                    _passage(
+                        research_id,
+                        first.source_id,
+                        first_text,
+                        first_hash,
+                        first.token,
+                    ),
+                ],
             )
             async with session.begin():
                 second = await claim_source(
@@ -321,37 +356,216 @@ async def test_losing_claim_deletes_only_its_own_hash(
             await store.upsert(
                 research_id=research_id,
                 points=[
-                    _passage(research_id, first.source_id, second_text, second_hash),
+                    _passage(
+                        research_id,
+                        first.source_id,
+                        second_text,
+                        second_hash,
+                        second.token,
+                    ),
                 ],
             )
-            await store.delete_hash(
+            accepted = await store.search_accepted(
                 research_id=research_id,
-                source_id=first.source_id,
-                content_hash=first_hash,
+                vector=_vector(second_text),
+                limit=5,
+                versions=[
+                    AcceptedVersion(
+                        source_id=first.source_id,
+                        content_hash=second_hash,
+                    ),
+                ],
             )
+            stored = await store.search(
+                research_id=research_id,
+                vector=_vector(first_text),
+                limit=5,
+            )
+            assert [match.text for match in accepted] == [second_text]
+            assert {match.content_hash for match in stored} == {first_hash, second_hash}
             with pytest.raises(StaleClaim):
                 async with session.begin():
-                    await finish_indexed(
+                    await retire_other_claims(
                         session,
+                        store,
                         source_id=first.source_id,
                         token=first.token,
-                        content_hash=first_hash,
-                        chunk_count=1,
                     )
-            await store.delete_except_hash(
+            after_reject = await store.search(
+                research_id=research_id,
+                vector=_vector(first_text),
+                limit=5,
+            )
+            assert {match.content_hash for match in after_reject} == {
+                first_hash,
+                second_hash,
+            }
+            await abandon_claim(
+                store,
                 research_id=research_id,
                 source_id=first.source_id,
-                content_hash=second_hash,
+                token=first.token,
+            )
+
+        removed = await store.search(
+            research_id=research_id,
+            vector=_vector(first_text),
+            limit=5,
+            content_hash=first_hash,
+        )
+        kept = await store.search(
+            research_id=research_id,
+            vector=_vector(second_text),
+            limit=5,
+            content_hash=second_hash,
+        )
+        assert removed == []
+        assert [match.text for match in kept] == [second_text]
+    finally:
+        await engine.dispose()
+
+
+async def test_replaced_token_cannot_delete_a_reused_digest(
+    test_database_url: str,
+    evidence_store: tuple[EvidenceVectorStore, object, str],
+) -> None:
+    store, client, name = evidence_store
+    await _upgrade(test_database_url)
+    engine = create_db_engine(test_database_url)
+    factory = session_factory(engine)
+    research_id = uuid.uuid4()
+    text = "same evidence"
+    digest = _hash(text)
+    try:
+        async with factory() as session:
+            async with session.begin():
+                first = await claim_source(
+                    session,
+                    research_id=research_id,
+                    source_type=SourceType.WEB,
+                    uri="https://example.org/same",
+                    content_hash=digest,
+                )
+            assert first.token is not None
+            await store.upsert(
+                research_id=research_id,
+                points=[
+                    _passage(research_id, first.source_id, text, digest, first.token),
+                ],
             )
             async with session.begin():
-                await finish_indexed(
+                second = await claim_source(
                     session,
-                    source_id=first.source_id,
-                    token=second.token,
-                    content_hash=second_hash,
-                    chunk_count=1,
+                    research_id=research_id,
+                    source_type=SourceType.WEB,
+                    uri="https://example.org/same",
+                    content_hash=digest,
                 )
+            assert second.token is not None
+            assert second.token != first.token
+            await store.upsert(
+                research_id=research_id,
+                points=[
+                    _passage(research_id, first.source_id, text, digest, second.token),
+                ],
+            )
+        await abandon_claim(
+            store,
+            research_id=research_id,
+            source_id=first.source_id,
+            token=first.token,
+        )
+        point_id = str(evidence_point_id(first.source_id, digest, 0))
+        records = await client.retrieve(collection_name=name, ids=[point_id])
+        kept = await store.search(
+            research_id=research_id,
+            vector=_vector(text),
+            limit=5,
+            content_hash=digest,
+        )
+        assert len(records) == 1
+        assert records[0].payload is not None
+        assert records[0].payload["claim_token"] == str(second.token)
+        assert [match.text for match in kept] == [text]
+    finally:
+        await engine.dispose()
 
+
+async def test_concurrent_retire_keeps_the_winning_token(
+    test_database_url: str,
+    evidence_store: tuple[EvidenceVectorStore, object, str],
+) -> None:
+    store, _client, _name = evidence_store
+    await _upgrade(test_database_url)
+    engine = create_db_engine(test_database_url)
+    factory = session_factory(engine)
+    research_id = uuid.uuid4()
+    first_text = "older evidence"
+    second_text = "newer evidence"
+    first_hash = _hash(first_text)
+    second_hash = _hash(second_text)
+    try:
+        async with factory() as session:
+            async with session.begin():
+                first = await claim_source(
+                    session,
+                    research_id=research_id,
+                    source_type=SourceType.WEB,
+                    uri="https://example.org/concurrent",
+                    content_hash=first_hash,
+                )
+            assert first.token is not None
+            await store.upsert(
+                research_id=research_id,
+                points=[
+                    _passage(
+                        research_id,
+                        first.source_id,
+                        first_text,
+                        first_hash,
+                        first.token,
+                    ),
+                ],
+            )
+            async with session.begin():
+                second = await claim_source(
+                    session,
+                    research_id=research_id,
+                    source_type=SourceType.WEB,
+                    uri="https://example.org/concurrent",
+                    content_hash=second_hash,
+                )
+            assert second.token is not None
+            await store.upsert(
+                research_id=research_id,
+                points=[
+                    _passage(
+                        research_id,
+                        first.source_id,
+                        second_text,
+                        second_hash,
+                        second.token,
+                    ),
+                ],
+            )
+
+        async def retire(token: uuid.UUID) -> None:
+            async with factory() as session:
+                async with session.begin():
+                    await retire_other_claims(
+                        session,
+                        store,
+                        source_id=first.source_id,
+                        token=token,
+                    )
+
+        outcomes = await asyncio.gather(
+            retire(first.token),
+            retire(second.token),
+            return_exceptions=True,
+        )
+        assert sum(isinstance(item, StaleClaim) for item in outcomes) == 1
+        assert sum(item is None for item in outcomes) == 1
         removed = await store.search(
             research_id=research_id,
             vector=_vector(first_text),

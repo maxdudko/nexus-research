@@ -59,6 +59,20 @@ async def test_batches_and_repeated_text_stay_stable() -> None:
     assert first[0] != first[1]
 
 
+@pytest.mark.parametrize(
+    "value",
+    [float("nan"), float("inf"), float("-inf"), "1.0", True],
+)
+async def test_malformed_vectors_are_rejected(value: object) -> None:
+    async def embed_batch(texts: Sequence[str]) -> list[list[object]]:
+        return [[value, 0.0, 0.0, 0.0] for _ in texts]
+
+    embedder = OpenAIEmbedder(make_settings(rag_vector_size=4), embed_batch)
+    with pytest.raises(ResearchError) as exc_info:
+        await embedder.embed_documents(["alpha"])
+    assert exc_info.value.code == "invalid_model_output"
+
+
 async def test_wrong_vector_width_is_rejected() -> None:
     async def embed_batch(texts: Sequence[str]) -> list[list[float]]:
         return [[1.0, 2.0] for _ in texts]
