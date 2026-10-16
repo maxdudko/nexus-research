@@ -19,9 +19,11 @@ Group B indexes one attempt in this order:
    commit.
 
 Embedding and the upsert stay outside the row lock. ``retire_other_claims``
-holds that lock across one Qdrant delete, so a newer claim cannot commit until
-the delete returns. A crash after the delete and before commit leaves the row
-``INDEXING``. The next claim upserts and retires again.
+holds that lock while it marks this token accepted and deletes other tokens,
+so a newer claim cannot commit until those writes return. A crash after the
+delete and before commit leaves the row ``INDEXING``. The next claim upserts
+and retires again. A late upsert uses a different point id and stays
+unaccepted until its own retire.
 
 A later claim replaces ``indexing_token``. ``finish_*`` and
 ``retire_other_claims`` then raise ``StaleClaim`` and do not write. A stale
@@ -75,6 +77,14 @@ class ClaimPoints(Protocol):
     ) -> None: ...
 
     async def delete_other_claims(
+        self,
+        *,
+        research_id: uuid.UUID,
+        source_id: uuid.UUID,
+        claim_token: uuid.UUID,
+    ) -> None: ...
+
+    async def accept_claim(
         self,
         *,
         research_id: uuid.UUID,
@@ -339,14 +349,19 @@ async def retire_other_claims(
     source_id: uuid.UUID,
     token: uuid.UUID,
 ) -> None:
-    """Delete points written by other tokens while this token owns the row.
+    """Accept this token's points and delete points written by other tokens.
 
-    Holds the row lock across the Qdrant delete. The caller commits afterward,
+    Holds the row lock across both Qdrant writes. The caller commits afterward,
     together with ``finish_indexed``. A replaced token raises ``StaleClaim``
-    before any delete.
+    before either write.
     """
     source = await _lock_id(session, source_id)
     _require_owner(source.status, source.indexing_token, token)
+    await store.accept_claim(
+        research_id=source.research_id,
+        source_id=source.id,
+        claim_token=token,
+    )
     await store.delete_other_claims(
         research_id=source.research_id,
         source_id=source.id,

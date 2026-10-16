@@ -4,11 +4,12 @@ The adapter never deletes or recreates a collection. A size, distance, or
 payload-index mismatch raises ``collection_mismatch`` and leaves the existing
 collection in place. Every search filter includes ``research_id`` on the server.
 
-Each point stores the ``claim_token`` that wrote it. ``delete_claim`` removes
-only that token. ``delete_other_claims`` removes every other token for one
-source; Group B calls it through ``retire_other_claims`` while that token owns
-the row. ``search`` can see every stored digest. Group C calls
-``search_accepted`` with ``accepted_versions``.
+Each point stores the ``claim_token`` that wrote it. The point id includes
+that token, so two attempts do not share ids. Upsert stores ``accepted`` as
+false. ``retire_other_claims`` sets it true and then deletes other tokens
+while the row lock is held. ``delete_claim`` removes only its own token.
+``search`` can see every stored digest. Group C calls ``search_accepted`` with
+``accepted_versions``; that filter also requires ``accepted`` true.
 """
 
 import logging
@@ -157,6 +158,33 @@ class EvidenceVectorStore:
             _claim_filter(research_id, source_id, claim_token, exclude=True),
         )
 
+    async def accept_claim(
+        self,
+        *,
+        research_id: uuid.UUID,
+        source_id: uuid.UUID,
+        claim_token: uuid.UUID,
+    ) -> None:
+        """Mark this token's points accepted. Other tokens stay unchanged."""
+        try:
+            await self._ensure_collection()
+            await self._client.set_payload(
+                collection_name=self._settings.rag_collection,
+                payload={"accepted": True},
+                points=_claim_filter(
+                    research_id,
+                    source_id,
+                    claim_token,
+                    exclude=False,
+                ),
+                wait=True,
+            )
+        except ResearchError:
+            raise
+        except Exception as exc:
+            _log_failure("qdrant accept failed", exc)
+            raise provider_unavailable() from None
+
     async def search(
         self,
         *,
@@ -191,6 +219,7 @@ class EvidenceVectorStore:
         """Search the accepted digest of each source.
 
         An empty version list returns no matches and does not query Qdrant.
+        Points whose payload ``accepted`` flag is false are omitted.
         """
         if not versions:
             return []
@@ -200,6 +229,7 @@ class EvidenceVectorStore:
             query,
             limit,
             _accepted_filter(research_id, versions),
+            accepted_only=True,
         )
 
     async def _query(
@@ -208,6 +238,8 @@ class EvidenceVectorStore:
         vector: list[float],
         limit: int,
         query_filter: models.Filter,
+        *,
+        accepted_only: bool = False,
     ) -> list[EvidenceMatch]:
         try:
             await self._ensure_collection()
@@ -226,7 +258,12 @@ class EvidenceVectorStore:
             raise provider_unavailable() from None
         matches: list[EvidenceMatch] = []
         for point in response.points:
-            match = _match_from_point(point.payload, point.score, research_id)
+            match = _match_from_point(
+                point.payload,
+                point.score,
+                research_id,
+                accepted_only=accepted_only,
+            )
             if match is not None:
                 matches.append(match)
         return matches
@@ -328,8 +365,12 @@ def _accepted_filter(
             _match_field("content_hash", digest),
         ]
         should.append(models.Filter(must=pair))
+    must: list[models.Condition] = [
+        _match_field("research_id", str(research_id)),
+        _match_bool("accepted", True),
+    ]
     return models.Filter(
-        must=[_match_field("research_id", str(research_id))],
+        must=must,
         should=should,
         min_should=models.MinShould(conditions=should, min_count=1),
     )
@@ -380,6 +421,10 @@ def _match_field(key: str, value: str) -> models.FieldCondition:
     return models.FieldCondition(key=key, match=models.MatchValue(value=value))
 
 
+def _match_bool(key: str, value: bool) -> models.FieldCondition:
+    return models.FieldCondition(key=key, match=models.MatchValue(value=value))
+
+
 def _require_vectors(info: models.CollectionInfo, size: int) -> None:
     vectors = info.config.params.vectors
     if not isinstance(vectors, models.VectorParams):
@@ -412,8 +457,13 @@ def _point_struct(
         raise ValueError("claim_token must be a UUID")
     if len(point.vector) != width or not _finite(point.vector):
         raise ValueError("vector length must match the configured dimension")
-    chunk_id = evidence_point_id(point.source_id, digest, point.chunk_index)
-    payload: dict[str, str | int | None] = {
+    chunk_id = evidence_point_id(
+        point.source_id,
+        digest,
+        point.claim_token,
+        point.chunk_index,
+    )
+    payload: dict[str, str | int | bool | None] = {
         "research_id": str(point.research_id),
         "source_id": str(point.source_id),
         "chunk_id": str(chunk_id),
@@ -424,6 +474,7 @@ def _point_struct(
         "title": point.title,
         "content_hash": digest,
         "claim_token": str(point.claim_token),
+        "accepted": False,
         "schema_version": SCHEMA_VERSION,
     }
     return models.PointStruct(
@@ -452,6 +503,8 @@ def _match_from_point(
     payload: models.Payload | None,
     score: float | None,
     research_id: uuid.UUID,
+    *,
+    accepted_only: bool = False,
 ) -> EvidenceMatch | None:
     if not isinstance(payload, Mapping) or score is None:
         return None
@@ -460,6 +513,8 @@ def _match_from_point(
         if parsed_research != research_id:
             return None
         if payload.get("schema_version") != SCHEMA_VERSION:
+            return None
+        if accepted_only and payload.get("accepted") is not True:
             return None
         text = payload["text"]
         digest = payload["content_hash"]

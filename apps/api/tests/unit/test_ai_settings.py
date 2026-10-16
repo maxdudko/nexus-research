@@ -15,6 +15,16 @@ def test_ai_defaults_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("NEXUS_RAG_VECTOR_SIZE", raising=False)
     monkeypatch.delenv("NEXUS_EMBEDDING_TIMEOUT_SECONDS", raising=False)
     monkeypatch.delenv("NEXUS_EMBEDDING_BATCH_SIZE", raising=False)
+    monkeypatch.delenv("NEXUS_PDF_MAX_BYTES", raising=False)
+    monkeypatch.delenv("NEXUS_PDF_MAX_PAGES", raising=False)
+    monkeypatch.delenv("NEXUS_WEB_MAX_BYTES", raising=False)
+    monkeypatch.delenv("NEXUS_WEB_MAX_REDIRECTS", raising=False)
+    monkeypatch.delenv("NEXUS_CHUNK_TOKENS", raising=False)
+    monkeypatch.delenv("NEXUS_CHUNK_OVERLAP_TOKENS", raising=False)
+    monkeypatch.delenv("NEXUS_MAX_CHUNKS", raising=False)
+    monkeypatch.delenv("NEXUS_EXTRACTED_TEXT_MAX_CHARS", raising=False)
+    monkeypatch.delenv("NEXUS_INGESTION_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.delenv("NEXUS_WEB_TIMEOUT_SECONDS", raising=False)
 
     settings = make_settings()
 
@@ -26,6 +36,16 @@ def test_ai_defaults_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.rag_vector_size == 1536
     assert settings.embedding_timeout_seconds == 20.0
     assert settings.embedding_batch_size == 64
+    assert settings.pdf_max_bytes == 10 * 1024 * 1024
+    assert settings.pdf_max_pages == 100
+    assert settings.web_max_bytes == 2 * 1024 * 1024
+    assert settings.web_max_redirects == 3
+    assert settings.chunk_tokens == 800
+    assert settings.chunk_overlap_tokens == 120
+    assert settings.max_chunks == 200
+    assert settings.extracted_text_max_chars == 1_000_000
+    assert settings.ingestion_timeout_seconds == 60.0
+    assert settings.web_timeout_seconds == 10.0
     assert settings.ai_timeout_seconds == 20.0
     assert settings.ai_max_retries == 1
     assert settings.discovery_timeout_seconds == 90.0
@@ -117,3 +137,8 @@ def test_embedding_batch_size_is_bounded(batch_size: int) -> None:
 def test_embedding_timeout_must_be_positive() -> None:
     with pytest.raises(ValidationError):
         make_settings(embedding_timeout_seconds=0)
+
+
+def test_chunk_overlap_must_fit_in_the_chunk() -> None:
+    with pytest.raises(ValidationError):
+        make_settings(chunk_tokens=120, chunk_overlap_tokens=120)

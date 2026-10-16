@@ -3,7 +3,7 @@
 import re
 import sys
 from functools import lru_cache
-from typing import Literal
+from typing import Literal, Self
 
 from pydantic import (
     AnyHttpUrl,
@@ -12,6 +12,7 @@ from pydantic import (
     SecretStr,
     ValidationError,
     field_validator,
+    model_validator,
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -43,6 +44,22 @@ class Settings(BaseSettings):
     rag_vector_size: int = Field(default=1536, gt=0)
     embedding_timeout_seconds: float = Field(default=20.0, gt=0)
     embedding_batch_size: int = Field(default=64, ge=1, le=128)
+    pdf_max_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
+    pdf_max_pages: int = Field(default=100, gt=0)
+    web_max_bytes: int = Field(default=2 * 1024 * 1024, gt=0)
+    web_max_redirects: int = Field(default=3, ge=0, le=5)
+    chunk_tokens: int = Field(default=800, gt=0)
+    chunk_overlap_tokens: int = Field(default=120, ge=0)
+    max_chunks: int = Field(default=200, gt=0)
+    extracted_text_max_chars: int = Field(default=1_000_000, gt=0)
+    ingestion_timeout_seconds: float = Field(default=60.0, gt=0)
+    web_timeout_seconds: float = Field(default=10.0, gt=0)
+
+    @model_validator(mode="after")
+    def overlap_fits_in_a_chunk(self) -> Self:
+        if self.chunk_overlap_tokens >= self.chunk_tokens:
+            raise ValueError("chunk overlap must be smaller than the chunk size")
+        return self
 
     @field_validator("openai_api_key", "tavily_api_key", mode="before")
     @classmethod

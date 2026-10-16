@@ -154,14 +154,16 @@ def _values(condition_filter: models.Filter) -> dict[str, str]:
     return found
 
 
-def test_point_ids_follow_the_source_hash_and_chunk() -> None:
+def test_point_ids_follow_the_source_hash_token_and_chunk() -> None:
     source_id = uuid.uuid4()
-    first = evidence_point_id(source_id, HASH, 0)
-    assert first == evidence_point_id(source_id, HASH, 0)
-    assert first != evidence_point_id(source_id, HASH, 1)
-    assert first != evidence_point_id(source_id, OTHER, 0)
+    other_token = uuid.uuid4()
+    first = evidence_point_id(source_id, HASH, TOKEN, 0)
+    assert first == evidence_point_id(source_id, HASH, TOKEN, 0)
+    assert first != evidence_point_id(source_id, HASH, TOKEN, 1)
+    assert first != evidence_point_id(source_id, OTHER, TOKEN, 0)
+    assert first != evidence_point_id(source_id, HASH, other_token, 0)
     with pytest.raises(ValueError, match="chunk_index"):
-        evidence_point_id(source_id, HASH, -1)
+        evidence_point_id(source_id, HASH, TOKEN, -1)
 
 
 async def test_missing_collection_is_created_with_cosine_and_payload_indexes() -> None:
@@ -207,13 +209,14 @@ async def test_upsert_uses_stable_ids_and_rejects_another_research() -> None:
     await store.upsert(research_id=research_id, points=[_point(research_id, source_id)])
 
     point = client.upserts[0][0]
-    expected = evidence_point_id(source_id, HASH, 0)
+    expected = evidence_point_id(source_id, HASH, TOKEN, 0)
     assert point.id == str(expected)
     assert point.payload is not None
     assert point.payload["chunk_id"] == str(expected)
     assert point.payload["schema_version"] == 1
     assert point.payload["research_id"] == str(research_id)
     assert point.payload["claim_token"] == str(TOKEN)
+    assert point.payload["accepted"] is False
 
     with pytest.raises(ValueError, match="research_id"):
         await store.upsert(
@@ -298,7 +301,7 @@ async def test_failed_upsert_does_not_hide_the_provider_error() -> None:
 async def test_malformed_payloads_are_dropped() -> None:
     research_id = uuid.uuid4()
     source_id = uuid.uuid4()
-    chunk_id = evidence_point_id(source_id, HASH, 0)
+    chunk_id = evidence_point_id(source_id, HASH, TOKEN, 0)
     good = {
         "research_id": str(research_id),
         "source_id": str(source_id),
@@ -421,7 +424,19 @@ async def test_search_accepted_requires_each_version() -> None:
     )
 
     query = client.searches[0]
-    assert _values(query) == {"research_id": str(research_id)}
+    assert _values(query) == {
+        "research_id": str(research_id),
+        "accepted": "True",
+    }
+    assert query.must is not None
+    accepted = [
+        condition
+        for condition in query.must
+        if isinstance(condition, models.FieldCondition) and condition.key == "accepted"
+    ]
+    assert len(accepted) == 1
+    assert isinstance(accepted[0].match, models.MatchValue)
+    assert accepted[0].match.value is True
     assert query.min_should is not None
     assert query.min_should.min_count == 1
     assert query.should is not None

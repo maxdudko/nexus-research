@@ -48,6 +48,58 @@ def provider_unavailable() -> ResearchError:
     return ResearchError("provider_unavailable", 503, PROVIDER_UNAVAILABLE)
 
 
+def payload_too_large() -> ResearchError:
+    return ResearchError(
+        "payload_too_large",
+        413,
+        "The document exceeds the ingestion limit.",
+    )
+
+
+def unsupported_media() -> ResearchError:
+    return ResearchError(
+        "unsupported_media",
+        415,
+        "Only a text PDF can be indexed.",
+    )
+
+
+def empty_document() -> ResearchError:
+    return ResearchError(
+        "empty_document",
+        422,
+        "The document has no extractable text.",
+    )
+
+
+def unsafe_url() -> ResearchError:
+    return ResearchError(
+        "unsafe_url",
+        422,
+        "The URL is not a public HTTP(S) address.",
+    )
+
+
+def indexing_in_progress() -> ResearchError:
+    return ResearchError(
+        "indexing_in_progress",
+        409,
+        "Another indexing attempt is still running.",
+    )
+
+
+def fetch_failed() -> ResearchError:
+    return ResearchError("fetch_failed", 422, "The page could not be fetched.")
+
+
+def fetch_timeout() -> ResearchError:
+    return ResearchError("fetch_timeout", 504, "The page fetch timed out.")
+
+
+def ingestion_timeout() -> ResearchError:
+    return ResearchError("ingestion_timeout", 504, "Ingestion timed out.")
+
+
 def collection_mismatch() -> ResearchError:
     """The Qdrant collection exists but does not match this index contract."""
     return ResearchError(
