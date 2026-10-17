@@ -117,6 +117,38 @@ def search_failed() -> ResearchError:
     )
 
 
+def checkpoint_unavailable() -> ResearchError:
+    return ResearchError(
+        "checkpoint_unavailable",
+        503,
+        "The research checkpoint store is unavailable.",
+    )
+
+
+def deadline_exceeded() -> ResearchError:
+    return ResearchError(
+        "deadline_exceeded",
+        504,
+        "The research run exceeded its deadline.",
+    )
+
+
+def run_interrupted() -> ResearchError:
+    return ResearchError(
+        "interrupted",
+        504,
+        "The research run was interrupted.",
+    )
+
+
+def invalid_state() -> ResearchError:
+    return ResearchError(
+        "invalid_state",
+        500,
+        "The research run state is invalid.",
+    )
+
+
 def map_provider_exception(exc: Exception) -> ResearchError:
     """Map a provider failure to a fixed error. Discard the original text."""
     if isinstance(exc, ResearchError):

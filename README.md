@@ -21,9 +21,9 @@ Nexus Research is an experimental, Python-first application that investigates co
 
 ## Status
 
-🚧 **Phase 1 foundation, Phase 2 planning and web search, and Phase 3 evidence ingestion and search are implemented.** The API, local PostgreSQL and Qdrant, Alembic, and health checks are in place. `POST /api/v1/research/plan` returns a structured research plan from OpenAI. `POST /api/v1/research/discover` runs a bounded Tavily search and returns the snippets it retrieved. `POST /api/v1/evidence/pdf`, `POST /api/v1/evidence/web`, and `POST /api/v1/evidence/search` index a text PDF or one public HTML page and return scoped passages. LangGraph is a later phase.
+🚧 **Phases 1–4 are implemented through a request-scoped research run.** The API, local PostgreSQL and Qdrant, Alembic, and health checks are in place. `POST /api/v1/research/plan` returns a structured research plan from OpenAI. `POST /api/v1/research/discover` runs a bounded Tavily search and returns the snippets it retrieved. `POST /api/v1/evidence/pdf`, `POST /api/v1/evidence/web`, and `POST /api/v1/evidence/search` index a text PDF or one public HTML page and return scoped passages. `POST /api/v1/research/run` waits for one LangGraph run and returns a cited report, or the existing error envelope when the run fails.
 
-See the [development roadmap](docs/roadmap.md) for milestones and scope. Notes on the Python concepts from Phase 1 are in [Phase 1 learning notes](docs/learning/phase-1.md). Notes on structured output, tool calling, and search budgets are in [Phase 2 learning notes](docs/learning/phase-2.md). Notes on scoped retrieval are in [Phase 3 learning notes](docs/learning/phase-3.md).
+See the [development roadmap](docs/roadmap.md) for milestones and scope. Notes on the Python concepts from Phase 1 are in [Phase 1 learning notes](docs/learning/phase-1.md). Notes on structured output, tool calling, and search budgets are in [Phase 2 learning notes](docs/learning/phase-2.md). Notes on scoped retrieval are in [Phase 3 learning notes](docs/learning/phase-3.md). Notes on checkpoints and cancellation are in [Phase 4 learning notes](docs/learning/phase-4.md).
 
 ## Evidence
 
@@ -269,6 +269,33 @@ NEXUS_RUN_LIVE_AI=1 \
   NEXUS_TAVILY_API_KEY=tvly-... \
   uv run pytest -m live
 ```
+
+### Research run
+
+`POST /api/v1/research/run` accepts a question and an optional `research_id`. The server always mints a new `run_id`. A client `run_id` or `thread_id` is 422 `invalid_request`. The same `research_id` on a later request is a new thread that can see evidence already indexed for that scope. It does not continue the previous thread.
+
+The request waits until the graph finishes. There is no worker, no queue, and no server-sent events. `completed`, `partial`, and `insufficient_evidence` return 200 with the report, identifier warnings, and usage. `failed` and a hard deadline return the `{ "error": { "code", "message" } }` envelope and no report. A missing OpenAI key is 503 `provider_not_configured`. A checkpoint store that is down or not migrated is 503 `checkpoint_unavailable`. The message does not include the database URL.
+
+`search_calls` and `llm_calls` count logical calls. A retry inside the OpenAI SDK or inside one Tavily search does not increase either number. A citation id means that passage was retrieved for this run. It does not prove the sentence is entailed by the excerpt.
+
+A checkpoint row is durable state. It can be read after the pool is closed and a new checkpointer connects. LangGraph resumes a thread only when `ainvoke` is called again with that same thread id. This API never does that. A row left at `running` is abandoned, not a queued job.
+
+Three stops are different:
+
+- The graph deadline (`NEXUS_GRAPH_DEADLINE_SECONDS`, default 180) can still return 200 with a partial or insufficient report.
+- The HTTP wait is that deadline plus 5 seconds. A proxy read timeout must sit above that sum; 200 seconds is a safe start. If this hard wait fires, the handler writes `interrupted` while the request is alive and returns 504 `deadline_exceeded` with no report.
+- Closing the client, or killing the process, does not write a new status and does not continue the graph. The last completed node may stay `running`.
+
+There is no resume API, no authentication, no durable PDF storage, and no checkpoint cleanup. Checkpoint tables are not a history API. A later run with the same `research_id` repeats Tavily and OpenAI calls. Fetching the same page again goes through Phase 3 ingestion, which keeps one source when the content is unchanged.
+
+Create those tables once. Alembic does not own them, and a request does not migrate them:
+
+```bash
+cd apps/api
+uv run python -m nexus.research.checkpoint
+```
+
+Index a PDF with `POST /api/v1/evidence/pdf` before the run, then pass that `research_id`. `/run` does not accept PDF bytes.
 
 ### Troubleshooting
 

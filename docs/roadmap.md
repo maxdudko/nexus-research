@@ -40,7 +40,7 @@ Nexus Research is planned as a seven-phase, approximately 14-day MVP build. The 
 - Support conditional transitions, bounded retries, and execution state.
 - Generate structured reports with source citations and explicit uncertainty.
 
-**Deliverable:** A research request can run from question to evidence-backed report through a bounded LangGraph workflow.
+**Deliverable:** `POST /api/v1/research/run` runs one question to a cited report through a bounded LangGraph workflow. PostgreSQL checkpoints record that state. A cancelled, timed-out, or crashed run is not resumed in the background.
 
 ## Phase 5 — Product UI (Days 10–11)
 

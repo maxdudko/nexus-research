@@ -1,9 +1,12 @@
-"""HTTP and provider contracts for research planning and discovery."""
+"""HTTP and provider contracts for research planning, discovery, and runs."""
 
 from datetime import datetime
 from typing import Literal, Self
+from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from nexus.schemas.report import GraphUsage, ReportStatus, ResearchReport
 
 QUERY_MAX_LENGTH = 200
 
@@ -19,6 +22,35 @@ class ResearchQuestionRequest(BaseModel):
         if isinstance(value, str):
             return value.strip()
         return value
+
+
+class ResearchRunRequest(BaseModel):
+    """One research run. The server chooses the thread id."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    question: str = Field(min_length=10, max_length=2000)
+    research_id: UUID | None = None
+
+    @field_validator("question", mode="before")
+    @classmethod
+    def strip_question(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+
+class ResearchRunResponse(BaseModel):
+    """A finished report. Failed and interrupted runs use the error envelope."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    research_id: UUID
+    run_id: UUID
+    status: ReportStatus
+    report: ResearchReport
+    warnings: list[str]
+    usage: GraphUsage
 
 
 class ResearchTask(BaseModel):

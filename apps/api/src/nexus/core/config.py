@@ -54,6 +54,13 @@ class Settings(BaseSettings):
     extracted_text_max_chars: int = Field(default=1_000_000, gt=0)
     ingestion_timeout_seconds: float = Field(default=60.0, gt=0)
     web_timeout_seconds: float = Field(default=10.0, gt=0)
+    graph_max_iterations: int = Field(default=2, ge=1, le=2)
+    graph_max_search_calls: int = Field(default=6, ge=1, le=100)
+    graph_max_llm_calls: int = Field(default=13, ge=1, le=100)
+    graph_max_web_pages: int = Field(default=5, ge=1, le=20)
+    graph_max_passages: int = Field(default=12, ge=1, le=50)
+    graph_deadline_seconds: float = Field(default=180.0, gt=0, le=600)
+    graph_excerpt_chars: int = Field(default=500, ge=1, le=2000)
 
     @model_validator(mode="after")
     def overlap_fits_in_a_chunk(self) -> Self:
