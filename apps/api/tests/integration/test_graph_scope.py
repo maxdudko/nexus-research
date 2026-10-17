@@ -22,13 +22,14 @@ from tests.unit.graph_support import (
     FakePlanner,
     ScriptedEvaluator,
     coverage,
+    discovered,
     empty_discovery,
     plan_for,
 )
 
 from nexus.core.config import Settings, get_settings
 from nexus.infrastructure.database import create_db_engine, session_factory
-from nexus.ingestion.service import IngestionService
+from nexus.ingestion.service import IngestionResult, IngestionService
 from nexus.ingestion.transport import FetchedPage
 from nexus.research.budgets import limits_from_settings
 from nexus.research.graph import GraphContext, build_graph
@@ -138,3 +139,72 @@ async def test_duplicate_ingest_stays_one_source_and_foreign_text_is_not_cited(
         source.research_id == str(research_id) for source in result.report.sources
     )
     assert FOREIGN not in encoded
+
+
+class _RecordingIngestion(IngestionService):
+    """The Phase 3 service, plus the results the graph received."""
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        super().__init__(*args, **kwargs)  # type: ignore[arg-type]
+        self.results: list[IngestionResult] = []
+
+    async def ingest_web(self, research_id: uuid.UUID, url: str) -> IngestionResult:
+        result = await super().ingest_web(research_id, url)
+        self.results.append(result)
+        return result
+
+
+async def test_a_second_graph_run_refetches_and_keeps_one_source(
+    test_database_url: str,
+    evidence_store: tuple[EvidenceVectorStore, Settings],
+) -> None:
+    store, settings = evidence_store
+    await _upgrade(test_database_url)
+    engine = create_db_engine(test_database_url)
+    factory = session_factory(engine)
+    embedder = DeterministicEmbedder()
+    page_url = "https://example.org/repeat"
+    fetches: list[str] = []
+
+    async def fetch_page(url: str) -> FetchedPage:
+        fetches.append(url)
+        return FetchedPage(
+            url=url,
+            body=ARTICLE.format(
+                title="Repeat",
+                body="This page explains the accepted digest.",
+            ).encode(),
+        )
+
+    service = _RecordingIngestion(
+        factory,
+        store,
+        embedder,
+        settings,
+        fetch_page=fetch_page,
+    )
+    page = discovered(page_url, search_calls=1, llm_calls=1)
+    context = GraphContext(
+        planner=FakePlanner(plan_for(["accepted digest"])),
+        discovery=FakeDiscovery([page, page]),
+        ingestion=service,
+        retrieval=RetrievalService(factory, store, embedder),
+        evaluator=ScriptedEvaluator(
+            [coverage(sufficient=True), coverage(sufficient=True)]
+        ),
+        synthesizer=StaticSynthesizer(),
+        limits=limits_from_settings(make_settings()),
+        clock=lambda: NOW,
+    )
+    runner = ResearchRunner(graph=build_graph(InMemorySaver()), context=context)
+    try:
+        first = await runner.run(QUESTION, None)
+        second = await runner.run(QUESTION, first.research_id)
+    finally:
+        await engine.dispose()
+
+    assert second.research_id == first.research_id
+    assert second.run_id != first.run_id
+    assert fetches == [page_url, page_url]
+    assert [item.deduplicated for item in service.results] == [False, True]
+    assert service.results[0].source_id == service.results[1].source_id

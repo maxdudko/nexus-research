@@ -276,9 +276,17 @@ NEXUS_RUN_LIVE_AI=1 \
 
 The request waits until the graph finishes. There is no worker, no queue, and no server-sent events. `completed`, `partial`, and `insufficient_evidence` return 200 with the report, identifier warnings, and usage. `failed` and a hard deadline return the `{ "error": { "code", "message" } }` envelope and no report. A missing OpenAI key is 503 `provider_not_configured`. A checkpoint store that is down or not migrated is 503 `checkpoint_unavailable`. The message does not include the database URL.
 
-The graph itself stops at `NEXUS_GRAPH_DEADLINE_SECONDS` (default 180) and can still return a partial or insufficient report. The HTTP wait is that deadline plus 5 seconds. A proxy read timeout must sit above that sum; 200 seconds is a safe start. If the hard wait still fires, the response is 504 `deadline_exceeded`.
+`search_calls` and `llm_calls` count logical calls. A retry inside the OpenAI SDK or inside one Tavily search does not increase either number. A citation id means that passage was retrieved for this run. It does not prove the sentence is entailed by the excerpt.
 
-Closing the client abandons the thread. The checkpoint may stay `running`. Nothing resumes it. The same thread id is never invoked again. There is no resume API, no authentication, no durable PDF storage, and no checkpoint cleanup. Checkpoint tables are not a history API.
+A checkpoint row is durable state. It can be read after the pool is closed and a new checkpointer connects. LangGraph resumes a thread only when `ainvoke` is called again with that same thread id. This API never does that. A row left at `running` is abandoned, not a queued job.
+
+Three stops are different:
+
+- The graph deadline (`NEXUS_GRAPH_DEADLINE_SECONDS`, default 180) can still return 200 with a partial or insufficient report.
+- The HTTP wait is that deadline plus 5 seconds. A proxy read timeout must sit above that sum; 200 seconds is a safe start. If this hard wait fires, the handler writes `interrupted` while the request is alive and returns 504 `deadline_exceeded` with no report.
+- Closing the client, or killing the process, does not write a new status and does not continue the graph. The last completed node may stay `running`.
+
+There is no resume API, no authentication, no durable PDF storage, and no checkpoint cleanup. Checkpoint tables are not a history API. A later run with the same `research_id` repeats Tavily and OpenAI calls. Fetching the same page again goes through Phase 3 ingestion, which keeps one source when the content is unchanged.
 
 Create those tables once. Alembic does not own them, and a request does not migrate them:
 

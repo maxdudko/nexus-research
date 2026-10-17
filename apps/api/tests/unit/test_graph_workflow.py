@@ -189,6 +189,29 @@ async def test_no_progress_stops_after_a_failed_page() -> None:
     assert ingestion.calls == [(research_id, "https://example.org/broken")]
 
 
+async def test_discovery_provider_failure_charges_the_ceiling() -> None:
+    planner = FakePlanner(plan_for(["alpha limits"]))
+    discovery = FakeDiscovery([provider_not_configured()])
+    ingestion = FakeIngestion()
+    retrieval = FakeRetrieval([])
+    result, _research_id = await _run(
+        planner=planner,
+        discovery=discovery,
+        ingestion=ingestion,
+        retrieval=retrieval,
+        evaluator=ScriptedEvaluator([]),
+    )
+
+    assert result["status"] == "insufficient_evidence"
+    assert result["status"] != "completed"
+    assert result["report"] is not None
+    assert result["usage"]["search_calls"] == 3
+    assert result["usage"]["llm_calls"] == 5
+    assert "discovery_failed" in result["warnings"]
+    assert len(discovery.questions) == 1
+    assert ingestion.calls == []
+
+
 async def test_planner_failure_does_not_produce_a_report() -> None:
     planner = FakePlanner(provider_not_configured())
     discovery = FakeDiscovery([])

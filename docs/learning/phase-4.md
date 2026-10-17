@@ -8,11 +8,11 @@
 
 `research_id` is the evidence scope. Passages indexed for that id stay searchable by a later run. `run_id` is the LangGraph `thread_id`. The server mints a new one for every request, including a request that repeats a `research_id`. The client cannot send either a `run_id` or a `thread_id`.
 
-Two runs can therefore share sources without sharing a checkpoint. LangGraph resumes a thread when `ainvoke` sees an existing checkpoint for that thread id. This API never invokes the same thread twice, so a leftover `running` checkpoint is not a job.
+Two runs can therefore share sources without sharing a checkpoint. A checkpoint row survives closing the pool and opening a new saver. That is persistence. LangGraph resumes execution only when `ainvoke` is called again with the same `thread_id`. This API never does that, so a leftover `running` checkpoint is abandoned state, not a job.
 
 ### Why is a checkpoint not a queue or a transaction?
 
-A checkpoint is the graph state after a node. It lets a later process read what happened. It does not enqueue a worker, and it does not roll the node back. The HTTP handler is the only thing that calls the graph. When that handler returns, crashes, or is cancelled, no other process picks the row up.
+A checkpoint is the graph state after a node. A later process can read it. It does not enqueue a worker, and it does not roll the node back. The HTTP handler is the only thing that calls the graph. When that handler returns, crashes, or is cancelled, no other process picks the row up.
 
 The tables (`checkpoint_migrations`, `checkpoints`, `checkpoint_blobs`, `checkpoint_writes`) are created by `uv run python -m nexus.research.checkpoint`. Alembic does not own them. They are not a history API: the run response does not list rows, and nothing deletes old threads.
 
@@ -20,9 +20,19 @@ The tables (`checkpoint_migrations`, `checkpoints`, `checkpoint_blobs`, `checkpo
 
 ### What happens when the client disconnects?
 
-The handler re-raises `CancelledError` immediately. It does not shield a follow-up task, so cancellation does not leave the graph running in the background. The last checkpoint may still say `running`. That means the thread was abandoned.
+The handler re-raises `CancelledError` immediately. It does not shield a follow-up task, so cancellation does not leave the graph running in the background.
 
-A separate HTTP timer sits 5 seconds past `NEXUS_GRAPH_DEADLINE_SECONDS`. The graph can use its own deadline to finish as `partial` or `insufficient_evidence`. If the outer timer still fires, the handler records `interrupted` while the request is alive and returns 504 `deadline_exceeded` with no report. A proxy read timeout has to be longer than that outer wait.
+Three stops write different state:
+
+- The graph's own deadline can finish as `partial` or `insufficient_evidence` and return 200.
+- The HTTP timer sits 5 seconds past `NEXUS_GRAPH_DEADLINE_SECONDS`. If that hard wait fires, the handler writes `interrupted` while the request is alive and returns 504 `deadline_exceeded` with no report. A proxy read timeout has to be longer than that outer wait.
+- A client disconnect or a process death does not write a new status. The last completed node stays `running`. Nothing resumes it.
+
+### What is repeated when a run is started again?
+
+External calls are at least once. A new `run_id` calls Tavily and OpenAI again, even when `research_id` is reused. A node that is cancelled after the provider has responded can leave that call out of the checkpoint. Usage counters record the logical call, not each SDK retry inside it.
+
+Web ingestion goes through the Phase 3 service. The same page is fetched again, and an unchanged body stays one source. PDF bytes are not stored, so a lost PDF index is rebuilt by uploading the file again.
 
 ### What can Phase 5 add without rewriting the nodes?
 

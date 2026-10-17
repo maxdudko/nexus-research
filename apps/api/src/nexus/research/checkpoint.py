@@ -45,7 +45,11 @@ async def setup_checkpoint(database_url: str) -> None:
 
 
 async def open_checkpointer(database_url: str) -> CheckpointRuntime:
-    """Open one pool and compile the graph. The caller closes the pool."""
+    """Open one pool and compile the graph. The caller closes the pool.
+
+    A later saver can read checkpoints written here. Opening the pool does not
+    resume a thread, and this function does not call ``setup()``.
+    """
     pool = AsyncConnectionPool[AsyncConnection[dict[str, Any]]](
         conninfo=libpq_conninfo(database_url),
         min_size=1,
@@ -61,7 +65,7 @@ async def open_checkpointer(database_url: str) -> CheckpointRuntime:
         await pool.open()
         saver = AsyncPostgresSaver(pool)
         graph = build_graph(saver)
-    except Exception:
+    except BaseException:
         await pool.close()
         raise
     return CheckpointRuntime(pool=pool, saver=saver, graph=graph)

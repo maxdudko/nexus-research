@@ -79,7 +79,11 @@ class ReportSection(BaseModel):
 
 
 class ResearchReport(BaseModel):
-    """A structured report. Provenance comes from retrieval metadata."""
+    """A structured report. Provenance comes from retrieval metadata.
+
+    A citation id that matches a source means that passage was retrieved for
+    this run. It does not prove the sentence is entailed by the excerpt.
+    """
 
     model_config = ConfigDict(extra="forbid")
 

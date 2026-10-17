@@ -71,7 +71,12 @@ class ResearchRunner:
         question: str,
         research_id: UUID | None,
     ) -> ResearchRunResponse:
-        """Execute one question. A new run id is the LangGraph thread id."""
+        """Execute one question on a new thread.
+
+        The checkpoint can be read after this call. ``ainvoke`` resumes a thread
+        only when that same thread id is passed again. This method always mints
+        a new id, so a stored ``running`` row is not started again.
+        """
         scope = research_id or uuid4()
         run_id = uuid4()
         state = initial_state(
@@ -107,7 +112,11 @@ class ResearchRunner:
         return self._context.limits.deadline_seconds + DEADLINE_GRACE_SECONDS
 
     async def _interrupt(self, run_id: str) -> None:
-        """Record the hard stop on the checkpoint. This does not continue the run."""
+        """Write the same terminal fields as ``mark_interrupted``.
+
+        This is a status update for the hard HTTP timeout. It does not invoke
+        the thread again. Cancellation does not call this method.
+        """
         try:
             await self.graph.aupdate_state(
                 run_config(run_id),

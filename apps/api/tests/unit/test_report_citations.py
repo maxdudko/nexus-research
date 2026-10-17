@@ -139,6 +139,22 @@ async def _publish(state: ResearchState, model: FakeModel) -> dict[str, object]:
     return await synthesize_node(state, runtime)
 
 
+def test_a_valid_citation_does_not_check_the_sentence_against_the_excerpt() -> None:
+    state = _state(excerpt="The page lists only the budget numbers.")
+    report = assemble_report(
+        _report(content="This sentence is not supported by the excerpt."),
+        status="completed",
+        snapshot=_snapshot(state),
+    )
+
+    assert report.status == "completed"
+    assert (
+        report.sections[0].content == "This sentence is not supported by the excerpt."
+    )
+    assert report.sections[0].citations == ["E1"]
+    assert report.sources[0].evidence_id == "E1"
+
+
 def test_unknown_citation_and_foreign_provenance_are_rejected() -> None:
     state = _state()
     snapshot = _snapshot(state)

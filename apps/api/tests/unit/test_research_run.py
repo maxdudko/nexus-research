@@ -1,6 +1,7 @@
 """The run endpoint and runner stay on one request. No provider calls."""
 
 import asyncio
+from uuid import uuid4
 
 import pytest
 from langgraph.checkpoint.memory import InMemorySaver
@@ -123,9 +124,44 @@ async def test_provider_failure_is_not_a_completed_report() -> None:
     assert exc_info.value.status_code == 503
 
 
-async def test_partial_report_cites_only_the_selected_passage() -> None:
-    from uuid import uuid4
+async def test_a_second_run_repeats_discovery_and_ingestion() -> None:
+    page = "https://example.org/notes"
+    discovery = FakeDiscovery(
+        [
+            discovered(page, search_calls=1, llm_calls=1),
+            discovered(page, search_calls=1, llm_calls=1),
+        ]
+    )
+    ingestion = FakeIngestion()
+    saver = InMemorySaver()
+    graph = build_graph(saver)
+    context = make_context(
+        planner=FakePlanner(plan_for(["alpha limits"])),
+        discovery=discovery,
+        ingestion=ingestion,
+        retrieval=FakeRetrieval([make_match(uuid4())], adopt_scope=True),
+        evaluator=ScriptedEvaluator(
+            [coverage(sufficient=True), coverage(sufficient=True)]
+        ),
+        synthesizer=StaticSynthesizer(),
+    )
+    runner = ResearchRunner(graph=graph, context=context)
 
+    first = await runner.run(QUESTION, None)
+    second = await runner.run(QUESTION, first.research_id)
+    snapshot = await graph.aget_state(run_config(str(first.run_id)))
+
+    assert first.run_id != second.run_id
+    assert len(discovery.questions) == 2
+    assert ingestion.calls == [(first.research_id, page), (first.research_id, page)]
+    assert first.usage.search_calls == 1
+    assert first.usage.llm_calls == 2
+    assert second.usage.search_calls == 1
+    assert snapshot.values["run_id"] == str(first.run_id)
+    assert snapshot.values["status"] == first.status
+
+
+async def test_partial_report_cites_only_the_selected_passage() -> None:
     runner, _saver = _runner(
         discovery=FakeDiscovery(
             [discovered("https://example.org/notes", search_calls=1, llm_calls=1)]
