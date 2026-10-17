@@ -1,5 +1,6 @@
 """FastAPI application entrypoint."""
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -10,6 +11,7 @@ from nexus.api.errors import register_exception_handlers
 from nexus.api.v1.router import api_router
 from nexus.core.config import Settings, get_settings
 from nexus.infrastructure.database import create_db_engine, session_factory
+from nexus.research.checkpoint import CheckpointRuntime
 
 
 @asynccontextmanager
@@ -18,9 +20,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     engine = create_db_engine(str(settings.database_url))
     app.state.engine = engine
     app.state.session_factory = session_factory(engine)
+    app.state.checkpoint = None
+    app.state.checkpoint_lock = asyncio.Lock()
     try:
         yield
     finally:
+        checkpoint = app.state.checkpoint
+        app.state.checkpoint = None
+        if isinstance(checkpoint, CheckpointRuntime):
+            await checkpoint.pool.close()
         await engine.dispose()
 
 
