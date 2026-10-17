@@ -7,9 +7,9 @@ from typing import Literal
 
 from nexus.research.budgets import (
     BudgetLimits,
+    batch_for_state,
     can_discover,
     is_new_batch,
-    next_query_batch,
 )
 from nexus.research.state import (
     EvidenceState,
@@ -120,13 +120,7 @@ def _can_refine(state: ResearchState, limits: BudgetLimits) -> bool:
         return False
     if not _made_progress(state):
         return False
-    batch = next_query_batch(
-        state["plan"],
-        state["query_batches"],
-        state["usage"],
-        limits,
-        state["iteration"],
-    )
+    batch = batch_for_state(state, limits)
     return is_new_batch(batch, state["query_batches"])
 
 
@@ -135,13 +129,7 @@ def _stop_warning(state: ResearchState, limits: BudgetLimits) -> str:
         return BUDGET_EXHAUSTED
     if not _made_progress(state):
         return NO_PROGRESS
-    batch = next_query_batch(
-        state["plan"],
-        state["query_batches"],
-        state["usage"],
-        limits,
-        state["iteration"],
-    )
+    batch = batch_for_state(state, limits)
     if not is_new_batch(batch, state["query_batches"]):
         return DUPLICATE_QUERY_BATCH
     return BUDGET_EXHAUSTED

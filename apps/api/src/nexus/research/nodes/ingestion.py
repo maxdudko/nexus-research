@@ -9,7 +9,7 @@ from uuid import UUID
 from nexus.ai.errors import ResearchError
 from nexus.research.budgets import BudgetLimits, charge_pages, pending_urls
 from nexus.research.nodes.common import stopped
-from nexus.research.state import ResearchState, UsageSnapshot
+from nexus.research.state import ResearchState, UsageSnapshot, copy_usage
 
 if TYPE_CHECKING:
     from langgraph.runtime import Runtime
@@ -70,12 +70,7 @@ async def ingest_node(
 
 
 def _copy_usage(usage: UsageSnapshot) -> UsageSnapshot:
-    return {
-        "search_calls": usage["search_calls"],
-        "llm_calls": usage["llm_calls"],
-        "pages_indexed": usage["pages_indexed"],
-        "pages_failed": usage["pages_failed"],
-    }
+    return copy_usage(usage)
 
 
 def _reject(

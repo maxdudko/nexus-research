@@ -77,6 +77,8 @@ class UsageSnapshot(TypedDict):
     llm_calls: int
     pages_indexed: int
     pages_failed: int
+    evaluation_calls: int
+    synthesis_calls: int
 
 
 class CandidateUrl(TypedDict):
@@ -182,6 +184,20 @@ def empty_usage() -> UsageSnapshot:
         "llm_calls": 0,
         "pages_indexed": 0,
         "pages_failed": 0,
+        "evaluation_calls": 0,
+        "synthesis_calls": 0,
+    }
+
+
+def copy_usage(usage: UsageSnapshot) -> UsageSnapshot:
+    """Copy logical counts so a charge cannot change the previous snapshot."""
+    return {
+        "search_calls": usage["search_calls"],
+        "llm_calls": usage["llm_calls"],
+        "pages_indexed": usage["pages_indexed"],
+        "pages_failed": usage["pages_failed"],
+        "evaluation_calls": usage["evaluation_calls"],
+        "synthesis_calls": usage["synthesis_calls"],
     }
 
 
@@ -390,7 +406,14 @@ def _validate_coverage(value: object) -> None:
 def _validate_usage(value: object) -> None:
     if not isinstance(value, dict):
         raise GraphStateError("usage must be an object")
-    expected = {"search_calls", "llm_calls", "pages_indexed", "pages_failed"}
+    expected = {
+        "search_calls",
+        "llm_calls",
+        "pages_indexed",
+        "pages_failed",
+        "evaluation_calls",
+        "synthesis_calls",
+    }
     if set(value) != expected:
         raise GraphStateError("usage has unexpected fields")
     for field_name in expected:

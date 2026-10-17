@@ -2,6 +2,7 @@
 
 from langchain_core.messages import BaseMessage
 from langchain_openai import ChatOpenAI
+from pydantic import BaseModel
 
 from nexus.ai.errors import provider_not_configured
 from nexus.core.config import Settings
@@ -29,6 +30,21 @@ class OpenAIStructuredModel:
         chat = build_chat_model(settings)
         self._runnable = chat.with_structured_output(
             ResearchPlan,
+            method="json_schema",
+            strict=True,
+        )
+
+    async def ainvoke(self, messages: list[BaseMessage]) -> object:
+        return await self._runnable.ainvoke(messages)
+
+
+class StructuredOutputModel:
+    """Structured output for one schema. The planner keeps its own wrapper."""
+
+    def __init__(self, settings: Settings, schema: type[BaseModel]) -> None:
+        chat = build_chat_model(settings)
+        self._runnable = chat.with_structured_output(
+            schema,
             method="json_schema",
             strict=True,
         )

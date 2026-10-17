@@ -15,8 +15,11 @@ from nexus.research.state import (
     MAX_STORED_EXCERPT,
     CandidateUrl,
     EvidenceState,
+    ResearchState,
     UsageSnapshot,
+    copy_usage,
 )
+from nexus.schemas.coverage import task_label
 from nexus.schemas.research import QUERY_MAX_LENGTH, ResearchPlan
 from nexus.tools.web_search import normalize_url
 
@@ -71,21 +74,67 @@ def limits_from_settings(settings: Settings) -> BudgetLimits:
 def can_discover(usage: UsageSnapshot, limits: BudgetLimits, iteration: int) -> bool:
     """True when another Discovery call cannot exceed the global caps.
 
-    The model reserve stays unused until evaluation and synthesis run, including
-    while those nodes are stubs.
+    Evaluation and synthesis hold only the calls they have not spent yet.
+    A spent call is already in ``llm_calls`` and is not reserved again.
     """
     if iteration >= limits.max_iterations:
         return False
     remaining_search = limits.max_search_calls - usage["search_calls"]
     if remaining_search < limits.discovery_search_ceiling:
         return False
-    remaining_llm = limits.max_llm_calls - usage["llm_calls"] - _MODEL_RESERVE
+    remaining_llm = limits.max_llm_calls - usage["llm_calls"] - _held_reserve(usage)
     return remaining_llm >= limits.discovery_llm_ceiling
 
 
 def charge_planner(usage: UsageSnapshot, limits: BudgetLimits) -> UsageSnapshot:
     """Count the one logical planner call."""
     return _charge_llm(usage, limits, PLANNER_LLM_CALLS)
+
+
+def charge_evaluation(
+    usage: UsageSnapshot,
+    limits: BudgetLimits,
+    *,
+    calls: int,
+) -> UsageSnapshot:
+    """Count logical evaluation calls. Two visits share this reserve."""
+    calls = _count(calls, "evaluation calls")
+    if usage["evaluation_calls"] + calls > EVALUATION_LLM_RESERVE:
+        raise ValueError("evaluation budget exceeded")
+    updated = _charge_llm(usage, limits, calls)
+    updated["evaluation_calls"] += calls
+    return updated
+
+
+def charge_synthesis(
+    usage: UsageSnapshot,
+    limits: BudgetLimits,
+    *,
+    calls: int,
+) -> UsageSnapshot:
+    """Count logical synthesis calls, including one malformed retry."""
+    calls = _count(calls, "synthesis calls")
+    if usage["synthesis_calls"] + calls > SYNTHESIS_LLM_RESERVE:
+        raise ValueError("synthesis budget exceeded")
+    updated = _charge_llm(usage, limits, calls)
+    updated["synthesis_calls"] += calls
+    return updated
+
+
+def evaluation_call_allowed(usage: UsageSnapshot, limits: BudgetLimits) -> bool:
+    """True when this visit can spend one call and still leave synthesis funded."""
+    if usage["evaluation_calls"] >= EVALUATION_LLM_RESERVE:
+        return False
+    synthesis_left = max(0, SYNTHESIS_LLM_RESERVE - usage["synthesis_calls"])
+    remaining = limits.max_llm_calls - usage["llm_calls"] - synthesis_left
+    return remaining >= 1
+
+
+def synthesis_calls_allowed(usage: UsageSnapshot, limits: BudgetLimits) -> int:
+    """How many synthesis attempts still fit in the reserve and the global cap."""
+    reserve_left = max(0, SYNTHESIS_LLM_RESERVE - usage["synthesis_calls"])
+    budget_left = max(0, limits.max_llm_calls - usage["llm_calls"])
+    return min(reserve_left, budget_left)
 
 
 def charge_discovery(
@@ -119,7 +168,7 @@ def charge_pages(
     """Count an ingestion attempt. Failed pages consume the page cap too."""
     indexed = _count(indexed, "indexed pages")
     failed = _count(failed, "failed pages")
-    updated = _copy_usage(usage)
+    updated = copy_usage(usage)
     updated["pages_indexed"] += indexed
     updated["pages_failed"] += failed
     attempted = updated["pages_indexed"] + updated["pages_failed"]
@@ -144,8 +193,14 @@ def select_queries(
     used_batches: Sequence[Sequence[str]],
     *,
     limit: int,
+    missing_task_ids: Sequence[str] | None = None,
+    blocked_urls: Sequence[str] | None = None,
 ) -> list[str]:
-    """Take unused queries in task order. One round cannot exceed Discovery."""
+    """Take unused queries in task order. One round cannot exceed Discovery.
+
+    An empty missing-id list means every task is still open. A query that is
+    already a fetched or rejected URL is not sent again.
+    """
     bounded = min(limit, MAX_SEARCH_CALLS)
     if bounded <= 0:
         return []
@@ -153,12 +208,19 @@ def select_queries(
         plan if isinstance(plan, ResearchPlan) else ResearchPlan.model_validate(plan)
     )
     used = {query_key(query) for batch in used_batches for query in batch}
+    blocked = set(blocked_urls or [])
+    open_tasks = set(missing_task_ids) if missing_task_ids else None
     chosen: list[str] = []
     seen: set[str] = set()
-    for task in parsed.tasks:
+    for index, task in enumerate(parsed.tasks, start=1):
+        if open_tasks is not None and task_label(index) not in open_tasks:
+            continue
         for query in task.search_queries:
             key = query_key(query)
             if not key or key in used or key in seen or len(key) > QUERY_MAX_LENGTH:
+                continue
+            normalized = normalize_url(query)
+            if normalized is not None and normalized in blocked:
                 continue
             chosen.append(" ".join(query.split()))
             seen.add(key)
@@ -173,13 +235,38 @@ def next_query_batch(
     usage: UsageSnapshot,
     limits: BudgetLimits,
     iteration: int,
+    *,
+    missing_task_ids: Sequence[str] | None = None,
+    blocked_urls: Sequence[str] | None = None,
 ) -> list[str]:
     """The next Discovery batch, or nothing when the worst case no longer fits."""
     if plan is None or not can_discover(usage, limits, iteration):
         return []
     remaining_search = limits.max_search_calls - usage["search_calls"]
     cap = min(limits.discovery_search_ceiling, remaining_search)
-    return select_queries(plan, used_batches, limit=cap)
+    return select_queries(
+        plan,
+        used_batches,
+        limit=cap,
+        missing_task_ids=missing_task_ids,
+        blocked_urls=blocked_urls,
+    )
+
+
+def batch_for_state(state: ResearchState, limits: BudgetLimits) -> list[str]:
+    """The batch the router and the discovery node both use."""
+    coverage = state["coverage"]
+    missing = None if coverage is None else coverage["missing_task_ids"]
+    blocked = [*state["accepted_urls"], *state["rejected_urls"]]
+    return next_query_batch(
+        state["plan"],
+        state["query_batches"],
+        state["usage"],
+        limits,
+        state["iteration"],
+        missing_task_ids=missing,
+        blocked_urls=blocked,
+    )
 
 
 def is_new_batch(batch: Sequence[str], previous: Sequence[Sequence[str]]) -> bool:
@@ -274,14 +361,10 @@ def merge_passages(
     return ordered[:limit]
 
 
-def _copy_usage(usage: UsageSnapshot) -> UsageSnapshot:
-    copied: UsageSnapshot = {
-        "search_calls": usage["search_calls"],
-        "llm_calls": usage["llm_calls"],
-        "pages_indexed": usage["pages_indexed"],
-        "pages_failed": usage["pages_failed"],
-    }
-    return copied
+def _held_reserve(usage: UsageSnapshot) -> int:
+    evaluation_left = max(0, EVALUATION_LLM_RESERVE - usage["evaluation_calls"])
+    synthesis_left = max(0, SYNTHESIS_LLM_RESERVE - usage["synthesis_calls"])
+    return evaluation_left + synthesis_left
 
 
 def _count(value: int, name: str) -> int:
@@ -294,7 +377,7 @@ def _charge_llm(
     usage: UsageSnapshot, limits: BudgetLimits, calls: int
 ) -> UsageSnapshot:
     calls = _count(calls, "llm calls")
-    updated = _copy_usage(usage)
+    updated = copy_usage(usage)
     updated["llm_calls"] += calls
     if updated["llm_calls"] > limits.max_llm_calls:
         raise ValueError("llm budget exceeded")

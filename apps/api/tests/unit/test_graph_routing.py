@@ -317,3 +317,95 @@ def test_evidence_ids_follow_score_then_source_then_chunk() -> None:
     assert refs[1].page_number == 3
     assert refs[2].source_id == high
     assert refs[0].url == "https://example.org/b"
+
+
+def _two_task_plan() -> ResearchPlan:
+    return ResearchPlan(
+        objective="Find the practical limits.",
+        tasks=[
+            ResearchTask(
+                question="Which limits are enforced first?",
+                search_queries=["alpha"],
+            ),
+            ResearchTask(
+                question="Which limits are enforced next?",
+                search_queries=["beta"],
+            ),
+        ],
+    )
+
+
+def _after_alpha(state: ResearchState, *, iteration: int) -> ResearchState:
+    limits = _limits()
+    usage = charge_pages(charge_planner(empty_usage(), limits), limits, indexed=1)
+    chunk_id = str(uuid4())
+    return merge_update(
+        state,
+        {
+            "iteration": iteration,
+            "usage": usage,
+            "query_batches": [["alpha"]],
+            "evidence": [_passage(state, chunk_id)],
+            "iteration_progress": {"pages_indexed": 0, "chunk_ids": []},
+        },
+    )
+
+
+def test_already_sent_missing_task_queries_stop() -> None:
+    state = merge_update(_state(), {"plan": _two_task_plan().model_dump(mode="json")})
+    state = _after_alpha(state, iteration=1)
+    state = merge_update(
+        state,
+        {
+            "coverage": {
+                **_COVERAGE_GAP,
+                "covered_task_ids": ["T2"],
+                "missing_task_ids": ["T1"],
+            }
+        },
+    )
+
+    decision = route_decision(state, _limits(), NOW)
+
+    assert decision.route == "synthesize"
+    assert decision.report_status == "partial"
+    assert decision.warning == DUPLICATE_QUERY_BATCH
+
+
+def test_exhausted_budget_stops_with_fresh_missing_queries() -> None:
+    state = merge_update(_state(), {"plan": _two_task_plan().model_dump(mode="json")})
+    state = _after_alpha(state, iteration=2)
+    state = merge_update(
+        state,
+        {"coverage": {**_COVERAGE_GAP, "missing_task_ids": ["T2"]}},
+    )
+
+    decision = route_decision(state, _limits(), NOW)
+
+    assert decision.route == "synthesize"
+    assert decision.report_status == "partial"
+    assert decision.warning == BUDGET_EXHAUSTED
+
+
+def test_no_new_passage_stops_with_fresh_missing_queries() -> None:
+    limits = _limits()
+    state = merge_update(_state(), {"plan": _two_task_plan().model_dump(mode="json")})
+    usage = charge_pages(charge_planner(empty_usage(), limits), limits, indexed=1)
+    chunk_id = str(uuid4())
+    state = merge_update(
+        state,
+        {
+            "iteration": 1,
+            "usage": usage,
+            "query_batches": [["alpha"]],
+            "evidence": [_passage(state, chunk_id)],
+            "iteration_progress": {"pages_indexed": 1, "chunk_ids": [chunk_id]},
+            "coverage": {**_COVERAGE_GAP, "missing_task_ids": ["T2"]},
+        },
+    )
+
+    decision = route_decision(state, limits, NOW)
+
+    assert decision.route == "synthesize"
+    assert decision.report_status == "partial"
+    assert decision.warning == NO_PROGRESS

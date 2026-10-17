@@ -7,8 +7,10 @@ from nexus.research.budgets import (
     add_candidates,
     can_discover,
     charge_discovery,
+    charge_evaluation,
     charge_pages,
     charge_planner,
+    charge_synthesis,
     is_new_batch,
     limits_from_settings,
     next_query_batch,
@@ -148,6 +150,54 @@ def test_candidate_urls_are_normalized_without_mutating_input() -> None:
         "https://example.org/a",
         "https://example.org/b",
     ]
+
+
+def test_spent_evaluation_is_not_reserved_again() -> None:
+    limits = limits_from_settings(make_settings())
+    usage = charge_planner(empty_usage(), limits)
+    usage = charge_discovery(usage, limits, search_calls=3, llm_calls=4)
+    usage = charge_evaluation(usage, limits, calls=1)
+
+    assert usage["llm_calls"] == 6
+    assert usage["evaluation_calls"] == 1
+    assert can_discover(usage, limits, 1)
+
+    with pytest.raises(ValueError):
+        charge_evaluation(usage, limits, calls=2)
+    with pytest.raises(ValueError):
+        charge_synthesis(usage, limits, calls=3)
+
+
+def test_missing_tasks_do_not_reuse_another_task_query() -> None:
+    plan = _plan()
+    first = select_queries(plan, [], limit=3)
+
+    assert select_queries(
+        plan,
+        [first],
+        limit=3,
+        missing_task_ids=["T2"],
+    ) == ["query 1-0", "query 1-1", "query 1-2"]
+    assert select_queries(plan, [first], limit=3, missing_task_ids=["T1"]) == []
+
+
+def test_a_query_that_is_a_rejected_url_is_skipped() -> None:
+    plan = ResearchPlan(
+        objective="Find the practical limits.",
+        tasks=[
+            ResearchTask(
+                question="Which page was already fetched?",
+                search_queries=["https://example.org/notes", "fresh query"],
+            )
+        ],
+    )
+
+    assert select_queries(
+        plan,
+        [],
+        limit=3,
+        blocked_urls=["https://example.org/notes"],
+    ) == ["fresh query"]
 
 
 def test_pending_urls_skip_accepted_pages_and_stop_at_the_cap() -> None:

@@ -47,6 +47,27 @@ class EvidenceRef(BaseModel):
         return _canonical_uuid(value)
 
 
+class ModelSection(BaseModel):
+    """One section as the model may write it. Provenance is not a field."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    heading: str
+    content: str
+    citations: list[str]
+
+
+class ModelReport(BaseModel):
+    """Provider-facing report. Status and sources are attached by the server."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str
+    summary: str
+    sections: list[ModelSection]
+    limitations: list[str]
+
+
 class ReportSection(BaseModel):
     """One section. Citations must name evidence selected for this run."""
 

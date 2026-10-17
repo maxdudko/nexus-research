@@ -8,13 +8,18 @@ from typing import TYPE_CHECKING
 from nexus.ai.errors import ResearchError
 from nexus.research.budgets import (
     add_candidates,
+    batch_for_state,
     can_discover,
     charge_discovery,
     discovery_question,
-    next_query_batch,
 )
 from nexus.research.nodes.common import failed, stopped, warnings_with
-from nexus.research.state import ResearchState, UsageSnapshot, snapshot_progress
+from nexus.research.state import (
+    ResearchState,
+    UsageSnapshot,
+    copy_usage,
+    snapshot_progress,
+)
 
 if TYPE_CHECKING:
     from langgraph.runtime import Runtime
@@ -34,13 +39,7 @@ async def discover_node(
         state["usage"], limits, state["iteration"]
     ):
         return {"warnings": warnings_with(state, "budget_exhausted")}
-    batch = next_query_batch(
-        state["plan"],
-        state["query_batches"],
-        state["usage"],
-        limits,
-        state["iteration"],
-    )
+    batch = batch_for_state(state, limits)
     if not batch:
         return {"warnings": warnings_with(state, "budget_exhausted")}
     started: dict[str, object] = {
@@ -104,11 +103,4 @@ def _reserve(state: ResearchState, runtime: Runtime[GraphContext]) -> UsageSnaps
             llm_calls=limits.discovery_llm_ceiling,
         )
     except ValueError:
-        usage = state["usage"]
-        copied: UsageSnapshot = {
-            "search_calls": usage["search_calls"],
-            "llm_calls": usage["llm_calls"],
-            "pages_indexed": usage["pages_indexed"],
-            "pages_failed": usage["pages_failed"],
-        }
-        return copied
+        return copy_usage(state["usage"])

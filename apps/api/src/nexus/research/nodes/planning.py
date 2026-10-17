@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 from nexus.ai.errors import ResearchError
 from nexus.research.budgets import charge_planner
 from nexus.research.nodes.common import failed, stopped
-from nexus.research.state import ResearchState, UsageSnapshot
+from nexus.research.state import ResearchState, UsageSnapshot, copy_usage
 
 if TYPE_CHECKING:
     from langgraph.runtime import Runtime
@@ -43,11 +43,4 @@ def _charge(state: ResearchState, runtime: Runtime[GraphContext]) -> UsageSnapsh
     try:
         return charge_planner(state["usage"], runtime.context.limits)
     except ValueError:
-        usage = state["usage"]
-        copied: UsageSnapshot = {
-            "search_calls": usage["search_calls"],
-            "llm_calls": usage["llm_calls"],
-            "pages_indexed": usage["pages_indexed"],
-            "pages_failed": usage["pages_failed"],
-        }
-        return copied
+        return copy_usage(state["usage"])

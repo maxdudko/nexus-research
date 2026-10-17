@@ -21,10 +21,11 @@ from nexus.research.nodes.ingestion import ingest_node
 from nexus.research.nodes.planning import plan_node
 from nexus.research.nodes.retrieval import retrieve_node
 from nexus.research.nodes.synthesis import synthesize_node
+from nexus.research.outcomes import EvaluationOutcome, SynthesisOutcome
 from nexus.research.routing import RouteName, decide, route_after_plan
-from nexus.research.state import CoverageState, ResearchState
+from nexus.research.state import ResearchState
 from nexus.retrieval.vector_store import EvidenceMatch
-from nexus.schemas.report import ReportStatus, ResearchReport
+from nexus.schemas.report import ReportStatus
 from nexus.schemas.research import DiscoveryResult, ResearchPlan
 
 RECURSION_LIMIT = 25
@@ -62,7 +63,7 @@ class EvidenceSearcher(Protocol):
 class CoverageEvaluator(Protocol):
     """Coverage advice. It cannot raise the budgets."""
 
-    async def evaluate(self, state: ResearchState) -> CoverageState: ...
+    async def evaluate(self, state: ResearchState) -> EvaluationOutcome: ...
 
 
 class ReportSynthesizer(Protocol):
@@ -73,7 +74,8 @@ class ReportSynthesizer(Protocol):
         state: ResearchState,
         *,
         status: ReportStatus,
-    ) -> ResearchReport: ...
+        max_calls: int,
+    ) -> SynthesisOutcome: ...
 
 
 @dataclass

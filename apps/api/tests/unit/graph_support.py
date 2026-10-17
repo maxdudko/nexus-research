@@ -12,6 +12,7 @@ from nexus.research.budgets import limits_from_settings
 from nexus.research.graph import GraphContext
 from nexus.research.nodes.evaluation import StaticEvaluator
 from nexus.research.nodes.synthesis import StaticSynthesizer
+from nexus.research.outcomes import EvaluationOutcome
 from nexus.research.state import (
     CoverageState,
     ResearchState,
@@ -121,9 +122,9 @@ class ScriptedEvaluator:
     def __init__(self, replies: list[CoverageState]) -> None:
         self._replies = list(replies)
 
-    async def evaluate(self, state: ResearchState) -> CoverageState:
+    async def evaluate(self, state: ResearchState) -> EvaluationOutcome:
         del state
-        return self._replies.pop(0)
+        return EvaluationOutcome(coverage=self._replies.pop(0), llm_calls=0)
 
 
 def plan_for(queries: list[str]) -> ResearchPlan:
