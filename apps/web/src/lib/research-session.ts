@@ -59,7 +59,7 @@ export type SessionAction =
   | { type: "completed"; status: ReportStatus; runId: string }
   | { type: "failed"; code: string; message: string }
   | { type: "interrupted"; code: string }
-  | { type: "disconnected" }
+  | { type: "disconnected"; message?: string }
   | { type: "detail_failed"; message: string }
   | { type: "assign_id"; researchId: string }
   | { type: "retry"; researchId: string };
@@ -249,7 +249,7 @@ export function researchSession(state: SessionState, action: SessionAction): Ses
       return {
         ...state,
         phase: "disconnected",
-        errorMessage: "The connection closed before research finished.",
+        errorMessage: action.message ?? "The connection closed before research finished.",
       };
     case "detail_failed":
       return { ...state, phase: "failed", errorMessage: action.message };

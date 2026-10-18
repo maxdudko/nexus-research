@@ -22,7 +22,9 @@ export function CitationLink({
       ) : (
         <span>{view.evidenceId}</span>
       )}
-      {view.pageLabel ? <span> {view.pageLabel}</span> : null}
+      {view.pageLabel ? (
+        <span>{` ${view.pageLabel}. The uploaded file is not stored, so this page cannot be opened.`}</span>
+      ) : null}
     </span>
   );
 }

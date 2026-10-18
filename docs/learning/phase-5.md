@@ -14,7 +14,7 @@ Provider keys stay in the API environment. Nothing in the web app reads `OPENAI`
 
 `POST /api/v1/research/stream` takes `{ "question", "research_id" }`. `research_id` may be null; the server mints one. The server always mints `run_id` and uses that same UUID as the LangGraph thread id and the history row.
 
-Frames are `research.started`, `research.progress`, and one terminal event: `research.completed`, `research.failed`, or `research.interrupted`. Comment lines (`: ping`) are heartbeats. `research.completed` carries ids and `completed`, `partial`, or `insufficient_evidence`. It does not carry the report body. The UI loads the report with `GET /api/v1/research/runs/{run_id}` after that frame, because the domain commit happens before the frame is sent.
+Frames are `research.started`, `research.progress`, and at most one terminal event: `research.completed`, `research.failed`, or `research.interrupted`. Comment lines (`: ping`) are heartbeats. `research.completed` carries ids and `completed`, `partial`, or `insufficient_evidence`. It does not carry the report body. That frame is sent only after the report row commits. A failed or interrupted frame is sent only after that status commits. If both writes fail, the stream ends without a terminal frame and the row stays `running`. Nothing resumes it. The UI loads a finished report with `GET /api/v1/research/runs/{run_id}`.
 
 `POST /api/v1/research/run` is unchanged. It still waits for the graph and writes no domain history.
 
@@ -22,11 +22,11 @@ Frames are `research.started`, `research.progress`, and one terminal event: `res
 
 Each section lists evidence ids. The UI resolves them through `report.sources`, which the server attached. It does not scan the prose for ids. An `http` or `https` URL becomes a new-tab link with `rel="noopener noreferrer"`. Any other scheme, including `javascript:` and `data:`, stays text. A PDF source shows `PDF · page N` and is not a link. The original PDF bytes are not stored, so there is no viewer to open after refresh.
 
-A citation means that passage was retrieved for this run. It does not mean the sentence is entailed by the excerpt.
+A citation means that passage was retrieved for this run. It does not mean the sentence is entailed by the excerpt. The page label says the file is not stored, so the page cannot be opened.
 
 ### What does Stop do?
 
-Stop aborts the browser request. The proxy forwards that abort, and the API does a best-effort bounded write of `interrupted`. There is no reconnect. A retry creates a new `run_id` and says so. If the connection drops before a terminal frame, the UI says disconnected. If the status write itself times out, or the process dies, the row can stay `running`. Opening that row says the last known state is running and execution is not confirmed. Nothing resumes it.
+Stop aborts the browser request. The proxy forwards that abort, and the API does a best-effort bounded write of `interrupted`. There is no reconnect. A retry creates a new `research_id` and a new `run_id`, says so, and uploads the selected PDF again for that new scope. If the connection drops or the stream errors after `research.started`, the UI reads that run once. A stored `completed`, `partial`, or `insufficient_evidence` opens the report. A stored `failed` or `interrupted` shows that state. A stored `running` row, or a failed read, stays disconnected and says the last known state is running and execution is not confirmed. Stop does not do that read. If the status write itself times out, or the process dies, the row can stay `running`. Nothing resumes it.
 
 `research_id` scopes evidence. It is not an access token. The list and detail routes have no authentication. This app is a local demo, not a public multi-user service.
 
@@ -38,7 +38,7 @@ Stop aborts the browser request. The proxy forwards that abort, and the API does
 | PDF upload and stream share one `research_id` | `apps/web/src/hooks/use-research-stream.test.tsx` |
 | Provider failure is a safe code and has no report | `apps/api/tests/unit/test_research_streaming.py` |
 | User abort and a timed-out status write | `apps/api/tests/unit/test_research_streaming.py` |
-| Report commit failure does not emit `research.completed` | `apps/api/tests/unit/test_research_streaming.py` |
+| Report commit failure does not emit `research.completed` | `apps/api/tests/unit/test_research_streaming.py` and `apps/api/tests/integration/test_research_stream_integration.py` |
 | Heartbeat during a slow node | `apps/api/tests/unit/test_research_streaming.py` |
 | First SSE byte before the upstream finishes | `apps/web/src/lib/proxy.test.ts` |
 | History pages do not overlap and do not read checkpoints | `apps/api/tests/integration/test_research_history_db.py` |
@@ -47,6 +47,11 @@ Stop aborts the browser request. The proxy forwards that abort, and the API does
 | Unsafe citation URLs, PDF page labels, escaped report text | `apps/web/src/components/research/research-report.test.tsx` |
 | Older history page | `apps/web/src/components/research/research-history.test.tsx` |
 | Stale `running` copy and a missing run | `apps/web/src/app/research/[runId]/page.test.tsx` |
+| A missing terminal frame can leave `running` | `apps/api/tests/integration/test_research_stream_integration.py` |
+| PDF retry uploads the new research scope | `apps/web/src/hooks/use-research-stream.test.tsx` |
+| One read after an unexpected disconnect | `apps/web/src/hooks/use-research-stream.test.tsx` |
+| History reloads after a terminal outcome | `apps/web/src/components/research/research-history.test.tsx` |
+| SSE buffer cap and a split CRLF | `apps/web/src/lib/sse.test.ts` |
 
 Phase 3 still owns URL and PDF rejection. Those tests were not rewritten here.
 

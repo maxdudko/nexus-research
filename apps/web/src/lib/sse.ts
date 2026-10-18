@@ -17,6 +17,7 @@ const STAGES = new Set<StageName>([
 ]);
 
 const TERMINAL_EVENTS = new Set(["research.completed", "research.failed", "research.interrupted"]);
+const MAX_SSE_BUFFER = 64 * 1024;
 
 export type SseFrame =
   | { type: "ping" }
@@ -227,6 +228,11 @@ export async function* parseSse(
       const { done, value } = await readChunk(reader, signal);
       if (done) buffer += decoder.decode();
       else buffer += decoder.decode(value, { stream: true });
+      if (buffer.length > MAX_SSE_BUFFER) {
+        yield { type: "malformed", name: "" };
+        yield { type: "eof", terminal: false };
+        return;
+      }
       const { blocks, rest } = takeBlocks(buffer, done);
       buffer = rest;
       for (const block of blocks) {

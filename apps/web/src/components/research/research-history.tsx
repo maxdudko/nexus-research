@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { listRuns } from "@/lib/api";
 import { isApiError, REQUEST_FAILED_MESSAGE } from "@/lib/errors";
@@ -33,44 +33,51 @@ function dedupe(items: RunSummary[]): RunSummary[] {
   return unique;
 }
 
-export function ResearchHistory() {
+export function ResearchHistory({ refreshKey = 0 }: { refreshKey?: string | number }) {
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const generation = useRef(0);
 
   useEffect(() => {
+    const current = generation.current + 1;
+    generation.current = current;
     let cancelled = false;
     listRuns(20)
       .then((page) => {
-        if (cancelled) return;
+        if (cancelled || current !== generation.current) return;
         setRuns(dedupe(page.items));
         setCursor(page.next_cursor);
       })
       .catch((cause: unknown) => {
-        if (!cancelled) setError(isApiError(cause) ? cause.message : REQUEST_FAILED_MESSAGE);
+        if (cancelled || current !== generation.current) return;
+        setError(isApiError(cause) ? cause.message : REQUEST_FAILED_MESSAGE);
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && current === generation.current) setLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [refreshKey]);
 
   async function loadOlder(): Promise<void> {
     if (!cursor || loadingOlder) return;
+    const current = generation.current;
     setLoadingOlder(true);
     setError(null);
     try {
       const page = await listRuns(20, cursor);
-      setRuns((current) => dedupe([...current, ...page.items]));
+      if (current !== generation.current) return;
+      setRuns((items) => dedupe([...items, ...page.items]));
       setCursor(page.next_cursor);
     } catch (cause: unknown) {
+      if (current !== generation.current) return;
       setError(isApiError(cause) ? cause.message : REQUEST_FAILED_MESSAGE);
     } finally {
-      setLoadingOlder(false);
+      if (current === generation.current) setLoadingOlder(false);
     }
   }
 

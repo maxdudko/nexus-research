@@ -14,6 +14,9 @@ import {
   type SessionState,
 } from "@/lib/research-session";
 import { isTerminalFrame, parseSse, type SseFrame } from "@/lib/sse";
+import type { RunDetailResponse } from "@/lib/types";
+
+const RUNNING_UNCONFIRMED = "Last known state: running; execution is not confirmed.";
 
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === "AbortError";
@@ -21,6 +24,18 @@ function isAbortError(error: unknown): boolean {
 
 function failureMessage(error: unknown): string {
   return isApiError(error) ? error.message : REQUEST_FAILED_MESSAGE;
+}
+
+function interruptCode(code: string | null): "interrupted" | "deadline_exceeded" {
+  return code === "deadline_exceeded" ? "deadline_exceeded" : "interrupted";
+}
+
+function runIdFrom(frame: SseFrame): string | null {
+  if (frame.type !== "event") return null;
+  if (frame.name === "research.started" || frame.name === "research.completed") {
+    return frame.data.run_id;
+  }
+  return null;
 }
 
 export interface ResearchStream {
@@ -165,6 +180,39 @@ export function useResearchStream(navigate?: (href: string) => void): ResearchSt
       }
       if (token !== generation.current || controller.signal.aborted) return;
       dispatch({ type: "stream_started", at: Date.now() });
+      let runId: string | null = null;
+      const reconcile = async () => {
+        if (!runId) {
+          dispatch({ type: "disconnected" });
+          return;
+        }
+        const known = runId;
+        let detail: RunDetailResponse;
+        try {
+          detail = await getRun(known);
+        } catch {
+          if (token !== generation.current) return;
+          dispatch({ type: "disconnected", message: RUNNING_UNCONFIRMED });
+          return;
+        }
+        if (token !== generation.current) return;
+        const status = detail.run.status;
+        if (status === "completed" || status === "partial" || status === "insufficient_evidence") {
+          dispatch({ type: "completed", status, runId: known });
+          go(`/research/${known}`);
+          return;
+        }
+        if (status === "failed") {
+          const code = detail.run.error_code ?? "provider_unavailable";
+          dispatch({ type: "failed", code, message: `Research failed (${code}).` });
+          return;
+        }
+        if (status === "interrupted") {
+          dispatch({ type: "interrupted", code: interruptCode(detail.run.error_code) });
+          return;
+        }
+        dispatch({ type: "disconnected", message: RUNNING_UNCONFIRMED });
+      };
       try {
         const response = await openResearchStream(
           { question, research_id: researchId },
@@ -177,9 +225,10 @@ export function useResearchStream(navigate?: (href: string) => void): ResearchSt
           return;
         }
         let terminal = false;
-        let runId: string | null = null;
         for await (const frame of parseSse(response.body, controller.signal)) {
           if (token !== generation.current) return;
+          const seen = runIdFrom(frame);
+          if (seen) runId = seen;
           if (frame.type === "eof") {
             terminal = frame.terminal;
             break;
@@ -187,15 +236,12 @@ export function useResearchStream(navigate?: (href: string) => void): ResearchSt
           applyFrame(frame, Date.now());
           if (isTerminalFrame(frame)) {
             terminal = true;
-            if (frame.type === "event" && frame.name === "research.completed") {
-              runId = frame.data.run_id;
-            }
             break;
           }
         }
         if (token !== generation.current) return;
         if (!terminal) {
-          dispatch({ type: "disconnected" });
+          await reconcile();
           return;
         }
         if (!runId) return;
@@ -214,7 +260,7 @@ export function useResearchStream(navigate?: (href: string) => void): ResearchSt
           dispatch({ type: "interrupted", code: "interrupted" });
           return;
         }
-        dispatch({ type: "disconnected" });
+        await reconcile();
       }
     })();
   }, [applyFrame, go]);

@@ -132,25 +132,27 @@ class RunCoordinator:
         except ResearchError as exc:
             if writer.terminal or self._committed:
                 raise
-            await self._persist_error(exc)
-            yield _terminal_frame(writer, self._run_id, exc)
+            if await self._persist_error(exc):
+                yield _terminal_frame(writer, self._run_id, exc)
         except Exception as exc:
             if writer.terminal or self._committed:
                 raise
             logger.warning("research stream failed: %s", type(exc).__name__)
-            await self._persist_code("history_unavailable", interrupted=False)
-            yield writer.event(
-                "research.failed",
-                ResearchFailed(run_id=self._run_id, code="history_unavailable"),
-                terminal=True,
-            )
+            stored = await self._persist_code("history_unavailable", interrupted=False)
+            if stored:
+                yield writer.event(
+                    "research.failed",
+                    ResearchFailed(run_id=self._run_id, code="history_unavailable"),
+                    terminal=True,
+                )
 
-    async def _persist_error(self, exc: ResearchError) -> None:
+    async def _persist_error(self, exc: ResearchError) -> bool:
         interrupted = exc.code in _INTERRUPT_CODES
         code = exc.code if interrupted else _safe_failure_code(exc.code)
-        await self._persist_code(code, interrupted=interrupted)
+        return await self._persist_code(code, interrupted=interrupted)
 
-    async def _persist_code(self, code: str, *, interrupted: bool) -> None:
+    async def _persist_code(self, code: str, *, interrupted: bool) -> bool:
+        """Store a failure status. False means the row was not changed."""
         try:
             await self._history.finalize_failure(
                 self._run_id,
@@ -159,12 +161,14 @@ class RunCoordinator:
                 now=self._clock(),
             )
         except HistoryConflict:
-            return
+            return False
         except Exception as exc:
             logger.warning(
                 "could not store a terminal research run: %s",
                 type(exc).__name__,
             )
+            return False
+        return True
 
     async def _best_effort_interrupt(self) -> None:
         """Persist interrupted without shielding the graph task."""
@@ -219,7 +223,7 @@ def _safe_failure_code(code: str) -> str:
     return "provider_unavailable"
 
 
-async def _quiet(task: asyncio.Task[None]) -> None:
+async def _quiet(task: asyncio.Task[bool]) -> None:
     try:
         await task
     except asyncio.CancelledError, Exception:
