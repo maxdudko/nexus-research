@@ -21,9 +21,9 @@ Nexus Research is an experimental, Python-first application that investigates co
 
 ## Status
 
-🚧 **Phases 1–4 are implemented through a request-scoped research run.** The API, local PostgreSQL and Qdrant, Alembic, and health checks are in place. `POST /api/v1/research/plan` returns a structured research plan from OpenAI. `POST /api/v1/research/discover` runs a bounded Tavily search and returns the snippets it retrieved. `POST /api/v1/evidence/pdf`, `POST /api/v1/evidence/web`, and `POST /api/v1/evidence/search` index a text PDF or one public HTML page and return scoped passages. `POST /api/v1/research/run` waits for one LangGraph run and returns a cited report, or the existing error envelope when the run fails.
+🚧 **Phases 1–5 are implemented as a local research demo.** The API, local PostgreSQL and Qdrant, Alembic, and health checks are in place. `POST /api/v1/research/plan` returns a structured research plan from OpenAI. `POST /api/v1/research/discover` runs a bounded Tavily search and returns the snippets it retrieved. `POST /api/v1/evidence/pdf`, `POST /api/v1/evidence/web`, and `POST /api/v1/evidence/search` index a text PDF or one public HTML page and return scoped passages. `POST /api/v1/research/run` waits for one LangGraph run and returns a cited report, or the existing error envelope when the run fails. The Next.js app uses `POST /api/v1/research/stream` and the run history endpoints to show progress, reports, and citations.
 
-See the [development roadmap](docs/roadmap.md) for milestones and scope. Notes on the Python concepts from Phase 1 are in [Phase 1 learning notes](docs/learning/phase-1.md). Notes on structured output, tool calling, and search budgets are in [Phase 2 learning notes](docs/learning/phase-2.md). Notes on scoped retrieval are in [Phase 3 learning notes](docs/learning/phase-3.md). Notes on checkpoints and cancellation are in [Phase 4 learning notes](docs/learning/phase-4.md).
+See the [development roadmap](docs/roadmap.md) for milestones and scope. Notes on the Python concepts from Phase 1 are in [Phase 1 learning notes](docs/learning/phase-1.md). Notes on structured output, tool calling, and search budgets are in [Phase 2 learning notes](docs/learning/phase-2.md). Notes on scoped retrieval are in [Phase 3 learning notes](docs/learning/phase-3.md). Notes on checkpoints and cancellation are in [Phase 4 learning notes](docs/learning/phase-4.md). Notes on the product UI are in [Phase 5 learning notes](docs/learning/phase-5.md).
 
 ## Evidence
 
@@ -100,6 +100,31 @@ curl -fsS http://127.0.0.1:8000/openapi.json
 ```
 
 Liveness returns `{"status":"ok"}`. In `development`, OpenAPI is at `/openapi.json` and the docs UI is at `/docs`. A missing required variable such as `NEXUS_DATABASE_URL` stops the process before it serves requests and prints the variable name.
+
+### Run the web app
+
+Start Compose, create the checkpoint tables, apply migrations, and start the API before the UI. The browser calls only `http://127.0.0.1:3000`. Next.js forwards `/api/v1` to `API_PROXY_TARGET`. Provider keys stay in the API environment. `apps/web/.env.example` contains only that proxy target.
+
+```bash
+cd apps/web
+cp .env.example .env.local
+npm install
+npm run dev
+```
+
+`API_PROXY_TARGET` defaults to `http://127.0.0.1:8000`. Open `http://127.0.0.1:3000`.
+
+A text PDF is optional. The API accepts up to 10 MiB and 100 pages by default and does not store the original bytes. The same draft id is sent with the upload and with `POST /api/v1/research/stream`. When the stream finishes, the UI opens `/research/{run_id}` and loads the saved report. `https` citations open in a new tab. A PDF citation is a page label, not a file link. Refreshing that URL reads the domain row again.
+
+Stop uses the label “Stop this request; research may be interrupted.” That aborts the request. It does not resume later. A row left at `running` after a crash says execution is not confirmed. There is no authentication. Do not expose the API or the UI on the public internet. `research_id` is an evidence scope, not an access token.
+
+A short local check, with provider keys only if you want a real report:
+
+1. Ask a question of 10 to 2000 characters, with or without a text PDF.
+2. Confirm a stage appears before the run finishes, then open the completed URL and refresh it.
+3. Follow an `https` citation, or read a `PDF · page N` label.
+4. Stop a second run and confirm the status is interrupted.
+5. Open an older history page if one exists, and open a `running` row directly if one was left behind.
 
 ### Local data services
 
@@ -274,7 +299,7 @@ NEXUS_RUN_LIVE_AI=1 \
 
 `POST /api/v1/research/run` accepts a question and an optional `research_id`. The server always mints a new `run_id`. A client `run_id` or `thread_id` is 422 `invalid_request`. The same `research_id` on a later request is a new thread that can see evidence already indexed for that scope. It does not continue the previous thread.
 
-The request waits until the graph finishes. There is no worker, no queue, and no server-sent events. `completed`, `partial`, and `insufficient_evidence` return 200 with the report, identifier warnings, and usage. `failed` and a hard deadline return the `{ "error": { "code", "message" } }` envelope and no report. A missing OpenAI key is 503 `provider_not_configured`. A checkpoint store that is down or not migrated is 503 `checkpoint_unavailable`. The message does not include the database URL.
+The request waits until the graph finishes. There is no worker and no queue. `/run` does not stream. The product UI uses `POST /api/v1/research/stream`, described in [Run the web app](#run-the-web-app). `completed`, `partial`, and `insufficient_evidence` return 200 with the report, identifier warnings, and usage. `failed` and a hard deadline return the `{ "error": { "code", "message" } }` envelope and no report. A missing OpenAI key is 503 `provider_not_configured`. A checkpoint store that is down or not migrated is 503 `checkpoint_unavailable`. The message does not include the database URL.
 
 `search_calls` and `llm_calls` count logical calls. A retry inside the OpenAI SDK or inside one Tavily search does not increase either number. A citation id means that passage was retrieved for this run. It does not prove the sentence is entailed by the excerpt.
 

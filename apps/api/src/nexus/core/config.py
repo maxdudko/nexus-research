@@ -61,6 +61,9 @@ class Settings(BaseSettings):
     graph_max_passages: int = Field(default=12, ge=1, le=50)
     graph_deadline_seconds: float = Field(default=180.0, gt=0, le=600)
     graph_excerpt_chars: int = Field(default=500, ge=1, le=2000)
+    stream_heartbeat_seconds: float = Field(default=15.0, gt=0, le=60)
+    stream_max_concurrent: int = Field(default=2, ge=1, le=8)
+    stream_cancel_persist_seconds: float = Field(default=2.0, gt=0, le=5)
 
     @model_validator(mode="after")
     def overlap_fits_in_a_chunk(self) -> Self:

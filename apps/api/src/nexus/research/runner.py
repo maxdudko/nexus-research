@@ -1,8 +1,12 @@
 """Request-scoped research runs. A checkpoint is not a worker."""
 
 import asyncio
+import contextlib
 import logging
+from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import NoReturn
 from uuid import UUID, uuid4
 
 from langgraph.graph.state import CompiledStateGraph
@@ -52,6 +56,16 @@ _REPORT_STATUSES = {"completed", "partial", "insufficient_evidence"}
 GraphRun = CompiledStateGraph[ResearchState, GraphContext, ResearchState, ResearchState]
 
 
+@dataclass(frozen=True)
+class GraphProgress:
+    """A completed node. Counts come from the paired values snapshot."""
+
+    node: str
+    iteration: int
+    pages_indexed: int
+    search_calls: int
+
+
 class ResearchRunner:
     """Run one new thread to a terminal state. The same thread is never reused."""
 
@@ -79,12 +93,7 @@ class ResearchRunner:
         """
         scope = research_id or uuid4()
         run_id = uuid4()
-        state = initial_state(
-            research_id=scope,
-            run_id=run_id,
-            question=question,
-            started_at=self._context.clock(),
-        )
+        state = self._initial(scope, run_id, question)
         try:
             async with asyncio.timeout(self._budget()):
                 result = await self.graph.ainvoke(
@@ -92,19 +101,127 @@ class ResearchRunner:
                     config=run_config(str(run_id)),
                     context=self._context,
                 )
-        except TimeoutError:
-            await self._interrupt(str(run_id))
-            raise deadline_exceeded() from None
         except asyncio.CancelledError:
             raise
-        except ResearchError:
+        except Exception as exc:
+            await self._translate(exc, run_id)
+        return _response(_checked(result))
+
+    async def stream(
+        self,
+        question: str,
+        research_id: UUID,
+        run_id: UUID,
+    ) -> AsyncIterator[GraphProgress | ResearchRunResponse]:
+        """Stream one caller-minted thread. This does not start a second run.
+
+        Node updates are progress. The last item is the validated response from
+        the same ``astream`` call, not a separate ``ainvoke``.
+        """
+        state = self._initial(research_id, run_id, question)
+        try:
+            async for item in self._stream_graph(state, run_id):
+                yield item
+        except asyncio.CancelledError:
             raise
         except Exception as exc:
-            if _checkpoint_failure(exc):
-                logger.warning("checkpoint write failed: %s", type(exc).__name__)
-                raise checkpoint_unavailable() from None
-            raise
-        return _response(_checked(result))
+            await self._translate(exc, run_id)
+
+    def clock(self) -> datetime:
+        """The clock the graph and domain rows share for this runner."""
+        return self._context.clock()
+
+    def _initial(self, research_id: UUID, run_id: UUID, question: str) -> ResearchState:
+        return initial_state(
+            research_id=research_id,
+            run_id=run_id,
+            question=question,
+            started_at=self.clock(),
+        )
+
+    async def _stream_graph(
+        self,
+        state: ResearchState,
+        run_id: UUID,
+    ) -> AsyncIterator[GraphProgress | ResearchRunResponse]:
+        """Yield progress from one drive task so the deadline survives yields."""
+        queue: asyncio.Queue[GraphProgress] = asyncio.Queue()
+        task = asyncio.create_task(self._drive(state, run_id, queue))
+        getter: asyncio.Task[GraphProgress] | None = None
+        try:
+            while True:
+                if getter is None:
+                    getter = asyncio.create_task(queue.get())
+                done, _pending = await asyncio.wait(
+                    {task, getter},
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if getter in done:
+                    yield getter.result()
+                    getter = None
+                    continue
+                break
+            if getter is not None and not getter.done():
+                getter.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await getter
+                getter = None
+            while not queue.empty():
+                yield queue.get_nowait()
+            yield await task
+        finally:
+            if getter is not None and not getter.done():
+                getter.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await getter
+            if not task.done():
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+
+    async def _drive(
+        self,
+        state: ResearchState,
+        run_id: UUID,
+        queue: asyncio.Queue[GraphProgress],
+    ) -> ResearchRunResponse:
+        latest: dict[str, object] | None = None
+        pending: list[str] = []
+        async with asyncio.timeout(self._budget()):
+            stream = self.graph.astream(
+                state,
+                config=run_config(str(run_id)),
+                context=self._context,
+                stream_mode=["updates", "values"],
+            )
+            async for item in stream:
+                mode, payload = _stream_part(item)
+                if mode == "updates" and isinstance(payload, dict):
+                    pending.extend(key for key in payload if isinstance(key, str))
+                    continue
+                if mode == "values" and isinstance(payload, dict):
+                    latest = payload
+                    for node in pending:
+                        await queue.put(_progress(node, payload))
+                    pending.clear()
+        if isinstance(latest, dict):
+            for node in pending:
+                await queue.put(_progress(node, latest))
+        if not isinstance(latest, dict):
+            raise invalid_state()
+        return _response(_checked(latest))
+
+    async def _translate(self, exc: Exception, run_id: UUID) -> NoReturn:
+        """Map one graph failure. Cancellation is handled by the caller."""
+        if isinstance(exc, TimeoutError):
+            await self._interrupt(str(run_id))
+            raise deadline_exceeded() from None
+        if isinstance(exc, ResearchError):
+            raise exc
+        if _checkpoint_failure(exc):
+            logger.warning("checkpoint write failed: %s", type(exc).__name__)
+            raise checkpoint_unavailable() from None
+        raise exc
 
     def _budget(self) -> float:
         if self._timeout is not None:
@@ -149,6 +266,33 @@ def production_context(
         limits=limits_from_settings(settings),
         clock=lambda: datetime.now(UTC),
     )
+
+
+def _stream_part(item: object) -> tuple[str, object]:
+    if isinstance(item, tuple) and len(item) == 2 and isinstance(item[0], str):
+        return item[0], item[1]
+    raise invalid_state()
+
+
+def _progress(node: str, values: dict[str, object]) -> GraphProgress:
+    usage = values.get("usage")
+    pages = 0
+    searches = 0
+    if isinstance(usage, dict):
+        pages = _count(usage.get("pages_indexed"))
+        searches = _count(usage.get("search_calls"))
+    return GraphProgress(
+        node=node,
+        iteration=_count(values.get("iteration")),
+        pages_indexed=pages,
+        search_calls=searches,
+    )
+
+
+def _count(value: object) -> int:
+    if type(value) is int:
+        return value
+    return -1
 
 
 def _checked(result: object) -> ResearchState:

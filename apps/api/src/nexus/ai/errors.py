@@ -149,6 +149,34 @@ def invalid_state() -> ResearchError:
     )
 
 
+def not_found() -> ResearchError:
+    return ResearchError(
+        "not_found",
+        404,
+        "The research run was not found.",
+    )
+
+
+def invalid_request(field: str) -> ResearchError:
+    return ResearchError("invalid_request", 422, f"{field}: invalid value")
+
+
+def history_unavailable() -> ResearchError:
+    return ResearchError(
+        "history_unavailable",
+        503,
+        "Research history is temporarily unavailable.",
+    )
+
+
+def too_many_requests() -> ResearchError:
+    return ResearchError(
+        "too_many_requests",
+        429,
+        "Too many research runs are in progress.",
+    )
+
+
 def map_provider_exception(exc: Exception) -> ResearchError:
     """Map a provider failure to a fixed error. Discard the original text."""
     if isinstance(exc, ResearchError):
