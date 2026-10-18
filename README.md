@@ -101,6 +101,19 @@ curl -fsS http://127.0.0.1:8000/openapi.json
 
 Liveness returns `{"status":"ok"}`. In `development`, OpenAPI is at `/openapi.json` and the docs UI is at `/docs`. A missing required variable such as `NEXUS_DATABASE_URL` stops the process before it serves requests and prints the variable name.
 
+### Run the web app
+
+Start Compose and the API first. The web app calls the API through a same-origin proxy. Provider keys stay in the API environment.
+
+```bash
+cd apps/web
+cp .env.example .env.local
+npm install
+npm run dev
+```
+
+`API_PROXY_TARGET` defaults to `http://127.0.0.1:8000`. Open `http://127.0.0.1:3000`. The browser talks only to the Next.js server, which streams `/api/v1` to the API.
+
 ### Local data services
 
 From the repository root, Compose starts PostgreSQL 18 and Qdrant. Both publish ports on `127.0.0.1` only. The database user, password, and name match `apps/api/.env.example` (`nexus` / `nexus` / `nexus`).
