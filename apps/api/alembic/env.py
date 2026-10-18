@@ -15,7 +15,7 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# nexus.models imports Source, so this registry includes the sources table.
+# nexus.models imports every ORM table, including sources and research runs.
 target_metadata = Base.metadata
 
 

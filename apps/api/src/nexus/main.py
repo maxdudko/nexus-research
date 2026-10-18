@@ -22,6 +22,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.session_factory = session_factory(engine)
     app.state.checkpoint = None
     app.state.checkpoint_lock = asyncio.Lock()
+    app.state.stream_semaphore = asyncio.Semaphore(settings.stream_max_concurrent)
     try:
         yield
     finally:
