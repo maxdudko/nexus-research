@@ -86,7 +86,9 @@ describe("ResearchReportView", () => {
         })}
       />,
     );
-    expect(screen.getByText(/PDF · page 4/)).toBeTruthy();
+    expect(
+      screen.getByText(/PDF · page 4\. The uploaded file is not stored, so this page cannot be opened\./),
+    ).toBeTruthy();
     expect(screen.getByText("Unknown source (E9)")).toBeTruthy();
     expect(screen.queryByRole("link")).toBeNull();
   });

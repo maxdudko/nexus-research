@@ -101,6 +101,22 @@ describe("researchSession", () => {
     expect(retried.question).toBe(QUESTION);
   });
 
+  it("forgets an indexed PDF when a retry keeps the selected file", () => {
+    let state = researchSession(createSession("draft-1"), {
+      type: "edit_question",
+      question: QUESTION,
+    });
+    state = researchSession(state, { type: "select_file", name: "notes.pdf", size: 1200 });
+    state = researchSession(state, { type: "upload_started" });
+    state = researchSession(state, { type: "upload_succeeded" });
+    expect(state.indexed).toBe(true);
+    const retried = researchSession(state, { type: "retry", researchId: "draft-2" });
+    expect(retried.researchId).toBe("draft-2");
+    expect(retried.indexed).toBe(false);
+    expect(retried.fileName).toBe("notes.pdf");
+    expect(retried.fileSize).toBe(1200);
+  });
+
   it("stays on the detail error instead of navigating as success", () => {
     const done = researchSession(streaming(), {
       type: "completed",

@@ -44,6 +44,7 @@ class MemoryHistory:
         self.order: list[str] = []
         self.fail_success = False
         self.block_failure = False
+        self.fail_failure = False
         self.fail_create = False
 
     async def create_running(
@@ -94,6 +95,8 @@ class MemoryHistory:
     ) -> None:
         del now
         self.order.append("finalize_failure")
+        if self.fail_failure:
+            raise RuntimeError("commit failed")
         if self.block_failure:
             await asyncio.Event().wait()
         row = self.rows[run_id]
@@ -343,6 +346,46 @@ async def test_commit_failure_does_not_emit_completed() -> None:
     assert failed["code"] == "history_unavailable"
     assert history.rows[run_id]["status"] == "failed"
     assert history.rows[run_id]["report"] is None
+
+
+async def test_unstored_commit_failure_emits_no_terminal_frame() -> None:
+    runner, _recording = _runner()
+    history = MemoryHistory()
+    history.fail_success = True
+    history.fail_failure = True
+    coordinator, run_id, research_id = _coordinator(runner, history)
+    await history.create_running(run_id, research_id, QUESTION, runner.clock())
+
+    names = [name for name, _data in parse_sse(await _frames(coordinator))]
+
+    assert "research.started" in names
+    assert "research.completed" not in names
+    assert "research.failed" not in names
+    assert "research.interrupted" not in names
+    assert history.rows[run_id]["status"] == "running"
+    assert history.rows[run_id]["report"] is None
+
+
+async def test_transport_cancel_after_commit_keeps_the_stored_report() -> None:
+    runner, _recording = _runner()
+    history = MemoryHistory()
+    coordinator, run_id, research_id = _coordinator(runner, history)
+    await history.create_running(run_id, research_id, QUESTION, runner.clock())
+    frames = coordinator.events()
+    seen: list[str] = []
+    while True:
+        frame = await anext(frames)
+        seen.append(frame)
+        if "research.completed" in frame:
+            with pytest.raises(asyncio.CancelledError):
+                await frames.athrow(asyncio.CancelledError())
+            break
+
+    assert any("research.completed" in frame for frame in seen)
+    assert history.order.count("finalize_success") == 1
+    assert "finalize_failure" not in history.order
+    assert history.rows[run_id]["status"] == "insufficient_evidence"
+    assert history.rows[run_id]["report"] is not None
 
 
 async def test_provider_failure_is_a_safe_terminal_code() -> None:

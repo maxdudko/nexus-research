@@ -5,6 +5,7 @@ from uuid import UUID
 
 import pytest
 from langgraph.checkpoint.memory import InMemorySaver
+from sqlalchemy import text
 from tests.conftest import client_for, make_settings
 from tests.integration.conftest import run_alembic
 from tests.unit.graph_support import (
@@ -28,6 +29,7 @@ from tests.unit.test_research_streaming import (
 from nexus.api.v1.research import get_runner
 from nexus.infrastructure.database import create_db_engine, session_factory
 from nexus.main import create_app
+from nexus.research.coordinator import RunCoordinator
 from nexus.research.graph import build_graph
 from nexus.research.history import ResearchHistory
 from nexus.research.runner import ResearchRunner
@@ -105,3 +107,97 @@ async def test_disconnect_persists_interrupted_without_a_report(
     assert stored.run.status == "interrupted"
     assert stored.report is None
     assert stored.run.error_code == "interrupted"
+
+
+async def _install_trigger(database_url: str, *statements: str) -> None:
+    engine = create_db_engine(database_url)
+    try:
+        async with engine.begin() as connection:
+            for statement in statements:
+                await connection.execute(text(statement))
+    finally:
+        await engine.dispose()
+
+
+def _coordinator(
+    runner: ResearchRunner,
+    history: ResearchHistory,
+) -> tuple[RunCoordinator, uuid.UUID, uuid.UUID]:
+    run_id = uuid.uuid4()
+    research_id = uuid.uuid4()
+    coordinator = RunCoordinator(
+        runner=runner,
+        history=history,
+        question=QUESTION,
+        research_id=research_id,
+        run_id=run_id,
+        heartbeat_seconds=15,
+        cancel_persist_seconds=2,
+        clock=runner.clock,
+    )
+    return coordinator, run_id, research_id
+
+
+async def test_report_insert_failure_stores_failed_without_completed(
+    test_database_url: str,
+) -> None:
+    await _upgrade(test_database_url)
+    await _install_trigger(
+        test_database_url,
+        "CREATE OR REPLACE FUNCTION nexus_fail_report() "
+        "RETURNS trigger LANGUAGE plpgsql AS $$ "
+        "BEGIN RAISE EXCEPTION 'report write failed'; END; $$",
+        "CREATE TRIGGER nexus_fail_report BEFORE INSERT ON research_reports "
+        "FOR EACH ROW EXECUTE FUNCTION nexus_fail_report()",
+    )
+    engine = create_db_engine(test_database_url)
+    history = ResearchHistory(session_factory(engine))
+    runner = _runner()
+    coordinator, run_id, research_id = _coordinator(runner, history)
+    try:
+        await history.create_running(run_id, research_id, QUESTION, runner.clock())
+        body = "".join([frame async for frame in coordinator.events()])
+        names = [name for name, _data in parse_sse(body)]
+        stored = await history.get_run(run_id)
+    finally:
+        await engine.dispose()
+
+    assert "research.completed" not in names
+    assert names[-1] == "research.failed"
+    assert stored is not None
+    assert stored.run.status == "failed"
+    assert stored.run.error_code == "history_unavailable"
+    assert stored.report is None
+
+
+async def test_status_update_failure_leaves_running_without_a_terminal_frame(
+    test_database_url: str,
+) -> None:
+    await _upgrade(test_database_url)
+    await _install_trigger(
+        test_database_url,
+        "CREATE OR REPLACE FUNCTION nexus_fail_status() "
+        "RETURNS trigger LANGUAGE plpgsql AS $$ "
+        "BEGIN RAISE EXCEPTION 'status write failed'; END; $$",
+        "CREATE TRIGGER nexus_fail_status BEFORE UPDATE ON research_runs "
+        "FOR EACH ROW EXECUTE FUNCTION nexus_fail_status()",
+    )
+    engine = create_db_engine(test_database_url)
+    history = ResearchHistory(session_factory(engine))
+    runner = _runner()
+    coordinator, run_id, research_id = _coordinator(runner, history)
+    try:
+        await history.create_running(run_id, research_id, QUESTION, runner.clock())
+        body = "".join([frame async for frame in coordinator.events()])
+        names = [name for name, _data in parse_sse(body)]
+        stored = await history.get_run(run_id)
+    finally:
+        await engine.dispose()
+
+    assert "research.started" in names
+    assert "research.completed" not in names
+    assert "research.failed" not in names
+    assert "research.interrupted" not in names
+    assert stored is not None
+    assert stored.run.status == "running"
+    assert stored.report is None

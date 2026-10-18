@@ -50,4 +50,22 @@ describe("ResearchHistory", () => {
     expect(listRunsMock).toHaveBeenLastCalledWith(20, "cursor-1");
     expect(screen.queryByRole("button", { name: "Older runs" })).toBeNull();
   });
+
+  it("replaces the first page when the refresh key changes", async () => {
+    const first = run("11111111-1111-4111-8111-111111111111", "How does the first page stream?");
+    const finished = run("55555555-5555-4555-8555-555555555555", "How does a finished run appear?");
+    listRunsMock
+      .mockResolvedValueOnce({ items: [first], next_cursor: "cursor-1" })
+      .mockResolvedValueOnce({ items: [finished], next_cursor: null });
+
+    const { rerender } = render(<ResearchHistory refreshKey={0} />);
+    expect(await screen.findByRole("link", { name: first.question })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Older runs" })).toBeTruthy();
+    rerender(<ResearchHistory refreshKey={1} />);
+    expect(await screen.findByRole("link", { name: finished.question })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: first.question })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Older runs" })).toBeNull();
+    expect(listRunsMock).toHaveBeenNthCalledWith(1, 20);
+    expect(listRunsMock).toHaveBeenNthCalledWith(2, 20);
+  });
 });

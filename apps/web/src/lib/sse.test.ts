@@ -56,6 +56,28 @@ describe("parseSse", () => {
     });
   });
 
+  it("joins a CRLF pair that arrives in two chunks", async () => {
+    const payload = startedFrame().replace(/\n/g, "\r\n");
+    const splitAt = payload.indexOf("\r\n") + 1;
+    const encoder = new TextEncoder();
+    const frames = await collect(
+      streamFrom([encoder.encode(payload.slice(0, splitAt)), encoder.encode(payload.slice(splitAt))]),
+    );
+    expect(frames.map((frame) => (frame.type === "event" ? frame.name : frame.type))).toEqual([
+      "research.started",
+      "eof",
+    ]);
+  });
+
+  it("stops after one malformed frame when the buffer exceeds 64 KiB", async () => {
+    const payload = `event: research.progress\ndata: ${"x".repeat(70 * 1024)}\n\n`;
+    const frames = await collect(streamFrom([new TextEncoder().encode(payload)]));
+    expect(frames).toEqual([
+      { type: "malformed", name: "" },
+      { type: "eof", terminal: false },
+    ]);
+  });
+
   it("accepts CRLF frames and comment heartbeats", async () => {
     const payload = startedFrame().replace(/\n/g, "\r\n") + ": ping\r\n\r\n";
     const frames = await collect(streamFrom([new TextEncoder().encode(payload)]));
