@@ -7,7 +7,7 @@ cd apps/api
 uv run python -m nexus.evaluation --suite offline --output /tmp/nexus-eval-offline.json
 ```
 
-The command exits 0 when the fixture schema, citation provenance, and grounding structure match the authored expectations. Retrieval scores are written into the artifact. They are not a pass/fail threshold. A later change can decide whether those measured numbers become a CI gate.
+The command exits 0 when the fixture schema, citation provenance, and grounding structure match the authored expectations. Retrieval scores are written into the artifact. They are not a minimum quality bar for production retrieval.
 
 ## Identity mapping
 
@@ -42,3 +42,9 @@ The live judge is a separate object. It uses temperature 0 and `max_retries` 0, 
 `python -m nexus.evaluation --suite live` refuses to run unless `NEXUS_RUN_LIVE_AI=1`. It prints the published rates from the existing price table, refuses when the number of judge calls would exceed `--max-cases` (default 12), and records model, prompt version, dataset version, temperature, timestamp, and token provenance. Missing usage stays null. Claim text, excerpts, and rationale are not logged.
 
 `calibration.py` builds a confusion matrix and an agreement rate from gold labels versus judge labels. Both figures are estimates on this authored set. The judge labels are `supported`, `unsupported`, `insufficient_context`, and `contradictory`. The uncertain fixture case is gold-labeled `insufficient_context`.
+
+## CI gates
+
+The hard gate is the offline command plus a byte comparison with [`baseline.json`](baseline.json). A schema error, a citation-provenance mismatch, or a grounding-structure mismatch exits 1. A change to the frozen scores also fails the comparison, because those scores are part of the committed artifact. That lock is a fixture regression check. It is not a claim about live retrieval quality.
+
+Informational output stays out of CI: the live judge, live Recall@K, and estimated cost. Run the judge only with `NEXUS_RUN_LIVE_AI=1` and an API key. [`failure-matrix.md`](failure-matrix.md) lists the failure-injection outcomes and their limits.

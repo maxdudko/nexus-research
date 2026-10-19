@@ -1,11 +1,13 @@
 # Offline evaluation baseline
 
-Dataset version `2026-10-19.1`. `K = 5`. Measured on 2026-10-19 by:
+Report version `1`. Dataset version `2026-10-19.1`. `K = 5`. Python 3.14. Measured on 2026-10-19 from commit `1746f17` by:
 
 ```bash
 cd apps/api
 uv run python -m nexus.evaluation --suite offline --output /tmp/nexus-eval-offline.json
 ```
+
+The same bytes are in [`baseline.json`](baseline.json). That file has no commit field and no timestamp, so a later commit does not change it. CI fails when a fresh offline run differs from it.
 
 These numbers score the frozen fixture rank lists. They do not measure production retrieval.
 

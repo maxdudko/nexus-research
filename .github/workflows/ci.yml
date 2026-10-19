@@ -63,6 +63,12 @@ jobs:
         working-directory: apps/api
         run: uv run pytest
 
+      - name: Offline evaluation
+        working-directory: apps/api
+        run: |
+          uv run python -m nexus.evaluation --suite offline --output /tmp/nexus-eval-offline.json
+          diff -u ../../docs/evaluation/baseline.json /tmp/nexus-eval-offline.json
+
       - name: Alembic upgrade
         working-directory: apps/api
         run: |

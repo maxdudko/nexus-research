@@ -56,9 +56,9 @@ Nexus Research is planned as a seven-phase, approximately 14-day MVP build. The 
 
 **Goal:** Evaluate research quality and handle common failures safely.
 
-- Add tracing, structured logging, and execution/cost metrics.
-- Create a small evaluation dataset for retrieval quality, citation validity, and report grounding.
-- Test provider failures, timeouts, prompt-injection handling, URL safety, and resource limits.
+- Tracing, structured logs, and partial cost coverage are in the API. Tracing stays off unless `NEXUS_OTEL_ENABLED=true`.
+- The offline evaluation suite scores frozen fixtures. Citation validity is separate from entailment. The live judge is manual.
+- Failure behavior is indexed in `docs/evaluation/failure-matrix.md`. CI compares the offline artifact with `docs/evaluation/baseline.json`.
 
 **Deliverable:** A repeatable evaluation suite and documented failure-handling behavior.
 
