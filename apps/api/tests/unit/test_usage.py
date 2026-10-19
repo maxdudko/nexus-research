@@ -1,5 +1,6 @@
 """Provider usage stays separate from the logical graph budget."""
 
+from decimal import Decimal
 from uuid import uuid4
 
 import pytest
@@ -11,8 +12,14 @@ from tests.conftest import make_settings
 from nexus.ai.client import OpenAIStructuredModel
 from nexus.ai.errors import ResearchError
 from nexus.observability.context import bind_run
+from nexus.observability.costs import price_operations
 from nexus.observability.spans import operation
-from nexus.observability.usage import OperationUsage, UsageBuffer
+from nexus.observability.usage import (
+    OperationUsage,
+    UsageBuffer,
+    provider_token_counts,
+    summary_fields,
+)
 from nexus.research.discovery import Discovery
 from nexus.retrieval.embeddings import OpenAIEmbedder
 from nexus.schemas.research import ResearchPlan, ResearchTask
@@ -76,6 +83,14 @@ async def test_duplicate_token_observations_keep_one_record() -> None:
     assert record.output_tokens == 4
     assert record.usage_source == "provider"
     assert record.duration_ms >= 0
+
+
+def test_zero_token_pair_is_not_a_measurement() -> None:
+    assert provider_token_counts({"input_tokens": 0, "output_tokens": 0}) == (
+        None,
+        None,
+    )
+    assert provider_token_counts({"input_tokens": 4, "output_tokens": 0}) == (4, 0)
 
 
 async def test_negative_tokens_stay_unavailable() -> None:
@@ -277,10 +292,18 @@ async def test_tavily_retries_are_physical_and_logical_search_stays_one(
     assert "secret query" not in rendered
 
 
-async def test_embedding_estimate_is_separate_from_provider_tokens() -> None:
+async def test_embedding_estimate_is_separate_from_provider_tokens(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     import hashlib
 
     import tiktoken
+
+    class _Encoding:
+        def encode(self, text: str) -> list[int]:
+            return [1] * len(text)
+
+    monkeypatch.setattr(tiktoken, "encoding_for_model", lambda _model: _Encoding())
 
     def vector(text: str) -> list[float]:
         digest = hashlib.sha256(text.encode()).digest()
@@ -298,9 +321,6 @@ async def test_embedding_estimate_is_separate_from_provider_tokens() -> None:
         embedding_batch_size=1,
     )
     embedder = OpenAIEmbedder(settings, embed_batch)
-    expected = len(
-        tiktoken.encoding_for_model("text-embedding-3-small").encode("hello")
-    )
     with bind_run(create_buffer=True) as buffer:
         await embedder.embed_query("hello")
         await embedder.embed_documents(["hello", "world"])
@@ -314,7 +334,8 @@ async def test_embedding_estimate_is_separate_from_provider_tokens() -> None:
     assert query[0].usage_source == "estimated"
     assert query[0].input_tokens is None
     assert query[0].output_tokens is None
-    assert query[0].embedding_tokens == expected
+    assert query[0].embedding_tokens == len("hello")
+    assert query[0].physical_attempts is None
     assert len(documents) == 2
     assert "hello" not in str(query[0].model_dump())
 
@@ -336,3 +357,206 @@ async def test_unknown_embedding_model_has_no_token_estimate() -> None:
     assert record.usage_source == "unavailable"
     assert record.embedding_tokens is None
     assert record.input_tokens is None
+
+
+def _install_structured_chat(
+    monkeypatch: pytest.MonkeyPatch,
+    result: object,
+) -> None:
+    class FakeChat:
+        def __init__(self, **_kwargs: object) -> None:
+            return None
+
+        def with_structured_output(self, schema: object, **_kwargs: object) -> FakeChat:
+            del schema
+            return self
+
+        async def ainvoke(self, _messages: list[object]) -> object:
+            if isinstance(result, Exception):
+                raise result
+            return result
+
+    monkeypatch.setattr("nexus.ai.client.ChatOpenAI", FakeChat)
+
+
+async def test_timeout_before_metadata_stays_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_structured_chat(monkeypatch, TimeoutError(PROMPT))
+    settings = make_settings(openai_api_key=SecretStr(SECRET), ai_max_retries=0)
+    with bind_run(create_buffer=True) as buffer:
+        with pytest.raises(TimeoutError):
+            await OpenAIStructuredModel(settings).ainvoke(
+                [HumanMessage(content=PROMPT)]
+            )
+
+    assert buffer is not None
+    record = buffer.records[0]
+    assert record.outcome == "error"
+    assert record.usage_source == "unavailable"
+    assert record.input_tokens is None
+    assert record.output_tokens is None
+    assert record.physical_attempts == 1
+    assert PROMPT not in str(record.model_dump())
+    estimate = price_operations([record], tavily_usd_per_search=None)
+    assert estimate.amount is None
+    assert estimate.coverage == "unavailable"
+
+
+async def test_retries_disabled_records_one_measured_attempt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan = _plan()
+    _install_structured_chat(
+        monkeypatch,
+        {
+            "raw": AIMessage(
+                content="{}",
+                usage_metadata={
+                    "input_tokens": 1000,
+                    "output_tokens": 1000,
+                    "total_tokens": 2000,
+                },
+            ),
+            "parsed": plan,
+            "parsing_error": None,
+        },
+    )
+    settings = make_settings(
+        openai_api_key=SecretStr(SECRET),
+        openai_model="gpt-4o-mini",
+        ai_max_retries=0,
+    )
+    with bind_run(create_buffer=True) as buffer:
+        await OpenAIStructuredModel(settings).ainvoke([HumanMessage(content=PROMPT)])
+
+    assert buffer is not None
+    record = buffer.records[0]
+    assert record.physical_attempts == 1
+    assert record.usage_source == "provider"
+    estimate = price_operations([record], tavily_usd_per_search=None)
+    assert estimate.coverage == "complete"
+    assert estimate.amount == Decimal("0.00075")
+
+
+async def test_sdk_retries_keep_observed_chat_partial(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_structured_chat(
+        monkeypatch,
+        {
+            "raw": AIMessage(
+                content=PROMPT,
+                usage_metadata={
+                    "input_tokens": 1000,
+                    "output_tokens": 1000,
+                    "total_tokens": 2000,
+                },
+            ),
+            "parsed": None,
+            "parsing_error": ValueError(PROMPT),
+        },
+    )
+    settings = make_settings(
+        openai_api_key=SecretStr(SECRET),
+        openai_model="gpt-4o-mini",
+        ai_max_retries=1,
+    )
+    with bind_run(create_buffer=True) as buffer:
+        with pytest.raises(ResearchError) as exc_info:
+            await OpenAIStructuredModel(settings).ainvoke(
+                [HumanMessage(content=PROMPT)]
+            )
+
+    assert exc_info.value.code == "invalid_model_output"
+    assert buffer is not None
+    record = buffer.records[0]
+    assert record.outcome == "error"
+    assert record.usage_source == "provider"
+    assert record.physical_attempts is None
+    assert record.input_tokens == 1000
+    assert PROMPT not in str(record.model_dump())
+    estimate = price_operations([record], tavily_usd_per_search=None)
+    assert estimate.coverage == "partial"
+    assert estimate.amount == Decimal("0.00075")
+
+
+def test_summary_keeps_chat_tokens_apart_from_embedding_estimates() -> None:
+    records = [
+        OperationUsage(
+            stage="run",
+            provider="nexus",
+            operation="research_run",
+            duration_ms=12.5,
+            outcome="ok",
+            usage_source="unavailable",
+        ),
+        OperationUsage(
+            stage="plan",
+            provider="openai",
+            operation="openai_chat",
+            model="gpt-4o-mini",
+            duration_ms=4,
+            outcome="ok",
+            input_tokens=10,
+            output_tokens=4,
+            physical_attempts=1,
+            usage_source="provider",
+        ),
+        OperationUsage(
+            stage="retrieve",
+            provider="openai",
+            operation="embed_query",
+            model="text-embedding-3-small",
+            duration_ms=2,
+            outcome="ok",
+            embedding_tokens=7,
+            physical_attempts=1,
+            usage_source="estimated",
+        ),
+    ]
+
+    fields = summary_fields(records, dropped=0, tavily_usd_per_search=None)
+
+    assert fields["duration_ms"] == 12.5
+    assert fields["input_tokens"] == 10
+    assert fields["output_tokens"] == 4
+    assert fields["embedding_tokens"] == 7
+    assert fields["coverage"] == "partial"
+    assert fields["unknown_operations"] == 1
+    assert fields["input_tokens"] != fields["embedding_tokens"]
+
+
+def test_summary_omits_chat_totals_when_an_attempt_count_is_unknown() -> None:
+    records = [
+        OperationUsage(
+            stage="run",
+            provider="nexus",
+            operation="research_run",
+            duration_ms=3,
+            outcome="ok",
+            usage_source="unavailable",
+        ),
+        OperationUsage(
+            stage="plan",
+            provider="openai",
+            operation="openai_chat",
+            model="gpt-4o-mini",
+            duration_ms=1,
+            outcome="ok",
+            input_tokens=1000,
+            output_tokens=1000,
+            usage_source="provider",
+        ),
+    ]
+
+    fields = summary_fields(records, dropped=2, tavily_usd_per_search=None)
+
+    assert "input_tokens" not in fields
+    assert "output_tokens" not in fields
+    assert "embedding_tokens" not in fields
+    assert fields["duration_ms"] == 3
+    assert fields["unknown_operations"] == 1
+    assert fields["dropped"] == 2
+    assert fields["coverage"] == "partial"
+    assert fields["estimated_usd"] == "0.00075"

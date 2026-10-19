@@ -89,7 +89,6 @@ def test_enabled_without_endpoint_does_not_import_the_exporter() -> None:
 
     sys.modules.pop("opentelemetry.exporter.otlp.proto.http.trace_exporter", None)
     previous = trace_api._TRACER_PROVIDER
-    previous_once = trace_api._TRACER_PROVIDER_SET_ONCE
     try:
         configure_tracing(make_settings(otel_enabled=True, otel_endpoint=None))
         assert (
@@ -99,7 +98,7 @@ def test_enabled_without_endpoint_does_not_import_the_exporter() -> None:
         shutdown_tracing()
         reset_tracing_for_tests()
         trace_api._TRACER_PROVIDER = previous
-        trace_api._TRACER_PROVIDER_SET_ONCE = previous_once or Once()
+        trace_api._TRACER_PROVIDER_SET_ONCE = Once()
 
 
 def test_host_provider_is_not_replaceable() -> None:
@@ -257,3 +256,77 @@ async def test_bind_run_survives_yields_in_an_async_generator() -> None:
     assert collected == ["first", "second"]
     assert seen == [str(run_id)]
     assert current_context().run_id is None
+
+
+async def test_disabled_lifespans_leave_the_global_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import opentelemetry.trace as trace_api
+
+    from nexus.main import create_app
+
+    sys.modules.pop("opentelemetry.exporter.otlp.proto.http.trace_exporter", None)
+
+    def fail(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("socket opened")
+
+    monkeypatch.setattr(socket, "create_connection", fail)
+    before = trace_api.get_tracer_provider()
+    app = create_app(make_settings(otel_enabled=False))
+    async with app.router.lifespan_context(app):
+        pass
+    async with app.router.lifespan_context(app):
+        pass
+
+    assert trace_api.get_tracer_provider() is before
+    assert isinstance(trace_api.get_tracer_provider(), ProxyTracerProvider)
+    assert "opentelemetry.exporter.otlp.proto.http.trace_exporter" not in sys.modules
+
+
+async def test_second_lifespan_does_not_rebuild_a_stopped_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import opentelemetry.trace as trace_api
+    from opentelemetry.sdk.trace import TracerProvider as RealProvider
+    from opentelemetry.util._once import Once
+
+    from nexus.main import create_app
+
+    constructed = {"n": 0}
+    installed = {"n": 0}
+    shutdowns = {"n": 0}
+    previous = trace_api._TRACER_PROVIDER
+    original_set = trace_api.set_tracer_provider
+
+    class CountingProvider(RealProvider):
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            constructed["n"] += 1
+            super().__init__(*args, **kwargs)
+
+        def shutdown(self) -> None:
+            shutdowns["n"] += 1
+            super().shutdown()
+
+    def counting_set(provider: object) -> None:
+        installed["n"] += 1
+        original_set(provider)  # type: ignore[arg-type]
+
+    monkeypatch.setattr("opentelemetry.sdk.trace.TracerProvider", CountingProvider)
+    monkeypatch.setattr(trace_api, "set_tracer_provider", counting_set)
+    reset_tracing_for_tests()
+    trace_api._TRACER_PROVIDER_SET_ONCE = Once()
+    app = create_app(make_settings(otel_enabled=True, otel_endpoint=None))
+    try:
+        async with app.router.lifespan_context(app):
+            pass
+        async with app.router.lifespan_context(app):
+            with operation(operation="plan", provider="graph", stage="plan"):
+                pass
+        assert constructed["n"] == 1
+        assert installed["n"] == 1
+        assert shutdowns["n"] == 1
+    finally:
+        shutdown_tracing()
+        reset_tracing_for_tests()
+        trace_api._TRACER_PROVIDER = previous
+        trace_api._TRACER_PROVIDER_SET_ONCE = Once()

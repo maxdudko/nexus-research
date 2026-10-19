@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from nexus.ai.errors import invalid_model_output, provider_not_configured
 from nexus.core.config import Settings
 from nexus.observability.spans import OperationHandle, operation
+from nexus.observability.usage import sdk_attempt_count
 from nexus.schemas.research import ResearchPlan
 
 
@@ -36,9 +37,15 @@ class OpenAIStructuredModel:
 
     def __init__(self, settings: Settings) -> None:
         self._model_name, self._runnable = _structured_runnable(settings, ResearchPlan)
+        self._max_retries = settings.ai_max_retries
 
     async def ainvoke(self, messages: list[BaseMessage]) -> object:
-        return await _invoke_structured(self._runnable, self._model_name, messages)
+        return await _invoke_structured(
+            self._runnable,
+            self._model_name,
+            messages,
+            max_retries=self._max_retries,
+        )
 
 
 class StructuredOutputModel:
@@ -46,9 +53,15 @@ class StructuredOutputModel:
 
     def __init__(self, settings: Settings, schema: type[BaseModel]) -> None:
         self._model_name, self._runnable = _structured_runnable(settings, schema)
+        self._max_retries = settings.ai_max_retries
 
     async def ainvoke(self, messages: list[BaseMessage]) -> object:
-        return await _invoke_structured(self._runnable, self._model_name, messages)
+        return await _invoke_structured(
+            self._runnable,
+            self._model_name,
+            messages,
+            max_retries=self._max_retries,
+        )
 
 
 def _structured_runnable(
@@ -70,12 +83,15 @@ async def _invoke_structured(
     runnable: _StructuredRunnable,
     model_name: str,
     messages: list[BaseMessage],
+    *,
+    max_retries: int,
 ) -> object:
     with operation(
         operation="openai_chat",
         provider="openai",
         model=model_name,
     ) as handle:
+        handle.physical_attempts = sdk_attempt_count(max_retries)
         result = await runnable.ainvoke(messages)
         parsed = _parsed_output(result, handle)
         if parsed is None:

@@ -56,6 +56,8 @@ class OperationHandle:
             return
         if input_tokens < 0 or output_tokens < 0:
             return
+        if input_tokens == 0 and output_tokens == 0:
+            return
         self.input_tokens = input_tokens
         self.output_tokens = output_tokens
         self.usage_source = "provider"

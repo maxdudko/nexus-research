@@ -43,6 +43,7 @@ _ALLOW = frozenset(
         "dropped",
         "operation_count",
         "estimated_usd",
+        "unknown_operations",
     }
 )
 _FORBIDDEN = frozenset(
@@ -64,6 +65,7 @@ _FORBIDDEN = frozenset(
         "body",
     }
 )
+_EVENTS = frozenset({"operation", "research.usage"})
 _STRING_FIELDS = frozenset(
     {
         "error_code",
@@ -188,11 +190,12 @@ def configure_logging(settings: Settings, *, stream: TextIO | None = None) -> No
 
 
 def log_event(event: str, **fields: object) -> None:
-    """Emit one allowlisted event. Failures are discarded."""
+    """Emit one fixed event. Unknown names and unsafe fields are dropped."""
     try:
-        safe_event = safe_token(event) or "log"
+        if event not in _EVENTS:
+            return
         logging.getLogger("nexus.observability").info(
-            safe_event,
+            event,
             extra={"nexus": _allowlisted(fields)},
         )
     except Exception as exc:
@@ -220,7 +223,7 @@ def _safe_value(key: str, value: object) -> bool:
     if value is None:
         return False
     if key in _STRING_FIELDS:
-        if not isinstance(value, str) or "://" in value or "?" in value:
+        if not isinstance(value, str) or safe_token(value) is None:
             return False
         return _SECRET.search(value) is None
     if type(value) is bool:

@@ -4,11 +4,12 @@ import logging
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
+from typing import Literal
 
 from opentelemetry import trace
 from opentelemetry.sdk.trace import ReadableSpan, SpanProcessor
 from opentelemetry.sdk.trace.export import SpanExporter, SpanExportResult
-from opentelemetry.trace import ProxyTracerProvider, Tracer
+from opentelemetry.trace import NoOpTracerProvider, ProxyTracerProvider, Tracer
 
 from nexus import __version__
 from nexus.core.config import Settings
@@ -20,10 +21,13 @@ _tracer_override: ContextVar[Tracer | None] = ContextVar(
     "nexus_tracer",
     default=None,
 )
+_TraceState = Literal["idle", "active", "stopped"]
 _configured: Tracer | None = None
 _provider: trace.TracerProvider | None = None
 _processor: object | None = None
-_installed = False
+_retired: trace.TracerProvider | None = None
+_state: _TraceState = "idle"
+_noop_tracer: Tracer | None = None
 
 
 def active_tracer() -> Tracer:
@@ -33,7 +37,17 @@ def active_tracer() -> Tracer:
         return override
     if _configured is not None:
         return _configured
+    if _state == "stopped":
+        return _non_recording_tracer()
     return trace.get_tracer("nexus", __version__)
+
+
+def _non_recording_tracer() -> Tracer:
+    """A tracer that does not call into a terminated provider."""
+    global _noop_tracer
+    if _noop_tracer is None:
+        _noop_tracer = NoOpTracerProvider().get_tracer("nexus", __version__)
+    return _noop_tracer
 
 
 @contextmanager
@@ -53,13 +67,16 @@ def provider_is_replaceable(provider: trace.TracerProvider) -> bool:
 
 def configure_tracing(settings: Settings) -> None:
     """Install a provider only when tracing is enabled and nobody else has one."""
-    global _configured, _provider, _processor, _installed
-    if not settings.otel_enabled or _installed:
+    global _configured, _provider, _processor, _state
+    if not settings.otel_enabled or _state != "idle":
         return
-    _installed = True
     current = trace.get_tracer_provider()
+    if current is _retired:
+        _state = "stopped"
+        return
     if not provider_is_replaceable(current):
         _configured = trace.get_tracer("nexus", __version__)
+        _state = "active"
         logger.warning("otel left the existing tracer provider in place")
         return
     from opentelemetry.sdk.resources import SERVICE_NAME, Resource
@@ -82,12 +99,22 @@ def configure_tracing(settings: Settings) -> None:
     _provider = provider
     _processor = processor
     _configured = provider.get_tracer("nexus", __version__)
+    _state = "active"
 
 
 def shutdown_tracing() -> None:
     """Flush with a short bound. Exporter failures do not propagate."""
+    global _configured, _processor, _provider, _retired, _state
+    if _state != "active":
+        return
     processor = _processor
     provider = _provider
+    _state = "stopped"
+    _configured = None
+    _processor = None
+    _provider = None
+    if provider is not None:
+        _retired = provider
     if processor is not None:
         force_flush = getattr(processor, "force_flush", None)
         if callable(force_flush):
@@ -116,12 +143,16 @@ def shutdown_tracing() -> None:
 
 
 def reset_tracing_for_tests() -> None:
-    """Forget this process's provider handle. Does not touch the global one."""
-    global _configured, _provider, _processor, _installed
+    """Forget this process's provider handle. Does not touch the global one.
+
+    A provider this process already shut down stays retired. Reset does not
+    construct a replacement.
+    """
+    global _configured, _provider, _processor, _state
     _configured = None
     _provider = None
     _processor = None
-    _installed = False
+    _state = "idle"
 
 
 def _exporter_processor(endpoint: str) -> SpanProcessor | None:

@@ -14,6 +14,7 @@ def _chat(
     input_tokens: int | None = 1000,
     output_tokens: int | None = 1000,
     source: str = "provider",
+    attempts: int | None = None,
 ) -> OperationUsage:
     return OperationUsage(
         stage="plan",
@@ -24,6 +25,7 @@ def _chat(
         outcome="ok",
         input_tokens=input_tokens,
         output_tokens=output_tokens,
+        physical_attempts=attempts,
         usage_source=source,  # type: ignore[arg-type]
     )
 
@@ -72,11 +74,18 @@ def test_graph_usage_shape_is_unchanged() -> None:
 
 
 def test_provider_chat_price_can_be_complete() -> None:
-    estimate = price_operations([_chat()], tavily_usd_per_search=None)
+    estimate = price_operations([_chat(attempts=1)], tavily_usd_per_search=None)
 
     assert estimate.pricing_version == PRICING_VERSION
     assert estimate.currency == "USD"
     assert estimate.coverage == "complete"
+    assert estimate.amount == Decimal("0.00075")
+
+
+def test_unknown_sdk_attempts_keep_a_priced_chat_partial() -> None:
+    estimate = price_operations([_chat()], tavily_usd_per_search=None)
+
+    assert estimate.coverage == "partial"
     assert estimate.amount == Decimal("0.00075")
 
 

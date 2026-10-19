@@ -26,6 +26,19 @@ services:
     volumes:
       - nexus_qdrant_data:/qdrant/storage
 
+  # Optional trace UI. `docker compose up -d` does not start this profile.
+  jaeger:
+    image: jaegertracing/jaeger:2.22.0
+    profiles: ["observability"]
+    ports:
+      - "127.0.0.1:4318:4318"
+      - "127.0.0.1:16686:16686"
+    command:
+      # The image listens on localhost until this is set, so the published
+      # port would not accept traces from the host.
+      - "--set"
+      - "receivers.otlp.protocols.http.endpoint=0.0.0.0:4318"
+
 volumes:
   nexus_postgres_data:
   nexus_qdrant_data:

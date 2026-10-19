@@ -139,6 +139,14 @@ curl -fsS http://127.0.0.1:6333/readyz
 
 `pg_isready` checks PostgreSQL over TCP. `GET /readyz` is the Qdrant readiness probe. The Qdrant image does not ship an in-container health check.
 
+Jaeger is optional and is not started by `docker compose up -d`. To collect traces locally:
+
+```bash
+docker compose --profile observability up -d jaeger
+```
+
+The UI is `http://127.0.0.1:16686`. In `apps/api/.env`, set `NEXUS_OTEL_ENABLED=true` and `NEXUS_OTEL_ENDPOINT=http://127.0.0.1:4318/v1/traces`, then restart the API. Traces stay in Jaeger's memory and disappear when the container stops.
+
 `docker compose stop` stops the containers and keeps their named volumes. `docker compose down` removes the containers and keeps the volumes, so the next `up` restores the data. `docker compose down -v` deletes `nexus_postgres_data` and `nexus_qdrant_data`.
 
 ### Migrations

@@ -72,6 +72,7 @@ def price_operations(
     priced_amounts: list[Decimal] = []
     any_estimated = False
     any_unpriced = False
+    any_unknown_attempts = False
     for record in records:
         if record.provider not in _BILLABLE:
             continue
@@ -79,6 +80,8 @@ def price_operations(
         lines.append(line)
         if record.usage_source == "estimated":
             any_estimated = True
+        if record.provider == "openai" and record.physical_attempts != 1:
+            any_unknown_attempts = True
         if line.priced and line.amount is not None:
             priced_amounts.append(line.amount)
         else:
@@ -90,11 +93,30 @@ def price_operations(
             breakdown=lines,
         )
     amount = sum(priced_amounts, Decimal("0"))
-    if any_unpriced or any_estimated:
+    if any_unpriced or any_estimated or any_unknown_attempts:
         coverage: Coverage = "partial"
     else:
         coverage = "complete"
     return CostEstimate(amount=amount, coverage=coverage, breakdown=lines)
+
+
+def unknown_billable_count(
+    records: list[OperationUsage],
+    *,
+    tavily_usd_per_search: Decimal | None,
+) -> int:
+    """Billable rows whose quantity, price, or attempt count is not fully known."""
+    unknown = 0
+    for record in records:
+        if record.provider not in _BILLABLE:
+            continue
+        amount = _amount(record, tavily_usd_per_search)
+        if amount is None or record.usage_source == "estimated":
+            unknown += 1
+            continue
+        if record.provider == "openai" and record.physical_attempts != 1:
+            unknown += 1
+    return unknown
 
 
 def _price_line(

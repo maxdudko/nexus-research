@@ -2,6 +2,7 @@
 
 import logging
 from collections.abc import Sequence
+from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
@@ -12,6 +13,9 @@ logger = logging.getLogger(__name__)
 UsageSource = Literal["provider", "estimated", "unavailable"]
 OperationOutcome = Literal["ok", "error", "cancelled"]
 BUFFER_LIMIT = 256
+_CHAT_OPERATION = "openai_chat"
+_EMBEDDING_OPERATIONS = frozenset({"embed_documents", "embed_query"})
+_RUN_OPERATION = "research_run"
 
 
 class OperationUsage(BaseModel):
@@ -76,7 +80,17 @@ def provider_token_counts(metadata: object) -> tuple[int | None, int | None]:
         return None, None
     if raw_input < 0 or raw_output < 0:
         return None, None
+    # LangChain fills a missing usage object with zeros. That is not a measurement.
+    if raw_input == 0 and raw_output == 0:
+        return None, None
     return raw_input, raw_output
+
+
+def sdk_attempt_count(max_retries: int) -> int | None:
+    """One physical attempt is known only when the SDK retry loop is off."""
+    if max_retries == 0:
+        return 1
+    return None
 
 
 def record_usage(record: OperationUsage) -> None:
@@ -92,32 +106,108 @@ def record_usage(record: OperationUsage) -> None:
         logger.warning("usage record failed: %s", type(exc).__name__)
 
 
+def summary_fields(
+    records: Sequence[OperationUsage],
+    *,
+    dropped: int,
+    tavily_usd_per_search: Decimal | None,
+) -> dict[str, object]:
+    """Allowlisted run totals. Unknown chat sums are omitted, not reported as zero."""
+    from nexus.observability.costs import price_operations, unknown_billable_count
+
+    observed = list(records)
+    estimate = price_operations(
+        observed,
+        tavily_usd_per_search=tavily_usd_per_search,
+    )
+    fields: dict[str, object] = {
+        "stage": "run",
+        "operation": "usage_summary",
+        "outcome": "ok",
+        "coverage": estimate.coverage,
+        "pricing_version": estimate.pricing_version,
+        "currency": estimate.currency,
+        "dropped": dropped,
+        "operation_count": len(observed),
+        "unknown_operations": unknown_billable_count(
+            observed,
+            tavily_usd_per_search=tavily_usd_per_search,
+        ),
+    }
+    if estimate.amount is not None:
+        fields["estimated_usd"] = format(estimate.amount, "f")
+    duration_ms = _run_duration_ms(observed)
+    if duration_ms is not None:
+        fields["duration_ms"] = duration_ms
+    chat_totals = _chat_totals(observed)
+    if chat_totals is not None:
+        fields["input_tokens"], fields["output_tokens"] = chat_totals
+    embedding_tokens = _embedding_total(observed)
+    if embedding_tokens is not None:
+        fields["embedding_tokens"] = embedding_tokens
+    return fields
+
+
+def _run_duration_ms(records: Sequence[OperationUsage]) -> float | None:
+    for record in records:
+        if record.operation == _RUN_OPERATION:
+            return record.duration_ms
+    return None
+
+
+def _chat_totals(records: Sequence[OperationUsage]) -> tuple[int, int] | None:
+    chats = [
+        record
+        for record in records
+        if record.provider == "openai" and record.operation == _CHAT_OPERATION
+    ]
+    if not chats or any(not _chat_measured(record) for record in chats):
+        return None
+    return (
+        sum(record.input_tokens or 0 for record in chats),
+        sum(record.output_tokens or 0 for record in chats),
+    )
+
+
+def _chat_measured(record: OperationUsage) -> bool:
+    return (
+        record.usage_source == "provider"
+        and record.input_tokens is not None
+        and record.output_tokens is not None
+        and record.physical_attempts == 1
+    )
+
+
+def _embedding_total(records: Sequence[OperationUsage]) -> int | None:
+    totals = [
+        record.embedding_tokens
+        for record in records
+        if record.provider == "openai"
+        and record.operation in _EMBEDDING_OPERATIONS
+        and record.embedding_tokens is not None
+    ]
+    if not totals:
+        return None
+    return sum(totals)
+
+
 def emit_run_summary() -> None:
     """Log one aggregate. The HTTP response is left unchanged."""
     try:
         from nexus.observability.context import current_buffer
-        from nexus.observability.costs import price_operations, tavily_unit_price
+        from nexus.observability.costs import tavily_unit_price
         from nexus.observability.logging import log_event
 
         buffer = current_buffer()
         if buffer is None:
             return
-        estimate = price_operations(
-            buffer.records,
-            tavily_usd_per_search=tavily_unit_price(),
+        log_event(
+            "research.usage",
+            **summary_fields(
+                buffer.records,
+                dropped=buffer.dropped,
+                tavily_usd_per_search=tavily_unit_price(),
+            ),
         )
-        fields: dict[str, object] = {
-            "stage": "run",
-            "operation": "usage_summary",
-            "outcome": "ok",
-            "coverage": estimate.coverage,
-            "pricing_version": estimate.pricing_version,
-            "currency": estimate.currency,
-            "dropped": buffer.dropped,
-            "operation_count": len(buffer.records),
-        }
-        if estimate.amount is not None:
-            fields["estimated_usd"] = format(estimate.amount, "f")
-        log_event("research.usage", **fields)
     except Exception as exc:
         logger.warning("usage summary failed: %s", type(exc).__name__)

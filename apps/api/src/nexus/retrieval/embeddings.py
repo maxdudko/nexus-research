@@ -14,7 +14,7 @@ from nexus.ai.errors import (
 )
 from nexus.core.config import Settings
 from nexus.observability.spans import operation as operation_span
-from nexus.observability.usage import estimate_text_tokens
+from nexus.observability.usage import estimate_text_tokens, sdk_attempt_count
 
 EmbedBatch = Callable[[Sequence[str]], Awaitable[Sequence[Sequence[float]]]]
 
@@ -96,6 +96,7 @@ class OpenAIEmbedder:
             provider="openai",
             model=model,
         ) as handle:
+            handle.physical_attempts = sdk_attempt_count(self._settings.ai_max_retries)
             embed_batch = self._embed_batch
             try:
                 if embed_batch is not None:
