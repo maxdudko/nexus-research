@@ -1,6 +1,6 @@
 # Offline evaluation baseline
 
-Report version `1`. Dataset version `2026-10-19.1`. `K = 5`. Python 3.14. Measured on 2026-10-19 from commit `1746f17` by:
+Report version `1`. Dataset version `2026-10-19.2`. `K = 5`. Python 3.14. Measured on 2026-10-19 by:
 
 ```bash
 cd apps/api
@@ -21,7 +21,7 @@ These numbers score the frozen fixture rank lists. They do not measure productio
 | Defined cases | 15 |
 | Undefined cases | 1 |
 
-Citation provenance and grounding structure matched the fixture expectations (10 citation cases, 12 grounding cases). Retrieval scores, including the zero-recall cases, did not affect the exit code. The command exited 0.
+Citation provenance and grounding structure matched the fixture expectations (10 citation cases, 15 grounding cases). Retrieval scores, including the zero-recall cases, did not affect the exit code. The command exited 0.
 
 ## Measured artifact
 
@@ -113,7 +113,7 @@ Citation provenance and grounding structure matched the fixture expectations (10
       }
     ]
   },
-  "dataset_version": "2026-10-19.1",
+  "dataset_version": "2026-10-19.2",
   "grounding": [
     {
       "case_id": "g01-supported",
@@ -128,7 +128,7 @@ Citation provenance and grounding structure matched the fixture expectations (10
       "error_code": null,
       "excerpt_count": 1,
       "expect_structurally_valid": true,
-      "gold_label": "unsupported",
+      "gold_label": "insufficient_context",
       "structural_valid": true
     },
     {
@@ -209,6 +209,30 @@ Citation provenance and grounding structure matched the fixture expectations (10
       "excerpt_count": 3,
       "expect_structurally_valid": true,
       "gold_label": "contradictory",
+      "structural_valid": true
+    },
+    {
+      "case_id": "g13-explicit-deny",
+      "error_code": null,
+      "excerpt_count": 1,
+      "expect_structurally_valid": true,
+      "gold_label": "unsupported",
+      "structural_valid": true
+    },
+    {
+      "case_id": "g14-missing-day",
+      "error_code": null,
+      "excerpt_count": 1,
+      "expect_structurally_valid": true,
+      "gold_label": "insufficient_context",
+      "structural_valid": true
+    },
+    {
+      "case_id": "g15-off-topic-conflict",
+      "error_code": null,
+      "excerpt_count": 2,
+      "expect_structurally_valid": true,
+      "gold_label": "insufficient_context",
       "structural_valid": true
     }
   ],

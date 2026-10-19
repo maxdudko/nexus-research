@@ -206,7 +206,7 @@ The offline evaluation command does not need an API key:
 uv run python -m nexus.evaluation --suite offline --output /tmp/nexus-eval-offline.json
 ```
 
-CI fails when that file differs from `docs/evaluation/baseline.json`. The numbers score the frozen fixtures. They do not measure production retrieval. The live judge is not part of CI. It calls OpenAI only when you set `NEXUS_RUN_LIVE_AI=1` and a key, and it prints the published `gpt-4o-mini` rates ($0.15 / 1M input tokens and $0.60 / 1M output tokens in pricing version `2026-10-19`). Those rates are estimates, not an invoice. See `docs/evaluation/methodology.md` and `docs/evaluation/failure-matrix.md`.
+CI fails when that file differs from `docs/evaluation/baseline.json`. The numbers score the frozen fixtures. They do not measure production retrieval. The live judge is not part of CI. It calls OpenAI only when you set `NEXUS_RUN_LIVE_AI=1` and a key, and it prints the published `gpt-4o-mini` rates ($0.15 / 1M input tokens and $0.60 / 1M output tokens in pricing version `2026-10-19`). Those rates are estimates, not an invoice. The live embedding search is also outside CI and is not compared with `baseline.json`. See `docs/evaluation/methodology.md` and `docs/evaluation/failure-matrix.md`.
 
 ### Research plan
 

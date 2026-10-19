@@ -6,7 +6,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from nexus.core.config import Settings
-from nexus.evaluation.calibration import calibrate
+from nexus.evaluation.calibration import calibrate, judge_counts
 from nexus.evaluation.citations import check_citations
 from nexus.evaluation.datasets import EvaluationDataset, load_dataset
 from nexus.evaluation.grounding import evaluate_grounding, grounding_structure
@@ -62,6 +62,7 @@ async def run_live(dataset: EvaluationDataset, settings: Settings) -> LiveReport
         retrieval=offline.retrieval,
         citations=offline.citations,
         grounding=grounding,
+        counts=judge_counts(grounding),
         calibration=calibrate(grounding),
     )
 

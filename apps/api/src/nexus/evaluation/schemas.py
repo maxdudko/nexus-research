@@ -5,11 +5,11 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-DATASET_VERSION = "2026-10-19.1"
+DATASET_VERSION = "2026-10-19.2"
 REPORT_VERSION = "1"
 K = 5
 EXCERPT_CHARS = 500
-PROMPT_VERSION = "grounding-judge-1"
+PROMPT_VERSION = "grounding-judge-2"
 JUDGE_TEMPERATURE = 0.0
 JUDGE_MAX_RETRIES = 0
 
@@ -221,6 +221,18 @@ class GroundingJudgeResult(BaseModel):
     rationale: str | None = None
 
 
+class JudgeRunCounts(BaseModel):
+    """How many judge calls were sent, and how those calls finished."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    attempted: int = Field(ge=0)
+    succeeded: int = Field(ge=0)
+    failed: int = Field(ge=0)
+    skipped: int = Field(ge=0)
+    disagreed: int = Field(ge=0)
+
+
 class CalibrationReport(BaseModel):
     """Agreement on the authored set. Both figures are estimates."""
 
@@ -264,4 +276,5 @@ class LiveReport(BaseModel):
     retrieval: RetrievalReport
     citations: CitationReport
     grounding: list[GroundingJudgeResult]
+    counts: JudgeRunCounts
     calibration: CalibrationReport

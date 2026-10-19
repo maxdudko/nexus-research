@@ -24,7 +24,7 @@ def test_offline_cli_exits_0_and_repeats_the_same_bytes(tmp_path: Path) -> None:
     assert list(payload) == sorted(payload)
     case_ids = [case["case_id"] for case in payload["retrieval"]["cases"]]
     assert case_ids == sorted(case_ids)
-    assert payload["dataset_version"] == "2026-10-19.1"
+    assert payload["dataset_version"] == "2026-10-19.2"
     assert payload["k"] == 5
     assert "Office plants need water" not in text
     assert payload["retrieval"]["aggregate"]["defined_cases"] == 15

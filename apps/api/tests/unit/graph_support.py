@@ -9,7 +9,7 @@ from tests.conftest import make_settings
 
 from nexus.ingestion.service import IngestionResult
 from nexus.research.budgets import limits_from_settings
-from nexus.research.graph import GraphContext
+from nexus.research.graph import GraphContext, ReportSynthesizer
 from nexus.research.nodes.evaluation import StaticEvaluator
 from nexus.research.nodes.synthesis import StaticSynthesizer
 from nexus.research.outcomes import EvaluationOutcome
@@ -228,7 +228,7 @@ def make_context(
     ingestion: FakeIngestion,
     retrieval: FakeRetrieval,
     evaluator: ScriptedEvaluator | StaticEvaluator | None = None,
-    synthesizer: StaticSynthesizer | None = None,
+    synthesizer: ReportSynthesizer | None = None,
 ) -> GraphContext:
     """Services for one offline run. The clock does not advance."""
     return GraphContext(

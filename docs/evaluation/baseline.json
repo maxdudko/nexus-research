@@ -85,7 +85,7 @@
       }
     ]
   },
-  "dataset_version": "2026-10-19.1",
+  "dataset_version": "2026-10-19.2",
   "grounding": [
     {
       "case_id": "g01-supported",
@@ -100,7 +100,7 @@
       "error_code": null,
       "excerpt_count": 1,
       "expect_structurally_valid": true,
-      "gold_label": "unsupported",
+      "gold_label": "insufficient_context",
       "structural_valid": true
     },
     {
@@ -181,6 +181,30 @@
       "excerpt_count": 3,
       "expect_structurally_valid": true,
       "gold_label": "contradictory",
+      "structural_valid": true
+    },
+    {
+      "case_id": "g13-explicit-deny",
+      "error_code": null,
+      "excerpt_count": 1,
+      "expect_structurally_valid": true,
+      "gold_label": "unsupported",
+      "structural_valid": true
+    },
+    {
+      "case_id": "g14-missing-day",
+      "error_code": null,
+      "excerpt_count": 1,
+      "expect_structurally_valid": true,
+      "gold_label": "insufficient_context",
+      "structural_valid": true
+    },
+    {
+      "case_id": "g15-off-topic-conflict",
+      "error_code": null,
+      "excerpt_count": 2,
+      "expect_structurally_valid": true,
+      "gold_label": "insufficient_context",
       "structural_valid": true
     }
   ],

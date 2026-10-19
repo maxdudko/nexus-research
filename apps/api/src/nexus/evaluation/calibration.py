@@ -7,6 +7,7 @@ from nexus.evaluation.retrieval import QUANT
 from nexus.evaluation.schemas import (
     CalibrationReport,
     GroundingJudgeResult,
+    JudgeRunCounts,
     SupportLabel,
 )
 
@@ -16,6 +17,33 @@ LABELS: tuple[SupportLabel, ...] = (
     "insufficient_context",
     "contradictory",
 )
+
+
+def judge_counts(results: Sequence[GroundingJudgeResult]) -> JudgeRunCounts:
+    """Count calls. A label disagreement is not a provider failure."""
+    attempted = 0
+    succeeded = 0
+    failed = 0
+    skipped = 0
+    disagreed = 0
+    for result in results:
+        if not result.structural_valid or result.outcome == "skipped":
+            skipped += 1
+            continue
+        attempted += 1
+        if result.outcome == "ok":
+            succeeded += 1
+            if result.predicted_label != result.gold_label:
+                disagreed += 1
+        else:
+            failed += 1
+    return JudgeRunCounts(
+        attempted=attempted,
+        succeeded=succeeded,
+        failed=failed,
+        skipped=skipped,
+        disagreed=disagreed,
+    )
 
 
 def calibrate(results: Sequence[GroundingJudgeResult]) -> CalibrationReport:

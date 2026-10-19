@@ -9,7 +9,7 @@ import pytest
 from pydantic import ValidationError
 from tests.conftest import make_settings
 
-from nexus.evaluation.calibration import calibrate
+from nexus.evaluation.calibration import calibrate, judge_counts
 from nexus.evaluation.datasets import FIXTURE_CLAIM_TOKEN, Catalog, load_dataset
 from nexus.evaluation.grounding import (
     evaluate_grounding,
@@ -71,7 +71,12 @@ def test_unknown_citation_and_foreign_scope_are_rejected() -> None:
     assert structure["g09-foreign"].structural_valid is False
     assert structure["g09-foreign"].error_code == "foreign_research"
     assert structure["g02-spurious"].structural_valid is True
-    assert structure["g02-spurious"].gold_label == "unsupported"
+    assert structure["g02-spurious"].gold_label == "insufficient_context"
+    assert structure["g08-wrong-number"].gold_label == "unsupported"
+    assert structure["g13-explicit-deny"].gold_label == "unsupported"
+    assert structure["g14-missing-day"].gold_label == "insufficient_context"
+    assert structure["g15-off-topic-conflict"].gold_label == "insufficient_context"
+    assert structure["g15-off-topic-conflict"].excerpt_count == 2
     assert structure["g04-contradictory"].excerpt_count == 2
 
 
@@ -96,7 +101,7 @@ async def test_fake_judge_records_contradictory_evidence_without_a_report() -> N
     assert "g10-unknown" not in judge.seen
     assert found["g04-contradictory"].predicted_label == "contradictory"
     assert found["g05-uncertain"].predicted_label == "insufficient_context"
-    assert found["g02-spurious"].predicted_label == "unsupported"
+    assert found["g02-spurious"].predicted_label == "insufficient_context"
     assert found["g10-unknown"].outcome == "skipped"
 
 
@@ -194,6 +199,29 @@ def test_constructing_the_judge_does_not_build_a_client(
 
     monkeypatch.setattr("langchain_openai.ChatOpenAI", boom)
     OpenAIGroundingJudge(make_settings())
+
+
+async def test_live_counts_keep_disagreement_out_of_failures() -> None:
+    dataset = load_dataset()
+    verdicts: dict[str, JudgeVerdict | Exception] = dict(_verdicts(dataset))
+    verdicts["g01-supported"] = TimeoutError("slow")
+    verdicts["g08-wrong-number"] = JudgeVerdict(
+        verdict="supported",
+        rationale="disagrees with gold",
+        evidence_ids=["web-limits#c0"],
+    )
+
+    results = await evaluate_grounding(dataset, ScriptedJudge(verdicts))
+    counts = judge_counts(results)
+    calibration = calibrate(results)
+
+    assert counts.attempted == 13
+    assert counts.succeeded == 12
+    assert counts.failed == 1
+    assert counts.skipped == 2
+    assert counts.disagreed == 1
+    assert calibration.compared == 12
+    assert calibration.agreements == 11
 
 
 def test_calibration_counts_agreement_as_an_estimate() -> None:
