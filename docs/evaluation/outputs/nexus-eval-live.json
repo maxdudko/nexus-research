@@ -1,0 +1,522 @@
+{
+  "calibration": {
+    "agreement": "0.846154",
+    "agreements": 11,
+    "compared": 13,
+    "estimate": true,
+    "labels": [
+      "supported",
+      "unsupported",
+      "insufficient_context",
+      "contradictory"
+    ],
+    "matrix": {
+      "contradictory": {
+        "contradictory": 2,
+        "insufficient_context": 0,
+        "supported": 0,
+        "unsupported": 0
+      },
+      "insufficient_context": {
+        "contradictory": 0,
+        "insufficient_context": 5,
+        "supported": 0,
+        "unsupported": 0
+      },
+      "supported": {
+        "contradictory": 0,
+        "insufficient_context": 0,
+        "supported": 4,
+        "unsupported": 0
+      },
+      "unsupported": {
+        "contradictory": 2,
+        "insufficient_context": 0,
+        "supported": 0,
+        "unsupported": 0
+      }
+    }
+  },
+  "citations": {
+    "cases": [
+      {
+        "case_id": "c01-supported",
+        "citation_valid": true,
+        "error_codes": [],
+        "expect_citation_valid": true,
+        "support_label": "supported"
+      },
+      {
+        "case_id": "c02-spurious",
+        "citation_valid": true,
+        "error_codes": [],
+        "expect_citation_valid": true,
+        "support_label": "unsupported"
+      },
+      {
+        "case_id": "c03-missing",
+        "citation_valid": false,
+        "error_codes": [
+          "missing_evidence"
+        ],
+        "expect_citation_valid": false,
+        "support_label": "supported"
+      },
+      {
+        "case_id": "c04-foreign",
+        "citation_valid": false,
+        "error_codes": [
+          "foreign_research"
+        ],
+        "expect_citation_valid": false,
+        "support_label": "supported"
+      },
+      {
+        "case_id": "c05-malformed",
+        "citation_valid": false,
+        "error_codes": [
+          "malformed_id"
+        ],
+        "expect_citation_valid": false,
+        "support_label": "supported"
+      },
+      {
+        "case_id": "c06-pdf",
+        "citation_valid": true,
+        "error_codes": [],
+        "expect_citation_valid": true,
+        "support_label": "supported"
+      },
+      {
+        "case_id": "c07-web",
+        "citation_valid": true,
+        "error_codes": [],
+        "expect_citation_valid": true,
+        "support_label": "supported"
+      },
+      {
+        "case_id": "c08-unknown",
+        "citation_valid": false,
+        "error_codes": [
+          "unknown_source"
+        ],
+        "expect_citation_valid": false,
+        "support_label": "unsupported"
+      },
+      {
+        "case_id": "c09-duplicate",
+        "citation_valid": false,
+        "error_codes": [
+          "duplicate_id"
+        ],
+        "expect_citation_valid": false,
+        "support_label": "supported"
+      },
+      {
+        "case_id": "c10-scope",
+        "citation_valid": false,
+        "error_codes": [
+          "foreign_research"
+        ],
+        "expect_citation_valid": false,
+        "support_label": "supported"
+      }
+    ]
+  },
+  "counts": {
+    "attempted": 13,
+    "disagreed": 2,
+    "failed": 0,
+    "skipped": 2,
+    "succeeded": 13
+  },
+  "dataset_version": "2026-10-19.2",
+  "grounding": [
+    {
+      "case_id": "g01-supported",
+      "dataset_version": "2026-10-19.2",
+      "error_code": null,
+      "gold_label": "supported",
+      "input_tokens": 274,
+      "model": "gpt-4o-mini",
+      "outcome": "ok",
+      "output_tokens": 41,
+      "predicted_label": "supported",
+      "prompt_version": "grounding-judge-2",
+      "rationale": "The excerpt explicitly states that a research run stops after two planning iterations, which directly supports the claim.",
+      "structural_valid": true,
+      "temperature": 0.0,
+      "timestamp": "2026-10-19T14:27:23Z",
+      "usage_source": "provider"
+    },
+    {
+      "case_id": "g02-spurious",
+      "dataset_version": "2026-10-19.2",
+      "error_code": null,
+      "gold_label": "insufficient_context",
+      "input_tokens": 273,
+      "model": "gpt-4o-mini",
+      "outcome": "ok",
+      "output_tokens": 59,
+      "predicted_label": "insufficient_context",
+      "prompt_version": "grounding-judge-2",
+      "rationale": "The excerpt provided does not contain any information related to the claim about a research run stopping after two planning iterations. It discusses office plants needing water, which is unrelated to the claim.",
+      "structural_valid": true,
+      "temperature": 0.0,
+      "timestamp": "2026-10-19T14:27:25Z",
+      "usage_source": "provider"
+    },
+    {
+      "case_id": "g03-insufficient",
+      "dataset_version": "2026-10-19.2",
+      "error_code": null,
+      "gold_label": "insufficient_context",
+      "input_tokens": 271,
+      "model": "gpt-4o-mini",
+      "outcome": "ok",
+      "output_tokens": 51,
+      "predicted_label": "insufficient_context",
+      "prompt_version": "grounding-judge-2",
+      "rationale": "The excerpt does not provide any information about the color of the lab notebook, making it impossible to determine if the claim is true or false.",
+      "structural_valid": true,
+      "temperature": 0.0,
+      "timestamp": "2026-10-19T14:27:27Z",
+      "usage_source": "provider"
+    },
+    {
+      "case_id": "g04-contradictory",
+      "dataset_version": "2026-10-19.2",
+      "error_code": null,
+      "gold_label": "contradictory",
+      "input_tokens": 282,
+      "model": "gpt-4o-mini",
+      "outcome": "ok",
+      "output_tokens": 55,
+      "predicted_label": "contradictory",
+      "prompt_version": "grounding-judge-2",
+      "rationale": "The excerpts provide conflicting information about the page cap, with one stating it is five and the other stating it is fifty.",
+      "structural_valid": true,
+      "temperature": 0.0,
+      "timestamp": "2026-10-19T14:27:29Z",
+      "usage_source": "provider"
+    },
+    {
+      "case_id": "g05-uncertain",
+      "dataset_version": "2026-10-19.2",
+      "error_code": null,
+      "gold_label": "insufficient_context",
+      "input_tokens": 274,
+      "model": "gpt-4o-mini",
+      "outcome": "ok",
+      "output_tokens": 66,
+      "predicted_label": "insufficient_context",
+      "prompt_version": "grounding-judge-2",
+      "rationale": "The excerpt does not provide any information about the iteration limit on weekends or whether it varies by day. It only states that a research run stops after two planning iterations, which does not address the claim about weekend limits.",
+      "structural_valid": true,
+      "temperature": 0.0,
+      "timestamp": "2026-10-19T14:27:30Z",
+      "usage_source": "provider"
+    },
+    {
+      "case_id": "g06-paraphrase",
+      "dataset_version": "2026-10-19.2",
+      "error_code": null,
+      "gold_label": "supported",
+      "input_tokens": 279,
+      "model": "gpt-4o-mini",
+      "outcome": "ok",
+      "output_tokens": 47,
+      "predicted_label": "supported",
+      "prompt_version": "grounding-judge-2",
+      "rationale": "The excerpt explicitly states that the iteration count for planning is two and that the run must finish afterward, which directly supports the claim.",
+      "structural_valid": true,
+      "temperature": 0.0,
+      "timestamp": "2026-10-19T14:27:32Z",
+      "usage_source": "provider"
+    },
+    {
+      "case_id": "g07-pdf",
+      "dataset_version": "2026-10-19.2",
+      "error_code": null,
+      "gold_label": "supported",
+      "input_tokens": 273,
+      "model": "gpt-4o-mini",
+      "outcome": "ok",
+      "output_tokens": 40,
+      "predicted_label": "supported",
+      "prompt_version": "grounding-judge-2",
+      "rationale": "The excerpt explicitly states that page two lists the five page fetch cap, which directly supports the claim.",
+      "structural_valid": true,
+      "temperature": 0.0,
+      "timestamp": "2026-10-19T14:27:33Z",
+      "usage_source": "provider"
+    },
+    {
+      "case_id": "g08-wrong-number",
+      "dataset_version": "2026-10-19.2",
+      "error_code": null,
+      "gold_label": "unsupported",
+      "input_tokens": 274,
+      "model": "gpt-4o-mini",
+      "outcome": "ok",
+      "output_tokens": 61,
+      "predicted_label": "contradictory",
+      "prompt_version": "grounding-judge-2",
+      "rationale": "The excerpts present conflicting information about the number of planning iterations after which a research run stops. One excerpt states it stops after two iterations, while the claim states it stops after nine iterations.",
+      "structural_valid": true,
+      "temperature": 0.0,
+      "timestamp": "2026-10-19T14:27:35Z",
+      "usage_source": "provider"
+    },
+    {
+      "case_id": "g09-foreign",
+      "dataset_version": "2026-10-19.2",
+      "error_code": "foreign_research",
+      "gold_label": "supported",
+      "input_tokens": null,
+      "model": null,
+      "outcome": "skipped",
+      "output_tokens": null,
+      "predicted_label": null,
+      "prompt_version": null,
+      "rationale": null,
+      "structural_valid": false,
+      "temperature": null,
+      "timestamp": null,
+      "usage_source": null
+    },
+    {
+      "case_id": "g10-unknown",
+      "dataset_version": "2026-10-19.2",
+      "error_code": "unknown_citation",
+      "gold_label": "supported",
+      "input_tokens": null,
+      "model": null,
+      "outcome": "skipped",
+      "output_tokens": null,
+      "predicted_label": null,
+      "prompt_version": null,
+      "rationale": null,
+      "structural_valid": false,
+      "temperature": null,
+      "timestamp": null,
+      "usage_source": null
+    },
+    {
+      "case_id": "g11-multi",
+      "dataset_version": "2026-10-19.2",
+      "error_code": null,
+      "gold_label": "supported",
+      "input_tokens": 296,
+      "model": "gpt-4o-mini",
+      "outcome": "ok",
+      "output_tokens": 57,
+      "predicted_label": "supported",
+      "prompt_version": "grounding-judge-2",
+      "rationale": "The excerpts clearly state that the search budget allows six logical search calls and that logical LLM calls are capped at thirteen, which directly supports the claim.",
+      "structural_valid": true,
+      "temperature": 0.0,
+      "timestamp": "2026-10-19T14:27:37Z",
+      "usage_source": "provider"
+    },
+    {
+      "case_id": "g12-conflict-noise",
+      "dataset_version": "2026-10-19.2",
+      "error_code": null,
+      "gold_label": "contradictory",
+      "input_tokens": 298,
+      "model": "gpt-4o-mini",
+      "outcome": "ok",
+      "output_tokens": 54,
+      "predicted_label": "contradictory",
+      "prompt_version": "grounding-judge-2",
+      "rationale": "The excerpts contain conflicting information about the page cap, with one stating it is five and another stating it is fifty.",
+      "structural_valid": true,
+      "temperature": 0.0,
+      "timestamp": "2026-10-19T14:27:38Z",
+      "usage_source": "provider"
+    },
+    {
+      "case_id": "g13-explicit-deny",
+      "dataset_version": "2026-10-19.2",
+      "error_code": null,
+      "gold_label": "unsupported",
+      "input_tokens": 268,
+      "model": "gpt-4o-mini",
+      "outcome": "ok",
+      "output_tokens": 48,
+      "predicted_label": "contradictory",
+      "prompt_version": "grounding-judge-2",
+      "rationale": "The excerpts contain conflicting information about the page cap, with one stating it is fifty and the other stating it is five.",
+      "structural_valid": true,
+      "temperature": 0.0,
+      "timestamp": "2026-10-19T14:27:40Z",
+      "usage_source": "provider"
+    },
+    {
+      "case_id": "g14-missing-day",
+      "dataset_version": "2026-10-19.2",
+      "error_code": null,
+      "gold_label": "insufficient_context",
+      "input_tokens": 272,
+      "model": "gpt-4o-mini",
+      "outcome": "ok",
+      "output_tokens": 48,
+      "predicted_label": "insufficient_context",
+      "prompt_version": "grounding-judge-2",
+      "rationale": "The excerpt does not provide any information regarding the frequency of the search budget reset, specifically whether it resets every Monday or not.",
+      "structural_valid": true,
+      "temperature": 0.0,
+      "timestamp": "2026-10-19T14:27:41Z",
+      "usage_source": "provider"
+    },
+    {
+      "case_id": "g15-off-topic-conflict",
+      "dataset_version": "2026-10-19.2",
+      "error_code": null,
+      "gold_label": "insufficient_context",
+      "input_tokens": 284,
+      "model": "gpt-4o-mini",
+      "outcome": "ok",
+      "output_tokens": 61,
+      "predicted_label": "insufficient_context",
+      "prompt_version": "grounding-judge-2",
+      "rationale": "The excerpts provided do not contain any information regarding the watering needs of office plants. They discuss page caps, which are unrelated to the claim about plant care.",
+      "structural_valid": true,
+      "temperature": 0.0,
+      "timestamp": "2026-10-19T14:27:43Z",
+      "usage_source": "provider"
+    }
+  ],
+  "k": 5,
+  "model": "gpt-4o-mini",
+  "pricing_version": "2026-10-19",
+  "prompt_version": "grounding-judge-2",
+  "report_version": "1",
+  "retrieval": {
+    "aggregate": {
+      "defined_cases": 15,
+      "mrr_at_k": "0.705556",
+      "precision_at_k": "0.240000",
+      "recall_at_k": "0.833333",
+      "undefined_cases": 1
+    },
+    "cases": [
+      {
+        "case_id": "q01-single",
+        "gold_count": 1,
+        "mrr_at_k": "1.000000",
+        "precision_at_k": "0.200000",
+        "recall_at_k": "1.000000"
+      },
+      {
+        "case_id": "q02-multi",
+        "gold_count": 3,
+        "mrr_at_k": "1.000000",
+        "precision_at_k": "0.600000",
+        "recall_at_k": "1.000000"
+      },
+      {
+        "case_id": "q03-paraphrase",
+        "gold_count": 2,
+        "mrr_at_k": "0.500000",
+        "precision_at_k": "0.400000",
+        "recall_at_k": "1.000000"
+      },
+      {
+        "case_id": "q04-no-gold",
+        "gold_count": 0,
+        "mrr_at_k": null,
+        "precision_at_k": null,
+        "recall_at_k": null
+      },
+      {
+        "case_id": "q05-miss",
+        "gold_count": 1,
+        "mrr_at_k": "0.000000",
+        "precision_at_k": "0.000000",
+        "recall_at_k": "0.000000"
+      },
+      {
+        "case_id": "q06-short",
+        "gold_count": 1,
+        "mrr_at_k": "1.000000",
+        "precision_at_k": "0.200000",
+        "recall_at_k": "1.000000"
+      },
+      {
+        "case_id": "q07-duplicate",
+        "gold_count": 1,
+        "mrr_at_k": "1.000000",
+        "precision_at_k": "0.200000",
+        "recall_at_k": "1.000000"
+      },
+      {
+        "case_id": "q08-rank3",
+        "gold_count": 1,
+        "mrr_at_k": "0.333333",
+        "precision_at_k": "0.200000",
+        "recall_at_k": "1.000000"
+      },
+      {
+        "case_id": "q09-half",
+        "gold_count": 2,
+        "mrr_at_k": "1.000000",
+        "precision_at_k": "0.200000",
+        "recall_at_k": "0.500000"
+      },
+      {
+        "case_id": "q10-pdf",
+        "gold_count": 1,
+        "mrr_at_k": "1.000000",
+        "precision_at_k": "0.200000",
+        "recall_at_k": "1.000000"
+      },
+      {
+        "case_id": "q11-web",
+        "gold_count": 1,
+        "mrr_at_k": "1.000000",
+        "precision_at_k": "0.200000",
+        "recall_at_k": "1.000000"
+      },
+      {
+        "case_id": "q12-past-k",
+        "gold_count": 1,
+        "mrr_at_k": "0.000000",
+        "precision_at_k": "0.000000",
+        "recall_at_k": "0.000000"
+      },
+      {
+        "case_id": "q13-both-pdf",
+        "gold_count": 2,
+        "mrr_at_k": "1.000000",
+        "precision_at_k": "0.400000",
+        "recall_at_k": "1.000000"
+      },
+      {
+        "case_id": "q14-late-pair",
+        "gold_count": 2,
+        "mrr_at_k": "0.250000",
+        "precision_at_k": "0.400000",
+        "recall_at_k": "1.000000"
+      },
+      {
+        "case_id": "q15-noise-hit",
+        "gold_count": 1,
+        "mrr_at_k": "1.000000",
+        "precision_at_k": "0.200000",
+        "recall_at_k": "1.000000"
+      },
+      {
+        "case_id": "q16-second-only",
+        "gold_count": 1,
+        "mrr_at_k": "0.500000",
+        "precision_at_k": "0.200000",
+        "recall_at_k": "1.000000"
+      }
+    ],
+    "k": 5
+  },
+  "suite": "live",
+  "temperature": 0.0
+}

@@ -1,0 +1,161 @@
+{
+  "dataset_version": "2026-10-19.2",
+  "cases": [
+    {
+      "case_id": "q01-single",
+      "ranked": [
+        "web-limits#c0",
+        "web-noise#c0",
+        "web-budget#c0",
+        "pdf-pages#c0",
+        "web-para#c0"
+      ]
+    },
+    {
+      "case_id": "q02-multi",
+      "ranked": [
+        "web-budget#c0",
+        "web-noise#c0",
+        "web-limits#c1",
+        "pdf-pages#c0",
+        "pdf-pages#c1"
+      ]
+    },
+    {
+      "case_id": "q03-paraphrase",
+      "ranked": [
+        "web-noise#c0",
+        "web-para#c0",
+        "web-limits#c0",
+        "web-budget#c0",
+        "pdf-pages#c0"
+      ]
+    },
+    {
+      "case_id": "q04-no-gold",
+      "ranked": [
+        "web-noise#c0",
+        "web-limits#c0",
+        "web-budget#c0",
+        "pdf-pages#c0",
+        "web-para#c0"
+      ]
+    },
+    {
+      "case_id": "q05-miss",
+      "ranked": [
+        "web-noise#c0",
+        "web-budget#c0",
+        "pdf-pages#c0",
+        "pdf-pages#c1",
+        "web-limits#c1"
+      ]
+    },
+    {
+      "case_id": "q06-short",
+      "ranked": ["pdf-pages#c0", "web-noise#c0"]
+    },
+    {
+      "case_id": "q07-duplicate",
+      "ranked": [
+        "web-limits#c0",
+        "web-limits#c0",
+        "web-noise#c0",
+        "web-budget#c0",
+        "pdf-pages#c0",
+        "web-para#c0"
+      ]
+    },
+    {
+      "case_id": "q08-rank3",
+      "ranked": [
+        "web-noise#c0",
+        "web-limits#c0",
+        "pdf-pages#c1",
+        "web-budget#c0",
+        "web-para#c0"
+      ]
+    },
+    {
+      "case_id": "q09-half",
+      "ranked": [
+        "web-limits#c1",
+        "web-noise#c0",
+        "web-budget#c0",
+        "pdf-pages#c0",
+        "web-para#c0"
+      ]
+    },
+    {
+      "case_id": "q10-pdf",
+      "ranked": [
+        "pdf-pages#c0",
+        "web-limits#c0",
+        "web-budget#c0",
+        "web-noise#c0",
+        "pdf-pages#c1"
+      ]
+    },
+    {
+      "case_id": "q11-web",
+      "ranked": [
+        "web-budget#c0",
+        "web-limits#c0",
+        "web-noise#c0",
+        "pdf-pages#c0",
+        "web-para#c0"
+      ]
+    },
+    {
+      "case_id": "q12-past-k",
+      "ranked": [
+        "web-noise#c0",
+        "web-limits#c0",
+        "web-limits#c1",
+        "web-budget#c0",
+        "pdf-pages#c0",
+        "web-para#c0"
+      ]
+    },
+    {
+      "case_id": "q13-both-pdf",
+      "ranked": [
+        "pdf-pages#c0",
+        "pdf-pages#c1",
+        "web-noise#c0",
+        "web-limits#c0",
+        "web-budget#c0"
+      ]
+    },
+    {
+      "case_id": "q14-late-pair",
+      "ranked": [
+        "web-noise#c0",
+        "web-budget#c0",
+        "pdf-pages#c0",
+        "web-limits#c0",
+        "web-para#c0"
+      ]
+    },
+    {
+      "case_id": "q15-noise-hit",
+      "ranked": [
+        "web-noise#c0",
+        "web-limits#c0",
+        "web-budget#c0",
+        "pdf-pages#c0",
+        "web-para#c0"
+      ]
+    },
+    {
+      "case_id": "q16-second-only",
+      "ranked": [
+        "web-limits#c0",
+        "web-limits#c1",
+        "web-noise#c0",
+        "web-budget#c0",
+        "pdf-pages#c0"
+      ]
+    }
+  ]
+}

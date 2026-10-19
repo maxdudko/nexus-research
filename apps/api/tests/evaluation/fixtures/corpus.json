@@ -1,0 +1,105 @@
+{
+  "dataset_version": "2026-10-19.2",
+  "chunks": [
+    {
+      "semantic_id": "web-limits#c0",
+      "research_id": "11111111-1111-4111-8111-111111111111",
+      "source_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
+      "chunk_index": 0,
+      "kind": "web",
+      "url": "https://example.test/limits",
+      "page_number": null,
+      "text": "A research run stops after two planning iterations."
+    },
+    {
+      "semantic_id": "web-limits#c1",
+      "research_id": "11111111-1111-4111-8111-111111111111",
+      "source_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
+      "chunk_index": 1,
+      "kind": "web",
+      "url": "https://example.test/limits",
+      "page_number": null,
+      "text": "The search budget allows six logical search calls."
+    },
+    {
+      "semantic_id": "web-budget#c0",
+      "research_id": "11111111-1111-4111-8111-111111111111",
+      "source_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2",
+      "chunk_index": 0,
+      "kind": "web",
+      "url": "https://example.test/budget",
+      "page_number": null,
+      "text": "Logical LLM calls are capped at thirteen for one run."
+    },
+    {
+      "semantic_id": "web-para#c0",
+      "research_id": "11111111-1111-4111-8111-111111111111",
+      "source_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3",
+      "chunk_index": 0,
+      "kind": "web",
+      "url": "https://example.test/para",
+      "page_number": null,
+      "text": "Iteration count for planning is two, then the run must finish."
+    },
+    {
+      "semantic_id": "web-noise#c0",
+      "research_id": "11111111-1111-4111-8111-111111111111",
+      "source_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa4",
+      "chunk_index": 0,
+      "kind": "web",
+      "url": "https://example.test/noise",
+      "page_number": null,
+      "text": "Office plants need water twice a week."
+    },
+    {
+      "semantic_id": "web-conflict#c0",
+      "research_id": "11111111-1111-4111-8111-111111111111",
+      "source_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa5",
+      "chunk_index": 0,
+      "kind": "web",
+      "url": "https://example.test/conflict",
+      "page_number": null,
+      "text": "The page cap is five."
+    },
+    {
+      "semantic_id": "web-conflict#c1",
+      "research_id": "11111111-1111-4111-8111-111111111111",
+      "source_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa5",
+      "chunk_index": 1,
+      "kind": "web",
+      "url": "https://example.test/conflict",
+      "page_number": null,
+      "text": "The page cap is fifty."
+    },
+    {
+      "semantic_id": "pdf-pages#c0",
+      "research_id": "11111111-1111-4111-8111-111111111111",
+      "source_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1",
+      "chunk_index": 0,
+      "kind": "pdf",
+      "url": null,
+      "page_number": 2,
+      "text": "Page two lists the five page fetch cap."
+    },
+    {
+      "semantic_id": "pdf-pages#c1",
+      "research_id": "11111111-1111-4111-8111-111111111111",
+      "source_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1",
+      "chunk_index": 1,
+      "kind": "pdf",
+      "url": null,
+      "page_number": 3,
+      "text": "Passages shown to the model are cut at five hundred characters."
+    },
+    {
+      "semantic_id": "web-foreign#c0",
+      "research_id": "22222222-2222-4222-8222-222222222222",
+      "source_id": "cccccccc-cccc-4ccc-8ccc-ccccccccccc1",
+      "chunk_index": 0,
+      "kind": "web",
+      "url": "https://example.test/foreign",
+      "page_number": null,
+      "text": "This passage belongs to another research scope."
+    }
+  ]
+}

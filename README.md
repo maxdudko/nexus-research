@@ -139,6 +139,14 @@ curl -fsS http://127.0.0.1:6333/readyz
 
 `pg_isready` checks PostgreSQL over TCP. `GET /readyz` is the Qdrant readiness probe. The Qdrant image does not ship an in-container health check.
 
+Jaeger is optional and is not started by `docker compose up -d`. To collect traces locally:
+
+```bash
+docker compose --profile observability up -d jaeger
+```
+
+The UI is `http://127.0.0.1:16686`. Tracing is off unless `NEXUS_OTEL_ENABLED=true`. To send spans, also set `NEXUS_OTEL_ENDPOINT=http://127.0.0.1:4318/v1/traces` and restart the API. An exporter failure does not change the research result. Traces stay in Jaeger's memory and disappear when the container stops. Cost figures are estimates. Coverage stays partial when the OpenAI SDK may retry (`NEXUS_AI_MAX_RETRIES` defaults to 1), because those extra attempts are not visible on the successful response.
+
 `docker compose stop` stops the containers and keeps their named volumes. `docker compose down` removes the containers and keeps the volumes, so the next `up` restores the data. `docker compose down -v` deletes `nexus_postgres_data` and `nexus_qdrant_data`.
 
 ### Migrations
@@ -190,7 +198,15 @@ uv run pytest
 
 `uv run pytest` runs the unit tests and the integration tests. Every test should pass. Integration tests create a database named `nexus_test`, migrate it, and drop it. They leave the development database `nexus` unchanged. The fixture only does that when the host is `localhost`, `127.0.0.1`, or `::1`, and it stops before any `DROP DATABASE` if `NEXUS_DATABASE_URL` already uses `nexus_test`. `uv run pytest -m "not integration"` runs only the unit tests.
 
-GitHub Actions runs these commands on every push and pull request. The workflow starts PostgreSQL and Qdrant with Docker Compose, copies `.env.example` to `.env`, then runs Ruff, mypy, pytest, and `alembic upgrade head` twice.
+GitHub Actions runs these commands on every push and pull request. The workflow starts PostgreSQL and Qdrant with Docker Compose, copies `.env.example` to `.env`, then runs Ruff, mypy, pytest, the offline evaluation command below, and `alembic upgrade head` twice.
+
+The offline evaluation command does not need an API key:
+
+```bash
+uv run python -m nexus.evaluation --suite offline --output /tmp/nexus-eval-offline.json
+```
+
+CI fails when that file differs from `docs/evaluation/baseline.json`. The numbers score the frozen fixtures. They do not measure production retrieval. The live judge is not part of CI. It calls OpenAI only when you set `NEXUS_RUN_LIVE_AI=1` and a key, and it prints the published `gpt-4o-mini` rates ($0.15 / 1M input tokens and $0.60 / 1M output tokens in pricing version `2026-10-19`). Those rates are estimates, not an invoice. The live embedding search is also outside CI and is not compared with `baseline.json`. See `docs/evaluation/methodology.md` and `docs/evaluation/failure-matrix.md`.
 
 ### Research plan
 

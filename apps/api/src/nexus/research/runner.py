@@ -31,6 +31,9 @@ from nexus.ai.planner import Planner
 from nexus.ai.synthesis import OpenAIReportSynthesizer
 from nexus.core.config import Settings
 from nexus.ingestion.service import IngestionService
+from nexus.observability.context import bind_run
+from nexus.observability.spans import operation
+from nexus.observability.usage import emit_run_summary
 from nexus.research.budgets import limits_from_settings
 from nexus.research.discovery import Discovery
 from nexus.research.graph import GraphContext, run_config
@@ -93,19 +96,16 @@ class ResearchRunner:
         """
         scope = research_id or uuid4()
         run_id = uuid4()
-        state = self._initial(scope, run_id, question)
-        try:
-            async with asyncio.timeout(self._budget()):
-                result = await self.graph.ainvoke(
-                    state,
-                    config=run_config(str(run_id)),
-                    context=self._context,
-                )
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            await self._translate(exc, run_id)
-        return _response(_checked(result))
+        with bind_run(
+            run_id=run_id,
+            research_id=scope,
+            stage="run",
+            create_buffer=True,
+        ):
+            try:
+                return await self._execute(scope, run_id, question)
+            finally:
+                emit_run_summary()
 
     async def stream(
         self,
@@ -119,13 +119,43 @@ class ResearchRunner:
         the same ``astream`` call, not a separate ``ainvoke``.
         """
         state = self._initial(research_id, run_id, question)
+        with bind_run(
+            run_id=run_id,
+            research_id=research_id,
+            stage="run",
+            create_buffer=True,
+        ):
+            try:
+                try:
+                    async for item in self._stream_graph(state, run_id):
+                        yield item
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    await self._translate(exc, run_id)
+            finally:
+                emit_run_summary()
+
+    async def _execute(
+        self,
+        scope: UUID,
+        run_id: UUID,
+        question: str,
+    ) -> ResearchRunResponse:
+        state = self._initial(scope, run_id, question)
         try:
-            async for item in self._stream_graph(state, run_id):
-                yield item
+            async with asyncio.timeout(self._budget()):
+                with operation(operation="research_run", provider="nexus", stage="run"):
+                    result = await self.graph.ainvoke(
+                        state,
+                        config=run_config(str(run_id)),
+                        context=self._context,
+                    )
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             await self._translate(exc, run_id)
+        return _response(_checked(result))
 
     def clock(self) -> datetime:
         """The clock the graph and domain rows share for this runner."""
@@ -188,22 +218,23 @@ class ResearchRunner:
         latest: dict[str, object] | None = None
         pending: list[str] = []
         async with asyncio.timeout(self._budget()):
-            stream = self.graph.astream(
-                state,
-                config=run_config(str(run_id)),
-                context=self._context,
-                stream_mode=["updates", "values"],
-            )
-            async for item in stream:
-                mode, payload = _stream_part(item)
-                if mode == "updates" and isinstance(payload, dict):
-                    pending.extend(key for key in payload if isinstance(key, str))
-                    continue
-                if mode == "values" and isinstance(payload, dict):
-                    latest = payload
-                    for node in pending:
-                        await queue.put(_progress(node, payload))
-                    pending.clear()
+            with operation(operation="research_run", provider="nexus", stage="run"):
+                stream = self.graph.astream(
+                    state,
+                    config=run_config(str(run_id)),
+                    context=self._context,
+                    stream_mode=["updates", "values"],
+                )
+                async for item in stream:
+                    mode, payload = _stream_part(item)
+                    if mode == "updates" and isinstance(payload, dict):
+                        pending.extend(key for key in payload if isinstance(key, str))
+                        continue
+                    if mode == "values" and isinstance(payload, dict):
+                        latest = payload
+                        for node in pending:
+                            await queue.put(_progress(node, payload))
+                        pending.clear()
         if isinstance(latest, dict):
             for node in pending:
                 await queue.put(_progress(node, latest))

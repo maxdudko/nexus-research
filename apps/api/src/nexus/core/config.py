@@ -2,6 +2,7 @@
 
 import re
 import sys
+from decimal import Decimal
 from functools import lru_cache
 from typing import Literal, Self
 
@@ -64,6 +65,12 @@ class Settings(BaseSettings):
     stream_heartbeat_seconds: float = Field(default=15.0, gt=0, le=60)
     stream_max_concurrent: int = Field(default=2, ge=1, le=8)
     stream_cancel_persist_seconds: float = Field(default=2.0, gt=0, le=5)
+    otel_enabled: bool = False
+    otel_endpoint: AnyHttpUrl | None = None
+    otel_service_name: str = "nexus-research"
+    otel_sample_ratio: float = Field(default=1.0, ge=0, le=1)
+    log_format: Literal["json", "text"] = "json"
+    tavily_usd_per_search: Decimal | None = Field(default=None, ge=0)
 
     @model_validator(mode="after")
     def overlap_fits_in_a_chunk(self) -> Self:
@@ -71,7 +78,13 @@ class Settings(BaseSettings):
             raise ValueError("chunk overlap must be smaller than the chunk size")
         return self
 
-    @field_validator("openai_api_key", "tavily_api_key", mode="before")
+    @field_validator(
+        "openai_api_key",
+        "tavily_api_key",
+        "otel_endpoint",
+        "tavily_usd_per_search",
+        mode="before",
+    )
     @classmethod
     def blank_secret(cls, value: object) -> object:
         if value is None or value == "":
@@ -86,6 +99,16 @@ class Settings(BaseSettings):
         stripped = value.strip()
         if not stripped:
             raise ValueError("must not be empty")
+        return stripped
+
+    @field_validator("otel_service_name", mode="before")
+    @classmethod
+    def service_name(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        stripped = value.strip()
+        if not stripped or len(stripped) > 64 or "://" in stripped:
+            raise ValueError("must be a short service name")
         return stripped
 
     @field_validator("rag_collection", mode="before")
