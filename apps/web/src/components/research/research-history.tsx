@@ -88,7 +88,7 @@ export function ResearchHistory({ refreshKey = 0 }: { refreshKey?: string | numb
       </h2>
       {loading ? <p>Loading recent runs.</p> : null}
       {error ? (
-        <p role="alert" className="text-sm text-red-800">
+        <p role="alert" className="text-sm text-danger">
           {error}
         </p>
       ) : null}
@@ -97,11 +97,11 @@ export function ResearchHistory({ refreshKey = 0 }: { refreshKey?: string | numb
         {runs.map((run) => {
           const prominent = run.status === "partial" || run.status === "insufficient_evidence";
           return (
-            <li key={run.run_id} className="rounded border border-neutral-300 bg-white p-3">
+            <li key={run.run_id} className="rounded border border-line bg-surface p-3">
               <Link href={`/research/${run.run_id}`} className="line-clamp-2 break-words font-medium underline">
                 {run.question}
               </Link>
-              <p className="mt-1 text-sm text-neutral-700">
+              <p className="mt-1 text-sm text-muted">
                 <span className={prominent ? "font-semibold" : undefined}>{STATUS_LABEL[run.status]}</span>
                 {" · "}
                 {formatTime(run.created_at)}
@@ -113,7 +113,7 @@ export function ResearchHistory({ refreshKey = 0 }: { refreshKey?: string | numb
       {cursor ? (
         <button
           type="button"
-          className="rounded border border-neutral-900 px-4 py-2 disabled:cursor-not-allowed disabled:text-neutral-400"
+          className={`rounded border border-line-strong px-4 py-2 ${loadingOlder ? 'cursor-not-allowed' : 'cursor-pointer'}`}
           disabled={loadingOlder}
           onClick={() => {
             void loadOlder();

@@ -1,12 +1,59 @@
 @import "tailwindcss";
 
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-surface: var(--surface);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-primary: var(--primary);
+  --color-on-primary: var(--on-primary);
+  --color-primary-disabled: var(--primary-disabled);
+  --color-disabled: var(--disabled);
+  --color-danger: var(--danger);
+  --color-focus: var(--focus);
+}
+
+:root {
+  color-scheme: light;
+  --canvas: #f7f7f5;
+  --ink: #1a1a1a;
+  --muted: #404040;
+  --surface: #ffffff;
+  --line: #a3a3a3;
+  --line-strong: #171717;
+  --primary: #171717;
+  --on-primary: #ffffff;
+  --primary-disabled: #a3a3a3;
+  --disabled: #a3a3a3;
+  --danger: #991b1b;
+  --focus: #0b57d0;
+}
+
+.dark {
+  color-scheme: dark;
+  --canvas: #141413;
+  --ink: #f2f2f0;
+  --muted: #b8b8b3;
+  --surface: #1e1e1c;
+  --line: #5c5c57;
+  --line-strong: #d4d4cf;
+  --primary: #f2f2f0;
+  --on-primary: #141413;
+  --primary-disabled: #5c5c57;
+  --disabled: #6e6e69;
+  --danger: #f0a8a0;
+  --focus: #8ab4f8;
+}
+
 body {
-  background: #f7f7f5;
-  color: #1a1a1a;
+  background: var(--canvas);
+  color: var(--ink);
   font-family: ui-sans-serif, system-ui, sans-serif;
 }
 
 :focus-visible {
-  outline: 2px solid #0b57d0;
+  outline: 2px solid var(--focus);
   outline-offset: 2px;
 }

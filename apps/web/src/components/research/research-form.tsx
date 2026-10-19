@@ -51,14 +51,14 @@ export function ResearchForm({
           readOnly={busy}
           aria-invalid={showQuestionError}
           aria-describedby={showQuestionError ? "question-hint question-error" : "question-hint"}
-          className="w-full rounded border border-neutral-400 bg-white p-3 text-base"
+          className="w-full rounded border border-line bg-surface p-3 text-base text-ink"
           onChange={(event) => onQuestion(event.target.value)}
         />
-        <p id="question-hint" className="text-sm text-neutral-700">
+        <p id="question-hint" className="text-sm text-muted">
           Use 10 to 2000 characters.
         </p>
         {showQuestionError ? (
-          <p id="question-error" role="alert" className="text-sm text-red-800">
+          <p id="question-error" role="alert" className="text-sm text-danger">
             Enter a question between 10 and 2000 characters.
           </p>
         ) : null}
@@ -71,7 +71,7 @@ export function ResearchForm({
         onFile={onFile}
       />
       {state.researchId === "pending" ? null : (
-        <p className="text-sm text-neutral-700" data-research-id={state.researchId}>
+        <p className="text-sm text-muted" data-research-id={state.researchId}>
           Draft {state.researchId}
         </p>
       )}
@@ -79,7 +79,7 @@ export function ResearchForm({
         <button
           type="submit"
           disabled={!canStart(state)}
-          className="rounded bg-neutral-900 px-4 py-2 text-white disabled:cursor-not-allowed disabled:bg-neutral-400"
+          className={`rounded bg-primary px-4 py-2 text-on-primary ${canStart(state) ? 'cursor-pointer' : 'cursor-not-allowed'}`}
         >
           Start research
         </button>
@@ -87,13 +87,13 @@ export function ResearchForm({
           <button
             type="button"
             onClick={onStop}
-            className="rounded border border-neutral-900 px-4 py-2"
+            className="rounded border border-line-strong px-4 py-2 cursor-pointer"
           >
             Stop this request; research may be interrupted.
           </button>
         ) : null}
         {canRetry(state.phase) ? (
-          <button type="button" onClick={onRetry} className="rounded border border-neutral-400 px-4 py-2">
+          <button type="button" onClick={onRetry} className="rounded border border-line px-4 py-2 cursor-pointer">
             Start a new run
           </button>
         ) : null}

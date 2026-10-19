@@ -21,10 +21,10 @@ export function PdfUpload({
 }) {
   return (
     <div className="flex flex-col gap-2">
-      <label htmlFor="pdf" className="text-sm font-medium">
+      <label htmlFor="pdf" className="text-sm font-medium cursor-pointer">
         PDF evidence
       </label>
-      <p id="pdf-hint" className="text-sm text-neutral-700">
+      <p id="pdf-hint" className="text-sm text-muted">
         Optional. Text PDFs up to 10 MB are indexed before the run starts.
       </p>
       <input
@@ -46,7 +46,7 @@ export function PdfUpload({
         </p>
       ) : null}
       {message ? (
-        <p role="alert" className="text-sm text-red-800">
+        <p role="alert" className="text-sm text-danger">
           {message}
         </p>
       ) : null}
