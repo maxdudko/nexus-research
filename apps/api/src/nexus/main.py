@@ -11,12 +11,14 @@ from nexus.api.errors import register_exception_handlers
 from nexus.api.v1.router import api_router
 from nexus.core.config import Settings, get_settings
 from nexus.infrastructure.database import create_db_engine, session_factory
+from nexus.observability import configure_observability, shutdown_observability
 from nexus.research.checkpoint import CheckpointRuntime
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings: Settings = app.state.settings
+    configure_observability(settings)
     engine = create_db_engine(str(settings.database_url))
     app.state.engine = engine
     app.state.session_factory = session_factory(engine)
@@ -26,6 +28,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        shutdown_observability()
         checkpoint = app.state.checkpoint
         app.state.checkpoint = None
         if isinstance(checkpoint, CheckpointRuntime):

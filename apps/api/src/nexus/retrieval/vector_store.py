@@ -25,6 +25,7 @@ from qdrant_client.http.exceptions import UnexpectedResponse
 from nexus.ai.errors import ResearchError, collection_mismatch, provider_unavailable
 from nexus.core.config import Settings
 from nexus.models.source import CONTENT_HASH
+from nexus.observability.spans import operation
 from nexus.retrieval.ids import evidence_point_id
 from nexus.retrieval.versions import AcceptedVersion
 
@@ -111,6 +112,14 @@ class EvidenceVectorStore:
         points: Sequence[EvidencePoint],
     ) -> None:
         """Overwrite stable point ids. Every point must use ``research_id``."""
+        with operation(operation="qdrant_upsert", provider="qdrant"):
+            await self._upsert(research_id, points)
+
+    async def _upsert(
+        self,
+        research_id: uuid.UUID,
+        points: Sequence[EvidencePoint],
+    ) -> None:
         width = self._settings.rag_vector_size
         structs = [_point_struct(point, research_id, width) for point in points]
         if not structs:
@@ -241,6 +250,23 @@ class EvidenceVectorStore:
         query_filter: models.Filter,
         *,
         accepted_only: bool = False,
+    ) -> list[EvidenceMatch]:
+        with operation(operation="qdrant_search", provider="qdrant"):
+            return await self._search(
+                research_id,
+                vector,
+                limit,
+                query_filter,
+                accepted_only,
+            )
+
+    async def _search(
+        self,
+        research_id: uuid.UUID,
+        vector: list[float],
+        limit: int,
+        query_filter: models.Filter,
+        accepted_only: bool,
     ) -> list[EvidenceMatch]:
         try:
             await self._ensure_collection()

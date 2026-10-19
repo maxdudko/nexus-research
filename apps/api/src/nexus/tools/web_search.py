@@ -27,6 +27,7 @@ from nexus.ai.errors import (
     search_failed,
 )
 from nexus.core.config import Settings
+from nexus.observability.spans import operation
 from nexus.schemas.research import QUERY_MAX_LENGTH, SearchResult
 
 MAX_RESULTS = 5
@@ -88,16 +89,27 @@ class WebSearch:
     ) -> object:
         attempts = self._settings.ai_max_retries + 1
         for attempt in range(attempts):
+            retry = False
             try:
-                return await call()
+                with operation(operation="web_search", provider="tavily") as handle:
+                    handle.physical_attempts = 1
+                    try:
+                        return await call()
+                    except TimeoutError:
+                        raise
+                    except _TRANSIENT_ERRORS as exc:
+                        mapped = _map_search_error(exc)
+                        handle.outcome = "error"
+                        handle.error_code = mapped.code
+                        if attempt + 1 >= attempts:
+                            raise mapped from None
+                        retry = True
+                    except Exception as exc:
+                        raise _map_search_error(exc) from None
             except TimeoutError:
                 raise
-            except _TRANSIENT_ERRORS as exc:
-                if attempt + 1 >= attempts:
-                    raise _map_search_error(exc) from None
+            if retry:
                 await asyncio.sleep(_RETRY_DELAY_SECONDS * (attempt + 1))
-            except Exception as exc:
-                raise _map_search_error(exc) from None
         raise search_failed()
 
 

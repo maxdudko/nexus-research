@@ -26,6 +26,7 @@ from nexus.ai.errors import (
 )
 from nexus.ai.prompts import DISCOVERY_SYSTEM_PROMPT
 from nexus.core.config import Settings
+from nexus.observability.spans import operation
 from nexus.schemas.research import QUERY_MAX_LENGTH, DiscoveryResult, SearchResult
 from nexus.tools.web_search import MAX_RESULTS, WebSearch, normalize_url
 
@@ -66,13 +67,20 @@ class OpenAIToolModel:
 
     def __init__(self, settings: Settings) -> None:
         chat: ChatOpenAI = build_chat_model(settings)
+        self._model_name = settings.openai_model
         self._runnable = chat.bind_tools([web_search], parallel_tool_calls=False)
 
     async def ainvoke(self, messages: list[BaseMessage]) -> AIMessage:
-        result = await self._runnable.ainvoke(messages)
-        if isinstance(result, AIMessage):
+        with operation(
+            operation="openai_chat",
+            provider="openai",
+            model=self._model_name,
+        ) as handle:
+            result = await self._runnable.ainvoke(messages)
+            if not isinstance(result, AIMessage):
+                raise invalid_model_output()
+            handle.observe_message(result)
             return result
-        raise invalid_model_output()
 
 
 @dataclass

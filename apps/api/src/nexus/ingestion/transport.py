@@ -18,6 +18,7 @@ from urllib.parse import urljoin
 import httpx
 
 from nexus.ai.errors import fetch_failed, fetch_timeout, payload_too_large, unsafe_url
+from nexus.observability.spans import operation
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +137,26 @@ async def fetch_public_page(
     connection: httpx.AsyncBaseTransport | None = None,
 ) -> FetchedPage:
     """Fetch one public HTML page. Unsafe targets raise before a connection."""
+    with operation(operation="web_fetch", provider="web"):
+        return await _fetch_public_page(
+            url,
+            max_bytes=max_bytes,
+            max_redirects=max_redirects,
+            timeout_seconds=timeout_seconds,
+            resolver=resolver,
+            connection=connection,
+        )
+
+
+async def _fetch_public_page(
+    url: str,
+    *,
+    max_bytes: int,
+    max_redirects: int,
+    timeout_seconds: float,
+    resolver: AddressResolver | None = None,
+    connection: httpx.AsyncBaseTransport | None = None,
+) -> FetchedPage:
     current = parse_public_url(url)
     resolve = resolver if resolver is not None else system_resolver
     inner = connection or httpx.AsyncHTTPTransport(trust_env=False)

@@ -64,4 +64,8 @@ def test_factory_passes_settings_and_structured_output(
     assert init["max_retries"] == 1
     assert "temperature" not in init
     assert captured["schema"] is ResearchPlan
-    assert captured["structured"] == {"method": "json_schema", "strict": True}
+    assert captured["structured"] == {
+        "method": "json_schema",
+        "strict": True,
+        "include_raw": True,
+    }

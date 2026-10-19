@@ -8,6 +8,7 @@ from typing import Protocol
 from uuid import UUID
 
 from nexus.ai.errors import ResearchError, invalid_state
+from nexus.observability.context import bind_run
 from nexus.research.events import (
     ResearchCompleted,
     ResearchFailed,
@@ -84,6 +85,16 @@ class RunCoordinator:
 
     async def events(self) -> AsyncIterator[str]:
         """Yield SSE frames. Completion is yielded only after the report commit."""
+        with bind_run(
+            run_id=self._run_id,
+            research_id=self._research_id,
+            stage="run",
+            create_buffer=True,
+        ):
+            async for frame in self._events():
+                yield frame
+
+    async def _events(self) -> AsyncIterator[str]:
         writer = SseWriter()
         try:
             yield writer.event(

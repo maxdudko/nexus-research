@@ -3,7 +3,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Protocol
+from typing import Any, Protocol, cast
 from uuid import UUID
 
 from langchain_core.runnables import RunnableConfig
@@ -13,6 +13,8 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.runtime import Runtime
 
 from nexus.ingestion.service import IngestionResult
+from nexus.observability.context import bind_run
+from nexus.observability.spans import operation
 from nexus.research.budgets import BudgetLimits
 from nexus.research.nodes.discovery import discover_node
 from nexus.research.nodes.evaluation import evaluate_node
@@ -97,13 +99,13 @@ def build_graph(
 ) -> CompiledStateGraph[ResearchState, GraphContext, ResearchState, ResearchState]:
     """Compile the bounded workflow. Recursion limit is only a backstop."""
     graph = StateGraph(ResearchState, context_schema=GraphContext)
-    graph.add_node("plan", plan_node)
-    graph.add_node("discover", discover_node)
-    graph.add_node("ingest", ingest_node)
-    graph.add_node("retrieve", retrieve_node)
-    graph.add_node("evaluate", evaluate_node)
-    graph.add_node("synthesize", synthesize_node)
-    graph.add_node("fail", fail_node)
+    graph.add_node("plan", _observe("plan", plan_node))
+    graph.add_node("discover", _observe("discover", discover_node))
+    graph.add_node("ingest", _observe("ingest", ingest_node))
+    graph.add_node("retrieve", _observe("retrieve", retrieve_node))
+    graph.add_node("evaluate", _observe("evaluate", evaluate_node))
+    graph.add_node("synthesize", _observe("synthesize", synthesize_node))
+    graph.add_node("fail", _observe("fail", fail_node))
     graph.add_edge(START, "plan")
     graph.add_conditional_edges(
         "plan",
@@ -126,6 +128,28 @@ def build_graph(
     graph.add_edge("synthesize", END)
     graph.add_edge("fail", END)
     return graph.compile(checkpointer=checkpointer)
+
+
+def _observe(stage: str, node: Any) -> Any:
+    """Time one node. The edges and checkpointed state stay unchanged."""
+
+    async def wrapped(
+        state: ResearchState,
+        runtime: Runtime[GraphContext],
+    ) -> dict[str, object]:
+        with bind_run(stage=stage, iteration=state["iteration"]):
+            with operation(operation=stage, provider="graph", stage=stage) as handle:
+                result = await node(state, runtime)
+                updated = result.get("iteration")
+                if type(updated) is int and updated >= 0:
+                    handle.iteration = updated
+                code = result.get("error_code")
+                if isinstance(code, str) and code:
+                    handle.outcome = "error"
+                    handle.error_code = code
+                return cast(dict[str, object], result)
+
+    return wrapped
 
 
 def route_after_evaluation(

@@ -13,6 +13,8 @@ from nexus.ai.errors import (
     provider_not_configured,
 )
 from nexus.core.config import Settings
+from nexus.observability.spans import operation as operation_span
+from nexus.observability.usage import estimate_text_tokens
 
 EmbedBatch = Callable[[Sequence[str]], Awaitable[Sequence[Sequence[float]]]]
 
@@ -40,22 +42,30 @@ class OpenAIEmbedder:
         """Embed texts in bounded batches. An empty sequence does not build a client."""
         if not texts:
             return []
+        return await self._embed(texts, operation="embed_documents")
+
+    async def embed_query(self, text: str) -> list[float]:
+        """Embed one query string with the same model and dimension as documents."""
+        vectors = await self._embed([text], operation="embed_query")
+        return vectors[0]
+
+    async def _embed(
+        self,
+        texts: Sequence[str],
+        *,
+        operation: str,
+    ) -> list[list[float]]:
         _require_texts(texts)
         embedder = self._client()
         vectors: list[list[float]] = []
         width = self._settings.rag_vector_size
         for batch in _batches(list(texts), self._settings.embedding_batch_size):
-            vectors.extend(await self._embed_one(batch, embedder))
+            vectors.extend(await self._embed_one(batch, embedder, operation=operation))
         wrong_count = len(vectors) != len(texts)
         wrong_width = any(len(vector) != width for vector in vectors)
         if wrong_count or wrong_width:
             raise invalid_model_output()
         return vectors
-
-    async def embed_query(self, text: str) -> list[float]:
-        """Embed one query string with the same model and dimension as documents."""
-        vectors = await self.embed_documents([text])
-        return vectors[0]
 
     def _client(self) -> OpenAIEmbeddings | None:
         if self._embed_batch is not None:
@@ -77,25 +87,35 @@ class OpenAIEmbedder:
         self,
         batch: list[str],
         embedder: OpenAIEmbeddings | None,
+        *,
+        operation: str,
     ) -> list[list[float]]:
-        embed_batch = self._embed_batch
-        try:
-            if embed_batch is not None:
-                raw = await embed_batch(batch)
-            else:
-                if embedder is None:
-                    raise provider_not_configured()
-                raw = await embedder.aembed_documents(batch)
-        except ResearchError:
-            raise
-        except Exception as exc:
-            raise map_provider_exception(exc) from None
-        try:
-            return [_finite_vector(vector) for vector in raw]
-        except ResearchError:
-            raise
-        except TypeError, ValueError:
-            raise invalid_model_output() from None
+        model = self._settings.openai_embedding_model
+        with operation_span(
+            operation=operation,
+            provider="openai",
+            model=model,
+        ) as handle:
+            embed_batch = self._embed_batch
+            try:
+                if embed_batch is not None:
+                    raw = await embed_batch(batch)
+                else:
+                    if embedder is None:
+                        raise provider_not_configured()
+                    raw = await embedder.aembed_documents(batch)
+            except ResearchError:
+                raise
+            except Exception as exc:
+                raise map_provider_exception(exc) from None
+            try:
+                vectors = [_finite_vector(vector) for vector in raw]
+            except ResearchError:
+                raise
+            except TypeError, ValueError:
+                raise invalid_model_output() from None
+            handle.observe_embedding(estimate_text_tokens(batch, model))
+            return vectors
 
 
 def _finite_vector(vector: object) -> list[float]:
