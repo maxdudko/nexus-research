@@ -1,0 +1,1236 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Nexus Research · Evaluation Dashboard</title>
+    <style>
+        :root {
+            font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+            color: #e9edf5;
+            background: #0c1220;
+        }
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            margin: 0;
+        }
+        .wrap {
+            max-width: 1240px;
+            margin: auto;
+            padding: 32px 24px 70px;
+        }
+        .top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        h1 {
+            font-size: 28px;
+            margin: 0 0 7px;
+        }
+        h2 {
+            font-size: 18px;
+            margin: 0 0 20px;
+        }
+        .muted {
+            color: #93a2bb;
+        }
+        .small {
+            font-size: 12px;
+        }
+        .pill {
+            border: 1px solid #33445e;
+            border-radius: 30px;
+            padding: 8px 13px;
+            font-size: 12px;
+        }
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 14px;
+            margin: 28px 0;
+        }
+        .card,
+        .panel {
+            background: #151e2f;
+            border: 1px solid #29364c;
+            border-radius: 14px;
+            padding: 22px;
+        }
+        .card .value {
+            font-size: 31px;
+            font-weight: 700;
+            margin: 12px 0 5px;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 18px;
+        }
+        .panel {
+            margin-bottom: 18px;
+            min-width: 0;
+        }
+        .matrix {
+            display: grid;
+            grid-template-columns: 145px repeat(4, minmax(0, 1fr));
+            gap: 5px;
+        }
+        .cell {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 53px;
+            border-radius: 7px;
+            background: #1e2b41;
+            font-size: 18px;
+            font-weight: 650;
+        }
+        .cell.correct {
+            background: #14583d;
+        }
+        .cell.wrong {
+            background: #875125;
+        }
+        .head {
+            font-size: 11px;
+            color: #b3bfd3;
+            min-height: 35px;
+            text-align: center;
+            overflow-wrap: anywhere;
+        }
+        .rowhead {
+            justify-content: flex-start;
+            font-size: 12px;
+            font-weight: 500;
+            padding-right: 6px;
+        }
+        .barrow {
+            display: grid;
+            grid-template-columns: 135px 1fr 65px;
+            align-items: center;
+            gap: 12px;
+            margin: 12px 0;
+            font-size: 12px;
+        }
+        .track {
+            background: #29364c;
+            height: 14px;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .fill {
+            height: 100%;
+            background: #67a6f7;
+        }
+        .fill.mrr {
+            background: #a78bfa;
+        }
+        .fill.prec {
+            background: #36c7b0;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            font-size: 12px;
+        }
+        th,
+        td {
+            text-align: left;
+            padding: 11px 9px;
+            border-bottom: 1px solid #29364c;
+        }
+        th {
+            color: #93a2bb;
+            font-weight: 600;
+        }
+        tr:hover td {
+            background: #1a273b;
+        }
+        .scroll {
+            overflow-x: auto;
+        }
+        .good {
+            color: #6ee7b7;
+        }
+        .bad {
+            color: #fdba74;
+        }
+        .tabs {
+            display: flex;
+            gap: 9px;
+            flex-wrap: wrap;
+            margin: 12px 0 18px;
+        }
+        button {
+            border: 1px solid #354661;
+            border-radius: 8px;
+            padding: 9px 13px;
+            background: #1c2b42;
+            color: #e9edf5;
+            cursor: pointer;
+        }
+        button.active {
+            background: #2b527c;
+            border-color: #5695d2;
+        }
+        .note {
+            font-size: 12px;
+            line-height: 1.6;
+            color: #aebcd1;
+        }
+        footer {
+            margin-top: 24px;
+            color: #93a2bb;
+            font-size: 12px;
+        }
+        @media (max-width: 850px) {
+            .metrics {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            .grid {
+                grid-template-columns: 1fr;
+            }
+            .matrix {
+                grid-template-columns: 110px repeat(4, minmax(0, 1fr));
+            }
+            .wrap {
+                padding: 20px 12px;
+            }
+        }
+        @media (max-width: 450px) {
+            .metrics {
+                grid-template-columns: 1fr 1fr;
+            }
+            .card {
+                padding: 14px;
+            }
+            .card .value {
+                font-size: 23px;
+            }
+            .cell {
+                min-height: 40px;
+                font-size: 14px;
+            }
+            .head {
+                font-size: 9px;
+            }
+        }
+    </style>
+</head>
+<body>
+<main class="wrap">
+    <div class="top">
+        <div>
+            <h1>Nexus Research <span style="color: #73b5fa">/ Evaluation</span></h1>
+            <div class="muted small" id="subtitle"></div>
+        </div>
+        <span class="pill">Local · embedded JSON · no network</span>
+    </div>
+    <section class="metrics" id="metrics"></section>
+    <div class="grid">
+        <section class="panel">
+            <h2>Grounding judge · Confusion matrix</h2>
+            <div class="muted small" style="margin-bottom: 12px">
+                Rows: gold labels · Columns: predicted labels
+            </div>
+            <div class="matrix" id="matrix"></div>
+            <p class="note">
+                Diagonal = agreement. Off-diagonal = misclassification. Skipped and failed cases are excluded.
+            </p>
+        </section>
+        <section class="panel">
+            <h2>Retrieval · Frozen ranking metrics</h2>
+            <div id="bars"></div>
+            <p class="note">
+                Metrics are computed from frozen fixture rankings (K=5), not live Qdrant search. Precision@5
+                uses denominator K even when fewer than K results exist.
+            </p>
+        </section>
+    </div>
+    <div class="grid">
+        <section class="panel">
+            <h2>Judge execution</h2>
+            <div id="execution"></div>
+        </section>
+        <section class="panel">
+            <h2>Citation provenance</h2>
+            <div id="citations"></div>
+        </section>
+    </div>
+    <section class="panel">
+        <h2>Case explorer</h2>
+        <div class="tabs">
+            <button class="active" id="judgeBtn" onclick="setTab('judge')">Grounding judge</button
+            ><button id="retrievalBtn" onclick="setTab('retrieval')">Retrieval cases</button
+        ><button id="citationBtn" onclick="setTab('citation')">Citation checks</button>
+        </div>
+        <div class="scroll" id="cases"></div>
+    </section>
+    <footer>
+        Dataset <span id="version"></span> · Snapshot reports supplied by the user. No data is uploaded or
+        transmitted.
+    </footer>
+</main>
+<script id="data" type="application/json">
+    {
+        "live": {
+            "calibration": {
+                "agreement": "0.846154",
+                "agreements": 11,
+                "compared": 13,
+                "estimate": true,
+                "labels": ["supported", "unsupported", "insufficient_context", "contradictory"],
+                "matrix": {
+                    "contradictory": {
+                        "contradictory": 2,
+                        "insufficient_context": 0,
+                        "supported": 0,
+                        "unsupported": 0
+                    },
+                    "insufficient_context": {
+                        "contradictory": 0,
+                        "insufficient_context": 5,
+                        "supported": 0,
+                        "unsupported": 0
+                    },
+                    "supported": {
+                        "contradictory": 0,
+                        "insufficient_context": 0,
+                        "supported": 4,
+                        "unsupported": 0
+                    },
+                    "unsupported": {
+                        "contradictory": 2,
+                        "insufficient_context": 0,
+                        "supported": 0,
+                        "unsupported": 0
+                    }
+                }
+            },
+            "citations": {
+                "cases": [
+                    {
+                        "case_id": "c01-supported",
+                        "citation_valid": true,
+                        "error_codes": [],
+                        "expect_citation_valid": true,
+                        "support_label": "supported"
+                    },
+                    {
+                        "case_id": "c02-spurious",
+                        "citation_valid": true,
+                        "error_codes": [],
+                        "expect_citation_valid": true,
+                        "support_label": "unsupported"
+                    },
+                    {
+                        "case_id": "c03-missing",
+                        "citation_valid": false,
+                        "error_codes": ["missing_evidence"],
+                        "expect_citation_valid": false,
+                        "support_label": "supported"
+                    },
+                    {
+                        "case_id": "c04-foreign",
+                        "citation_valid": false,
+                        "error_codes": ["foreign_research"],
+                        "expect_citation_valid": false,
+                        "support_label": "supported"
+                    },
+                    {
+                        "case_id": "c05-malformed",
+                        "citation_valid": false,
+                        "error_codes": ["malformed_id"],
+                        "expect_citation_valid": false,
+                        "support_label": "supported"
+                    },
+                    {
+                        "case_id": "c06-pdf",
+                        "citation_valid": true,
+                        "error_codes": [],
+                        "expect_citation_valid": true,
+                        "support_label": "supported"
+                    },
+                    {
+                        "case_id": "c07-web",
+                        "citation_valid": true,
+                        "error_codes": [],
+                        "expect_citation_valid": true,
+                        "support_label": "supported"
+                    },
+                    {
+                        "case_id": "c08-unknown",
+                        "citation_valid": false,
+                        "error_codes": ["unknown_source"],
+                        "expect_citation_valid": false,
+                        "support_label": "unsupported"
+                    },
+                    {
+                        "case_id": "c09-duplicate",
+                        "citation_valid": false,
+                        "error_codes": ["duplicate_id"],
+                        "expect_citation_valid": false,
+                        "support_label": "supported"
+                    },
+                    {
+                        "case_id": "c10-scope",
+                        "citation_valid": false,
+                        "error_codes": ["foreign_research"],
+                        "expect_citation_valid": false,
+                        "support_label": "supported"
+                    }
+                ]
+            },
+            "counts": { "attempted": 13, "disagreed": 2, "failed": 0, "skipped": 2, "succeeded": 13 },
+            "dataset_version": "2026-10-19.2",
+            "grounding": [
+                {
+                    "case_id": "g01-supported",
+                    "dataset_version": "2026-10-19.2",
+                    "error_code": null,
+                    "gold_label": "supported",
+                    "input_tokens": 274,
+                    "model": "gpt-4o-mini",
+                    "outcome": "ok",
+                    "output_tokens": 41,
+                    "predicted_label": "supported",
+                    "prompt_version": "grounding-judge-2",
+                    "rationale": "The excerpt explicitly states that a research run stops after two planning iterations, which directly supports the claim.",
+                    "structural_valid": true,
+                    "temperature": 0.0,
+                    "timestamp": "2026-10-19T14:27:23Z",
+                    "usage_source": "provider"
+                },
+                {
+                    "case_id": "g02-spurious",
+                    "dataset_version": "2026-10-19.2",
+                    "error_code": null,
+                    "gold_label": "insufficient_context",
+                    "input_tokens": 273,
+                    "model": "gpt-4o-mini",
+                    "outcome": "ok",
+                    "output_tokens": 59,
+                    "predicted_label": "insufficient_context",
+                    "prompt_version": "grounding-judge-2",
+                    "rationale": "The excerpt provided does not contain any information related to the claim about a research run stopping after two planning iterations. It discusses office plants needing water, which is unrelated to the claim.",
+                    "structural_valid": true,
+                    "temperature": 0.0,
+                    "timestamp": "2026-10-19T14:27:25Z",
+                    "usage_source": "provider"
+                },
+                {
+                    "case_id": "g03-insufficient",
+                    "dataset_version": "2026-10-19.2",
+                    "error_code": null,
+                    "gold_label": "insufficient_context",
+                    "input_tokens": 271,
+                    "model": "gpt-4o-mini",
+                    "outcome": "ok",
+                    "output_tokens": 51,
+                    "predicted_label": "insufficient_context",
+                    "prompt_version": "grounding-judge-2",
+                    "rationale": "The excerpt does not provide any information about the color of the lab notebook, making it impossible to determine if the claim is true or false.",
+                    "structural_valid": true,
+                    "temperature": 0.0,
+                    "timestamp": "2026-10-19T14:27:27Z",
+                    "usage_source": "provider"
+                },
+                {
+                    "case_id": "g04-contradictory",
+                    "dataset_version": "2026-10-19.2",
+                    "error_code": null,
+                    "gold_label": "contradictory",
+                    "input_tokens": 282,
+                    "model": "gpt-4o-mini",
+                    "outcome": "ok",
+                    "output_tokens": 55,
+                    "predicted_label": "contradictory",
+                    "prompt_version": "grounding-judge-2",
+                    "rationale": "The excerpts provide conflicting information about the page cap, with one stating it is five and the other stating it is fifty.",
+                    "structural_valid": true,
+                    "temperature": 0.0,
+                    "timestamp": "2026-10-19T14:27:29Z",
+                    "usage_source": "provider"
+                },
+                {
+                    "case_id": "g05-uncertain",
+                    "dataset_version": "2026-10-19.2",
+                    "error_code": null,
+                    "gold_label": "insufficient_context",
+                    "input_tokens": 274,
+                    "model": "gpt-4o-mini",
+                    "outcome": "ok",
+                    "output_tokens": 66,
+                    "predicted_label": "insufficient_context",
+                    "prompt_version": "grounding-judge-2",
+                    "rationale": "The excerpt does not provide any information about the iteration limit on weekends or whether it varies by day. It only states that a research run stops after two planning iterations, which does not address the claim about weekend limits.",
+                    "structural_valid": true,
+                    "temperature": 0.0,
+                    "timestamp": "2026-10-19T14:27:30Z",
+                    "usage_source": "provider"
+                },
+                {
+                    "case_id": "g06-paraphrase",
+                    "dataset_version": "2026-10-19.2",
+                    "error_code": null,
+                    "gold_label": "supported",
+                    "input_tokens": 279,
+                    "model": "gpt-4o-mini",
+                    "outcome": "ok",
+                    "output_tokens": 47,
+                    "predicted_label": "supported",
+                    "prompt_version": "grounding-judge-2",
+                    "rationale": "The excerpt explicitly states that the iteration count for planning is two and that the run must finish afterward, which directly supports the claim.",
+                    "structural_valid": true,
+                    "temperature": 0.0,
+                    "timestamp": "2026-10-19T14:27:32Z",
+                    "usage_source": "provider"
+                },
+                {
+                    "case_id": "g07-pdf",
+                    "dataset_version": "2026-10-19.2",
+                    "error_code": null,
+                    "gold_label": "supported",
+                    "input_tokens": 273,
+                    "model": "gpt-4o-mini",
+                    "outcome": "ok",
+                    "output_tokens": 40,
+                    "predicted_label": "supported",
+                    "prompt_version": "grounding-judge-2",
+                    "rationale": "The excerpt explicitly states that page two lists the five page fetch cap, which directly supports the claim.",
+                    "structural_valid": true,
+                    "temperature": 0.0,
+                    "timestamp": "2026-10-19T14:27:33Z",
+                    "usage_source": "provider"
+                },
+                {
+                    "case_id": "g08-wrong-number",
+                    "dataset_version": "2026-10-19.2",
+                    "error_code": null,
+                    "gold_label": "unsupported",
+                    "input_tokens": 274,
+                    "model": "gpt-4o-mini",
+                    "outcome": "ok",
+                    "output_tokens": 61,
+                    "predicted_label": "contradictory",
+                    "prompt_version": "grounding-judge-2",
+                    "rationale": "The excerpts present conflicting information about the number of planning iterations after which a research run stops. One excerpt states it stops after two iterations, while the claim states it stops after nine iterations.",
+                    "structural_valid": true,
+                    "temperature": 0.0,
+                    "timestamp": "2026-10-19T14:27:35Z",
+                    "usage_source": "provider"
+                },
+                {
+                    "case_id": "g09-foreign",
+                    "dataset_version": "2026-10-19.2",
+                    "error_code": "foreign_research",
+                    "gold_label": "supported",
+                    "input_tokens": null,
+                    "model": null,
+                    "outcome": "skipped",
+                    "output_tokens": null,
+                    "predicted_label": null,
+                    "prompt_version": null,
+                    "rationale": null,
+                    "structural_valid": false,
+                    "temperature": null,
+                    "timestamp": null,
+                    "usage_source": null
+                },
+                {
+                    "case_id": "g10-unknown",
+                    "dataset_version": "2026-10-19.2",
+                    "error_code": "unknown_citation",
+                    "gold_label": "supported",
+                    "input_tokens": null,
+                    "model": null,
+                    "outcome": "skipped",
+                    "output_tokens": null,
+                    "predicted_label": null,
+                    "prompt_version": null,
+                    "rationale": null,
+                    "structural_valid": false,
+                    "temperature": null,
+                    "timestamp": null,
+                    "usage_source": null
+                },
+                {
+                    "case_id": "g11-multi",
+                    "dataset_version": "2026-10-19.2",
+                    "error_code": null,
+                    "gold_label": "supported",
+                    "input_tokens": 296,
+                    "model": "gpt-4o-mini",
+                    "outcome": "ok",
+                    "output_tokens": 57,
+                    "predicted_label": "supported",
+                    "prompt_version": "grounding-judge-2",
+                    "rationale": "The excerpts clearly state that the search budget allows six logical search calls and that logical LLM calls are capped at thirteen, which directly supports the claim.",
+                    "structural_valid": true,
+                    "temperature": 0.0,
+                    "timestamp": "2026-10-19T14:27:37Z",
+                    "usage_source": "provider"
+                },
+                {
+                    "case_id": "g12-conflict-noise",
+                    "dataset_version": "2026-10-19.2",
+                    "error_code": null,
+                    "gold_label": "contradictory",
+                    "input_tokens": 298,
+                    "model": "gpt-4o-mini",
+                    "outcome": "ok",
+                    "output_tokens": 54,
+                    "predicted_label": "contradictory",
+                    "prompt_version": "grounding-judge-2",
+                    "rationale": "The excerpts contain conflicting information about the page cap, with one stating it is five and another stating it is fifty.",
+                    "structural_valid": true,
+                    "temperature": 0.0,
+                    "timestamp": "2026-10-19T14:27:38Z",
+                    "usage_source": "provider"
+                },
+                {
+                    "case_id": "g13-explicit-deny",
+                    "dataset_version": "2026-10-19.2",
+                    "error_code": null,
+                    "gold_label": "unsupported",
+                    "input_tokens": 268,
+                    "model": "gpt-4o-mini",
+                    "outcome": "ok",
+                    "output_tokens": 48,
+                    "predicted_label": "contradictory",
+                    "prompt_version": "grounding-judge-2",
+                    "rationale": "The excerpts contain conflicting information about the page cap, with one stating it is fifty and the other stating it is five.",
+                    "structural_valid": true,
+                    "temperature": 0.0,
+                    "timestamp": "2026-10-19T14:27:40Z",
+                    "usage_source": "provider"
+                },
+                {
+                    "case_id": "g14-missing-day",
+                    "dataset_version": "2026-10-19.2",
+                    "error_code": null,
+                    "gold_label": "insufficient_context",
+                    "input_tokens": 272,
+                    "model": "gpt-4o-mini",
+                    "outcome": "ok",
+                    "output_tokens": 48,
+                    "predicted_label": "insufficient_context",
+                    "prompt_version": "grounding-judge-2",
+                    "rationale": "The excerpt does not provide any information regarding the frequency of the search budget reset, specifically whether it resets every Monday or not.",
+                    "structural_valid": true,
+                    "temperature": 0.0,
+                    "timestamp": "2026-10-19T14:27:41Z",
+                    "usage_source": "provider"
+                },
+                {
+                    "case_id": "g15-off-topic-conflict",
+                    "dataset_version": "2026-10-19.2",
+                    "error_code": null,
+                    "gold_label": "insufficient_context",
+                    "input_tokens": 284,
+                    "model": "gpt-4o-mini",
+                    "outcome": "ok",
+                    "output_tokens": 61,
+                    "predicted_label": "insufficient_context",
+                    "prompt_version": "grounding-judge-2",
+                    "rationale": "The excerpts provided do not contain any information regarding the watering needs of office plants. They discuss page caps, which are unrelated to the claim about plant care.",
+                    "structural_valid": true,
+                    "temperature": 0.0,
+                    "timestamp": "2026-10-19T14:27:43Z",
+                    "usage_source": "provider"
+                }
+            ],
+            "k": 5,
+            "model": "gpt-4o-mini",
+            "pricing_version": "2026-10-19",
+            "prompt_version": "grounding-judge-2",
+            "report_version": "1",
+            "retrieval": {
+                "aggregate": {
+                    "defined_cases": 15,
+                    "mrr_at_k": "0.705556",
+                    "precision_at_k": "0.240000",
+                    "recall_at_k": "0.833333",
+                    "undefined_cases": 1
+                },
+                "cases": [
+                    {
+                        "case_id": "q01-single",
+                        "gold_count": 1,
+                        "mrr_at_k": "1.000000",
+                        "precision_at_k": "0.200000",
+                        "recall_at_k": "1.000000"
+                    },
+                    {
+                        "case_id": "q02-multi",
+                        "gold_count": 3,
+                        "mrr_at_k": "1.000000",
+                        "precision_at_k": "0.600000",
+                        "recall_at_k": "1.000000"
+                    },
+                    {
+                        "case_id": "q03-paraphrase",
+                        "gold_count": 2,
+                        "mrr_at_k": "0.500000",
+                        "precision_at_k": "0.400000",
+                        "recall_at_k": "1.000000"
+                    },
+                    {
+                        "case_id": "q04-no-gold",
+                        "gold_count": 0,
+                        "mrr_at_k": null,
+                        "precision_at_k": null,
+                        "recall_at_k": null
+                    },
+                    {
+                        "case_id": "q05-miss",
+                        "gold_count": 1,
+                        "mrr_at_k": "0.000000",
+                        "precision_at_k": "0.000000",
+                        "recall_at_k": "0.000000"
+                    },
+                    {
+                        "case_id": "q06-short",
+                        "gold_count": 1,
+                        "mrr_at_k": "1.000000",
+                        "precision_at_k": "0.200000",
+                        "recall_at_k": "1.000000"
+                    },
+                    {
+                        "case_id": "q07-duplicate",
+                        "gold_count": 1,
+                        "mrr_at_k": "1.000000",
+                        "precision_at_k": "0.200000",
+                        "recall_at_k": "1.000000"
+                    },
+                    {
+                        "case_id": "q08-rank3",
+                        "gold_count": 1,
+                        "mrr_at_k": "0.333333",
+                        "precision_at_k": "0.200000",
+                        "recall_at_k": "1.000000"
+                    },
+                    {
+                        "case_id": "q09-half",
+                        "gold_count": 2,
+                        "mrr_at_k": "1.000000",
+                        "precision_at_k": "0.200000",
+                        "recall_at_k": "0.500000"
+                    },
+                    {
+                        "case_id": "q10-pdf",
+                        "gold_count": 1,
+                        "mrr_at_k": "1.000000",
+                        "precision_at_k": "0.200000",
+                        "recall_at_k": "1.000000"
+                    },
+                    {
+                        "case_id": "q11-web",
+                        "gold_count": 1,
+                        "mrr_at_k": "1.000000",
+                        "precision_at_k": "0.200000",
+                        "recall_at_k": "1.000000"
+                    },
+                    {
+                        "case_id": "q12-past-k",
+                        "gold_count": 1,
+                        "mrr_at_k": "0.000000",
+                        "precision_at_k": "0.000000",
+                        "recall_at_k": "0.000000"
+                    },
+                    {
+                        "case_id": "q13-both-pdf",
+                        "gold_count": 2,
+                        "mrr_at_k": "1.000000",
+                        "precision_at_k": "0.400000",
+                        "recall_at_k": "1.000000"
+                    },
+                    {
+                        "case_id": "q14-late-pair",
+                        "gold_count": 2,
+                        "mrr_at_k": "0.250000",
+                        "precision_at_k": "0.400000",
+                        "recall_at_k": "1.000000"
+                    },
+                    {
+                        "case_id": "q15-noise-hit",
+                        "gold_count": 1,
+                        "mrr_at_k": "1.000000",
+                        "precision_at_k": "0.200000",
+                        "recall_at_k": "1.000000"
+                    },
+                    {
+                        "case_id": "q16-second-only",
+                        "gold_count": 1,
+                        "mrr_at_k": "0.500000",
+                        "precision_at_k": "0.200000",
+                        "recall_at_k": "1.000000"
+                    }
+                ],
+                "k": 5
+            },
+            "suite": "live",
+            "temperature": 0.0
+        },
+        "offline": {
+            "citations": {
+                "cases": [
+                    {
+                        "case_id": "c01-supported",
+                        "citation_valid": true,
+                        "error_codes": [],
+                        "expect_citation_valid": true,
+                        "support_label": "supported"
+                    },
+                    {
+                        "case_id": "c02-spurious",
+                        "citation_valid": true,
+                        "error_codes": [],
+                        "expect_citation_valid": true,
+                        "support_label": "unsupported"
+                    },
+                    {
+                        "case_id": "c03-missing",
+                        "citation_valid": false,
+                        "error_codes": ["missing_evidence"],
+                        "expect_citation_valid": false,
+                        "support_label": "supported"
+                    },
+                    {
+                        "case_id": "c04-foreign",
+                        "citation_valid": false,
+                        "error_codes": ["foreign_research"],
+                        "expect_citation_valid": false,
+                        "support_label": "supported"
+                    },
+                    {
+                        "case_id": "c05-malformed",
+                        "citation_valid": false,
+                        "error_codes": ["malformed_id"],
+                        "expect_citation_valid": false,
+                        "support_label": "supported"
+                    },
+                    {
+                        "case_id": "c06-pdf",
+                        "citation_valid": true,
+                        "error_codes": [],
+                        "expect_citation_valid": true,
+                        "support_label": "supported"
+                    },
+                    {
+                        "case_id": "c07-web",
+                        "citation_valid": true,
+                        "error_codes": [],
+                        "expect_citation_valid": true,
+                        "support_label": "supported"
+                    },
+                    {
+                        "case_id": "c08-unknown",
+                        "citation_valid": false,
+                        "error_codes": ["unknown_source"],
+                        "expect_citation_valid": false,
+                        "support_label": "unsupported"
+                    },
+                    {
+                        "case_id": "c09-duplicate",
+                        "citation_valid": false,
+                        "error_codes": ["duplicate_id"],
+                        "expect_citation_valid": false,
+                        "support_label": "supported"
+                    },
+                    {
+                        "case_id": "c10-scope",
+                        "citation_valid": false,
+                        "error_codes": ["foreign_research"],
+                        "expect_citation_valid": false,
+                        "support_label": "supported"
+                    }
+                ]
+            },
+            "dataset_version": "2026-10-19.2",
+            "grounding": [
+                {
+                    "case_id": "g01-supported",
+                    "error_code": null,
+                    "excerpt_count": 1,
+                    "expect_structurally_valid": true,
+                    "gold_label": "supported",
+                    "structural_valid": true
+                },
+                {
+                    "case_id": "g02-spurious",
+                    "error_code": null,
+                    "excerpt_count": 1,
+                    "expect_structurally_valid": true,
+                    "gold_label": "insufficient_context",
+                    "structural_valid": true
+                },
+                {
+                    "case_id": "g03-insufficient",
+                    "error_code": null,
+                    "excerpt_count": 1,
+                    "expect_structurally_valid": true,
+                    "gold_label": "insufficient_context",
+                    "structural_valid": true
+                },
+                {
+                    "case_id": "g04-contradictory",
+                    "error_code": null,
+                    "excerpt_count": 2,
+                    "expect_structurally_valid": true,
+                    "gold_label": "contradictory",
+                    "structural_valid": true
+                },
+                {
+                    "case_id": "g05-uncertain",
+                    "error_code": null,
+                    "excerpt_count": 1,
+                    "expect_structurally_valid": true,
+                    "gold_label": "insufficient_context",
+                    "structural_valid": true
+                },
+                {
+                    "case_id": "g06-paraphrase",
+                    "error_code": null,
+                    "excerpt_count": 1,
+                    "expect_structurally_valid": true,
+                    "gold_label": "supported",
+                    "structural_valid": true
+                },
+                {
+                    "case_id": "g07-pdf",
+                    "error_code": null,
+                    "excerpt_count": 1,
+                    "expect_structurally_valid": true,
+                    "gold_label": "supported",
+                    "structural_valid": true
+                },
+                {
+                    "case_id": "g08-wrong-number",
+                    "error_code": null,
+                    "excerpt_count": 1,
+                    "expect_structurally_valid": true,
+                    "gold_label": "unsupported",
+                    "structural_valid": true
+                },
+                {
+                    "case_id": "g09-foreign",
+                    "error_code": "foreign_research",
+                    "excerpt_count": 0,
+                    "expect_structurally_valid": false,
+                    "gold_label": "supported",
+                    "structural_valid": false
+                },
+                {
+                    "case_id": "g10-unknown",
+                    "error_code": "unknown_citation",
+                    "excerpt_count": 0,
+                    "expect_structurally_valid": false,
+                    "gold_label": "supported",
+                    "structural_valid": false
+                },
+                {
+                    "case_id": "g11-multi",
+                    "error_code": null,
+                    "excerpt_count": 2,
+                    "expect_structurally_valid": true,
+                    "gold_label": "supported",
+                    "structural_valid": true
+                },
+                {
+                    "case_id": "g12-conflict-noise",
+                    "error_code": null,
+                    "excerpt_count": 3,
+                    "expect_structurally_valid": true,
+                    "gold_label": "contradictory",
+                    "structural_valid": true
+                },
+                {
+                    "case_id": "g13-explicit-deny",
+                    "error_code": null,
+                    "excerpt_count": 1,
+                    "expect_structurally_valid": true,
+                    "gold_label": "unsupported",
+                    "structural_valid": true
+                },
+                {
+                    "case_id": "g14-missing-day",
+                    "error_code": null,
+                    "excerpt_count": 1,
+                    "expect_structurally_valid": true,
+                    "gold_label": "insufficient_context",
+                    "structural_valid": true
+                },
+                {
+                    "case_id": "g15-off-topic-conflict",
+                    "error_code": null,
+                    "excerpt_count": 2,
+                    "expect_structurally_valid": true,
+                    "gold_label": "insufficient_context",
+                    "structural_valid": true
+                }
+            ],
+            "k": 5,
+            "report_version": "1",
+            "retrieval": {
+                "aggregate": {
+                    "defined_cases": 15,
+                    "mrr_at_k": "0.705556",
+                    "precision_at_k": "0.240000",
+                    "recall_at_k": "0.833333",
+                    "undefined_cases": 1
+                },
+                "cases": [
+                    {
+                        "case_id": "q01-single",
+                        "gold_count": 1,
+                        "mrr_at_k": "1.000000",
+                        "precision_at_k": "0.200000",
+                        "recall_at_k": "1.000000"
+                    },
+                    {
+                        "case_id": "q02-multi",
+                        "gold_count": 3,
+                        "mrr_at_k": "1.000000",
+                        "precision_at_k": "0.600000",
+                        "recall_at_k": "1.000000"
+                    },
+                    {
+                        "case_id": "q03-paraphrase",
+                        "gold_count": 2,
+                        "mrr_at_k": "0.500000",
+                        "precision_at_k": "0.400000",
+                        "recall_at_k": "1.000000"
+                    },
+                    {
+                        "case_id": "q04-no-gold",
+                        "gold_count": 0,
+                        "mrr_at_k": null,
+                        "precision_at_k": null,
+                        "recall_at_k": null
+                    },
+                    {
+                        "case_id": "q05-miss",
+                        "gold_count": 1,
+                        "mrr_at_k": "0.000000",
+                        "precision_at_k": "0.000000",
+                        "recall_at_k": "0.000000"
+                    },
+                    {
+                        "case_id": "q06-short",
+                        "gold_count": 1,
+                        "mrr_at_k": "1.000000",
+                        "precision_at_k": "0.200000",
+                        "recall_at_k": "1.000000"
+                    },
+                    {
+                        "case_id": "q07-duplicate",
+                        "gold_count": 1,
+                        "mrr_at_k": "1.000000",
+                        "precision_at_k": "0.200000",
+                        "recall_at_k": "1.000000"
+                    },
+                    {
+                        "case_id": "q08-rank3",
+                        "gold_count": 1,
+                        "mrr_at_k": "0.333333",
+                        "precision_at_k": "0.200000",
+                        "recall_at_k": "1.000000"
+                    },
+                    {
+                        "case_id": "q09-half",
+                        "gold_count": 2,
+                        "mrr_at_k": "1.000000",
+                        "precision_at_k": "0.200000",
+                        "recall_at_k": "0.500000"
+                    },
+                    {
+                        "case_id": "q10-pdf",
+                        "gold_count": 1,
+                        "mrr_at_k": "1.000000",
+                        "precision_at_k": "0.200000",
+                        "recall_at_k": "1.000000"
+                    },
+                    {
+                        "case_id": "q11-web",
+                        "gold_count": 1,
+                        "mrr_at_k": "1.000000",
+                        "precision_at_k": "0.200000",
+                        "recall_at_k": "1.000000"
+                    },
+                    {
+                        "case_id": "q12-past-k",
+                        "gold_count": 1,
+                        "mrr_at_k": "0.000000",
+                        "precision_at_k": "0.000000",
+                        "recall_at_k": "0.000000"
+                    },
+                    {
+                        "case_id": "q13-both-pdf",
+                        "gold_count": 2,
+                        "mrr_at_k": "1.000000",
+                        "precision_at_k": "0.400000",
+                        "recall_at_k": "1.000000"
+                    },
+                    {
+                        "case_id": "q14-late-pair",
+                        "gold_count": 2,
+                        "mrr_at_k": "0.250000",
+                        "precision_at_k": "0.400000",
+                        "recall_at_k": "1.000000"
+                    },
+                    {
+                        "case_id": "q15-noise-hit",
+                        "gold_count": 1,
+                        "mrr_at_k": "1.000000",
+                        "precision_at_k": "0.200000",
+                        "recall_at_k": "1.000000"
+                    },
+                    {
+                        "case_id": "q16-second-only",
+                        "gold_count": 1,
+                        "mrr_at_k": "0.500000",
+                        "precision_at_k": "0.200000",
+                        "recall_at_k": "1.000000"
+                    }
+                ],
+                "k": 5
+            },
+            "suite": "offline"
+        }
+    }
+</script>
+<script>
+    const { live, offline } = JSON.parse(document.getElementById("data").textContent);
+    const $ = (id) => document.getElementById(id);
+    const esc = (s) =>
+        String(s ?? "—").replace(
+            /[&<>"']/g,
+            (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]
+        );
+    const pct = (n) => (n == null ? "N/A" : (100 * Number(n)).toFixed(2) + "%");
+    const labels = live.calibration.labels;
+    const abbr = {
+        supported: "Supported",
+        unsupported: "Unsupported",
+        insufficient_context: "Insufficient",
+        contradictory: "Contradictory",
+    };
+    const count = live.counts;
+    const agg = offline.retrieval.aggregate;
+    $("subtitle").textContent = `${live.model} · ${live.prompt_version} · dataset ${live.dataset_version}`;
+    $("version").textContent = live.dataset_version;
+    const cards = [
+        [
+            "Judge agreement",
+            pct(live.calibration.agreement),
+            `${live.calibration.agreements}/${live.calibration.compared} correct`,
+        ],
+        ["Recall@5", pct(agg.recall_at_k), `${agg.defined_cases} defined queries`],
+        ["Precision@5", pct(agg.precision_at_k), "Frozen ranking"],
+        ["MRR@5", Number(agg.mrr_at_k).toFixed(3), "Frozen ranking"],
+    ];
+    $("metrics").innerHTML = cards
+        .map(
+            ([a, b, c]) =>
+                `<div class="card"><div class="muted small">${a}</div><div class="value">${b}</div><div class="muted small">${c}</div></div>`
+        )
+        .join("");
+    $("matrix").innerHTML =
+        "<div></div>" +
+        labels.map((l) => `<div class="cell head">${abbr[l]}</div>`).join("") +
+        labels
+            .map(
+                (g) =>
+                    `<div class="cell rowhead">${abbr[g]}</div>` +
+                    labels
+                        .map((p) => {
+                            const n = live.calibration.matrix[g][p];
+                            return `<div class="cell ${n ? (g === p ? "correct" : "wrong") : ""}" title="Gold: ${g}; predicted: ${p}">${n}</div>`;
+                        })
+                        .join("")
+            )
+            .join("");
+    $("bars").innerHTML = [
+        ["Recall@5", agg.recall_at_k, ""],
+        ["Precision@5", agg.precision_at_k, "prec"],
+        ["MRR@5", agg.mrr_at_k, "mrr"],
+    ]
+        .map(
+            ([label, val, cls]) =>
+                `<div class="barrow"><span>${label}</span><div class="track"><div class="fill ${cls}" style="width:${100 * Number(val)}%"></div></div><b>${pct(val)}</b></div>`
+        )
+        .join("");
+    $("execution").innerHTML = [
+        ["Attempted", count.attempted],
+        ["Succeeded", count.succeeded],
+        ["Disagreed", count.disagreed],
+        ["Failed", count.failed],
+        ["Skipped", count.skipped],
+    ]
+        .map(
+            ([k, v]) =>
+                `<div class="barrow"><span>${k}</span><div class="track"><div class="fill" style="width:${(100 * v) / 15}%"></div></div><b>${v}</b></div>`
+        )
+        .join("");
+    const citations = offline.citations.cases;
+    const valid = citations.filter((c) => c.citation_valid).length;
+    $("citations").innerHTML =
+        `<p><strong>${valid}/${citations.length}</strong> valid citations in authored test cases</p><p class="note">Invalid citations are deliberately included as negative fixtures; the expected validity matched actual validity in ${citations.filter((c) => c.citation_valid === c.expect_citation_valid).length}/${citations.length} cases.</p>`;
+    let tab = "judge";
+    function setTab(next) {
+        tab = next;
+        for (const [name, id] of [
+            ["judge", "judgeBtn"],
+            ["retrieval", "retrievalBtn"],
+            ["citation", "citationBtn"],
+        ])
+            $(id).classList.toggle("active", name === tab);
+        renderCases();
+    }
+    function renderCases() {
+        let heads, rows;
+        if (tab === "judge") {
+            heads = ["Case", "Gold", "Predicted", "Outcome", "Rationale"];
+            rows = live.grounding.map((x) => [
+                x.case_id,
+                x.gold_label,
+                x.predicted_label,
+                x.outcome,
+                x.rationale || x.error_code,
+            ]);
+        } else if (tab === "retrieval") {
+            heads = ["Case", "Gold count", "Recall@5", "Precision@5", "MRR@5"];
+            rows = offline.retrieval.cases.map((x) => [
+                x.case_id,
+                x.gold_count,
+                pct(x.recall_at_k),
+                pct(x.precision_at_k),
+                x.mrr_at_k,
+            ]);
+        } else {
+            heads = ["Case", "Citation valid", "Expected valid", "Support label", "Errors"];
+            rows = citations.map((x) => [
+                x.case_id,
+                x.citation_valid,
+                x.expect_citation_valid,
+                x.support_label,
+                x.error_codes.join(", "),
+            ]);
+        }
+        $("cases").innerHTML =
+            "<table><thead><tr>" +
+            heads.map((h) => `<th>${esc(h)}</th>`).join("") +
+            "</tr></thead><tbody>" +
+            rows.map((r) => "<tr>" + r.map((x) => `<td>${esc(x)}</td>`).join("") + "</tr>").join("") +
+            "</tbody></table>";
+    }
+    renderCases();
+</script>
+</body>
+</html>
