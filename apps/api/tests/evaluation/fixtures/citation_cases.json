@@ -1,0 +1,98 @@
+{
+  "dataset_version": "2026-10-19.1",
+  "cases": [
+    {
+      "case_id": "c01-supported",
+      "research_id": "11111111-1111-4111-8111-111111111111",
+      "support_label": "supported",
+      "claim": "A research run stops after two planning iterations.",
+      "citations": ["E1"],
+      "sources": [{"evidence_id": "E1", "semantic_id": "web-limits#c0"}],
+      "expect_citation_valid": true
+    },
+    {
+      "case_id": "c02-spurious",
+      "research_id": "11111111-1111-4111-8111-111111111111",
+      "support_label": "unsupported",
+      "claim": "A research run stops after two planning iterations.",
+      "citations": ["E1"],
+      "sources": [{"evidence_id": "E1", "semantic_id": "web-noise#c0"}],
+      "expect_citation_valid": true
+    },
+    {
+      "case_id": "c03-missing",
+      "research_id": "11111111-1111-4111-8111-111111111111",
+      "support_label": "supported",
+      "claim": "A research run stops after two planning iterations.",
+      "citations": ["E1", "E2"],
+      "sources": [{"evidence_id": "E1", "semantic_id": "web-limits#c0"}],
+      "expect_citation_valid": false
+    },
+    {
+      "case_id": "c04-foreign",
+      "research_id": "11111111-1111-4111-8111-111111111111",
+      "support_label": "supported",
+      "claim": "This passage belongs to another research scope.",
+      "citations": ["E1"],
+      "sources": [{"evidence_id": "E1", "semantic_id": "web-foreign#c0"}],
+      "expect_citation_valid": false
+    },
+    {
+      "case_id": "c05-malformed",
+      "research_id": "11111111-1111-4111-8111-111111111111",
+      "support_label": "supported",
+      "claim": "A research run stops after two planning iterations.",
+      "citations": ["E0"],
+      "sources": [{"evidence_id": "E0", "semantic_id": "web-limits#c0"}],
+      "expect_citation_valid": false
+    },
+    {
+      "case_id": "c06-pdf",
+      "research_id": "11111111-1111-4111-8111-111111111111",
+      "support_label": "supported",
+      "claim": "Page two lists the five page fetch cap.",
+      "citations": ["E1"],
+      "sources": [{"evidence_id": "E1", "semantic_id": "pdf-pages#c0"}],
+      "expect_citation_valid": true
+    },
+    {
+      "case_id": "c07-web",
+      "research_id": "11111111-1111-4111-8111-111111111111",
+      "support_label": "supported",
+      "claim": "Logical LLM calls are capped at thirteen for one run.",
+      "citations": ["E1"],
+      "sources": [{"evidence_id": "E1", "semantic_id": "web-budget#c0"}],
+      "expect_citation_valid": true
+    },
+    {
+      "case_id": "c08-unknown",
+      "research_id": "11111111-1111-4111-8111-111111111111",
+      "support_label": "unsupported",
+      "claim": "A research run stops after two planning iterations.",
+      "citations": ["E1"],
+      "sources": [{"evidence_id": "E1", "semantic_id": "missing#c0"}],
+      "expect_citation_valid": false
+    },
+    {
+      "case_id": "c09-duplicate",
+      "research_id": "11111111-1111-4111-8111-111111111111",
+      "support_label": "supported",
+      "claim": "A research run stops after two planning iterations.",
+      "citations": ["E1"],
+      "sources": [
+        {"evidence_id": "E1", "semantic_id": "web-limits#c0"},
+        {"evidence_id": "E1", "semantic_id": "web-limits#c1"}
+      ],
+      "expect_citation_valid": false
+    },
+    {
+      "case_id": "c10-scope",
+      "research_id": "22222222-2222-4222-8222-222222222222",
+      "support_label": "supported",
+      "claim": "A research run stops after two planning iterations.",
+      "citations": ["E1"],
+      "sources": [{"evidence_id": "E1", "semantic_id": "web-limits#c0"}],
+      "expect_citation_valid": false
+    }
+  ]
+}

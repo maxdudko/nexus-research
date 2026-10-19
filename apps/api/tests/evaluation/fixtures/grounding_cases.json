@@ -1,0 +1,101 @@
+{
+  "dataset_version": "2026-10-19.1",
+  "cases": [
+    {
+      "case_id": "g01-supported",
+      "research_id": "11111111-1111-4111-8111-111111111111",
+      "claim": "A research run stops after two planning iterations.",
+      "cited_semantic_ids": ["web-limits#c0"],
+      "gold_label": "supported",
+      "expect_structurally_valid": true
+    },
+    {
+      "case_id": "g02-spurious",
+      "research_id": "11111111-1111-4111-8111-111111111111",
+      "claim": "A research run stops after two planning iterations.",
+      "cited_semantic_ids": ["web-noise#c0"],
+      "gold_label": "unsupported",
+      "expect_structurally_valid": true
+    },
+    {
+      "case_id": "g03-insufficient",
+      "research_id": "11111111-1111-4111-8111-111111111111",
+      "claim": "The lab notebook is blue.",
+      "cited_semantic_ids": ["web-limits#c0"],
+      "gold_label": "insufficient_context",
+      "expect_structurally_valid": true
+    },
+    {
+      "case_id": "g04-contradictory",
+      "research_id": "11111111-1111-4111-8111-111111111111",
+      "claim": "The page cap is five.",
+      "cited_semantic_ids": ["web-conflict#c0", "web-conflict#c1"],
+      "gold_label": "contradictory",
+      "expect_structurally_valid": true
+    },
+    {
+      "case_id": "g05-uncertain",
+      "research_id": "11111111-1111-4111-8111-111111111111",
+      "claim": "The iteration limit might be higher on weekends.",
+      "cited_semantic_ids": ["web-limits#c0"],
+      "gold_label": "insufficient_context",
+      "expect_structurally_valid": true
+    },
+    {
+      "case_id": "g06-paraphrase",
+      "research_id": "11111111-1111-4111-8111-111111111111",
+      "claim": "Planning uses two iterations and then the run finishes.",
+      "cited_semantic_ids": ["web-para#c0"],
+      "gold_label": "supported",
+      "expect_structurally_valid": true
+    },
+    {
+      "case_id": "g07-pdf",
+      "research_id": "11111111-1111-4111-8111-111111111111",
+      "claim": "Page two lists the five page fetch cap.",
+      "cited_semantic_ids": ["pdf-pages#c0"],
+      "gold_label": "supported",
+      "expect_structurally_valid": true
+    },
+    {
+      "case_id": "g08-wrong-number",
+      "research_id": "11111111-1111-4111-8111-111111111111",
+      "claim": "A research run stops after nine planning iterations.",
+      "cited_semantic_ids": ["web-limits#c0"],
+      "gold_label": "unsupported",
+      "expect_structurally_valid": true
+    },
+    {
+      "case_id": "g09-foreign",
+      "research_id": "11111111-1111-4111-8111-111111111111",
+      "claim": "This passage belongs to another research scope.",
+      "cited_semantic_ids": ["web-foreign#c0"],
+      "gold_label": "supported",
+      "expect_structurally_valid": false
+    },
+    {
+      "case_id": "g10-unknown",
+      "research_id": "11111111-1111-4111-8111-111111111111",
+      "claim": "A research run stops after two planning iterations.",
+      "cited_semantic_ids": ["missing#c9"],
+      "gold_label": "supported",
+      "expect_structurally_valid": false
+    },
+    {
+      "case_id": "g11-multi",
+      "research_id": "11111111-1111-4111-8111-111111111111",
+      "claim": "Search allows six calls and model calls are capped at thirteen.",
+      "cited_semantic_ids": ["web-limits#c1", "web-budget#c0"],
+      "gold_label": "supported",
+      "expect_structurally_valid": true
+    },
+    {
+      "case_id": "g12-conflict-noise",
+      "research_id": "11111111-1111-4111-8111-111111111111",
+      "claim": "The page cap is five.",
+      "cited_semantic_ids": ["web-conflict#c0", "web-conflict#c1", "web-noise#c0"],
+      "gold_label": "contradictory",
+      "expect_structurally_valid": true
+    }
+  ]
+}

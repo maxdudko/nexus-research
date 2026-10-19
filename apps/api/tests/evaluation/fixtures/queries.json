@@ -1,0 +1,85 @@
+{
+  "dataset_version": "2026-10-19.1",
+  "cases": [
+    {
+      "case_id": "q01-single",
+      "question": "When does a research run stop planning?",
+      "gold": ["web-limits#c0"]
+    },
+    {
+      "case_id": "q02-multi",
+      "question": "Which limits cover search calls, model calls, and page fetches?",
+      "gold": ["web-limits#c1", "web-budget#c0", "pdf-pages#c0"]
+    },
+    {
+      "case_id": "q03-paraphrase",
+      "question": "How many planning iterations happen before the run finishes?",
+      "gold": ["web-para#c0", "web-limits#c0"]
+    },
+    {
+      "case_id": "q04-no-gold",
+      "question": "What color is the lab notebook?",
+      "gold": []
+    },
+    {
+      "case_id": "q05-miss",
+      "question": "Where is the two-iteration planning limit stated?",
+      "gold": ["web-limits#c0"]
+    },
+    {
+      "case_id": "q06-short",
+      "question": "Which page lists the page fetch cap?",
+      "gold": ["pdf-pages#c0"]
+    },
+    {
+      "case_id": "q07-duplicate",
+      "question": "How many planning iterations are allowed?",
+      "gold": ["web-limits#c0"]
+    },
+    {
+      "case_id": "q08-rank3",
+      "question": "Where is the excerpt length limit stated?",
+      "gold": ["pdf-pages#c1"]
+    },
+    {
+      "case_id": "q09-half",
+      "question": "What do the limits passages say about iteration and search caps?",
+      "gold": ["web-limits#c0", "web-limits#c1"]
+    },
+    {
+      "case_id": "q10-pdf",
+      "question": "Which PDF page states the fetch cap?",
+      "gold": ["pdf-pages#c0"]
+    },
+    {
+      "case_id": "q11-web",
+      "question": "What is the logical model-call cap?",
+      "gold": ["web-budget#c0"]
+    },
+    {
+      "case_id": "q12-past-k",
+      "question": "Which passage paraphrases the iteration limit?",
+      "gold": ["web-para#c0"]
+    },
+    {
+      "case_id": "q13-both-pdf",
+      "question": "What do the PDF pages say about fetch and excerpt limits?",
+      "gold": ["pdf-pages#c0", "pdf-pages#c1"]
+    },
+    {
+      "case_id": "q14-late-pair",
+      "question": "Which passages state or paraphrase the two-iteration planning limit?",
+      "gold": ["web-limits#c0", "web-para#c0"]
+    },
+    {
+      "case_id": "q15-noise-hit",
+      "question": "How often do office plants need water?",
+      "gold": ["web-noise#c0"]
+    },
+    {
+      "case_id": "q16-second-only",
+      "question": "How many logical search calls are allowed?",
+      "gold": ["web-limits#c1"]
+    }
+  ]
+}
