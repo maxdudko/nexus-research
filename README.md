@@ -149,6 +149,20 @@ The UI is `http://127.0.0.1:16686`. Tracing is off unless `NEXUS_OTEL_ENABLED=tr
 
 `docker compose stop` stops the containers and keeps their named volumes. `docker compose down` removes the containers and keeps the volumes, so the next `up` restores the data. `docker compose down -v` deletes `nexus_postgres_data` and `nexus_qdrant_data`.
 
+### Release stack (preview)
+
+`compose.release.yml` runs Web, API, PostgreSQL and Qdrant from production images, without local Python or Node. It is a separate Compose project (`nexus-release`) with its own volumes. The development commands above are unchanged.
+
+```bash
+cp .env.release.example .env.release   # set POSTGRES_PASSWORD (openssl rand -hex 32) and provider keys
+docker compose --env-file .env.release -f compose.release.yml config --quiet
+docker compose --env-file .env.release -f compose.release.yml up -d --build
+docker compose --env-file .env.release -f compose.release.yml ps
+python3 scripts/check_release_compose.py   # static port, network and secret-scoping checks
+```
+
+The one-shot `init` service runs `alembic upgrade head` and then the checkpoint setup on every `up`. Both are idempotent. The API starts only after `init` exits 0 and the data services are healthy. Only Web is published, on `http://127.0.0.1:3000`. API, PostgreSQL and Qdrant have no host ports. There is no authentication, so do not expose the port publicly. `down` keeps the release volumes; `down -v` deletes them. Full deployment and operations guides come with the v0.1.0 documentation.
+
 ### Migrations
 
 From `apps/api`, with Postgres running and `.env` in place:
