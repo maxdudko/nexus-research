@@ -1,0 +1,38 @@
+# Smoke-test override. Never use it for a real deployment.
+#
+#   docker compose -f compose.release.yml -f compose.smoke.yml ...
+#
+# scripts/release-smoke.sh is the only intended caller. It points the OpenAI SDK
+# at a local stub that never answers, so a research stream stays open, emits
+# heartbeats and can be cancelled without any paid provider call. Tracing is
+# enabled against a host that does not exist to show an exporter failure is
+# non-fatal.
+
+services:
+  stub-openai:
+    image: nexus-api:${NEXUS_VERSION:-0.1.0}
+    command: ["python", "/stub/stub_openai.py"]
+    volumes:
+      - ./scripts/smoke:/stub:ro
+    networks: [data]
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=2)
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  api:
+    environment:
+      OPENAI_BASE_URL: http://stub-openai:8080/v1
+      NEXUS_AI_TIMEOUT_SECONDS: "60"
+      NEXUS_AI_MAX_RETRIES: "0"
+      NEXUS_STREAM_HEARTBEAT_SECONDS: "1"
+      NEXUS_OTEL_ENABLED: "true"
+      NEXUS_OTEL_ENDPOINT: http://otel-nowhere:4318/v1/traces
+    depends_on:
+      stub-openai:
+        condition: service_healthy

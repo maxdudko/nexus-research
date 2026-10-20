@@ -26,6 +26,40 @@ SENTINELS = {
     "NEXUS_TAVILY_API_KEY": "tvly-check-tavily-sentinel",
 }
 DATA_ONLY = {"postgres", "qdrant", "init"}
+# Adding a name here is a release decision: it reaches the API container.
+API_ENV = {
+    "NEXUS_ENVIRONMENT",
+    "NEXUS_DATABASE_URL",
+    "NEXUS_QDRANT_URL",
+    "NEXUS_OPENAI_API_KEY",
+    "NEXUS_TAVILY_API_KEY",
+    "NEXUS_OPENAI_MODEL",
+    "NEXUS_OPENAI_EMBEDDING_MODEL",
+    "NEXUS_AI_TIMEOUT_SECONDS",
+    "NEXUS_AI_MAX_RETRIES",
+    "NEXUS_DISCOVERY_TIMEOUT_SECONDS",
+    "NEXUS_READINESS_TIMEOUT_SECONDS",
+    "NEXUS_PDF_MAX_BYTES",
+    "NEXUS_PDF_MAX_PAGES",
+    "NEXUS_GRAPH_MAX_ITERATIONS",
+    "NEXUS_GRAPH_MAX_SEARCH_CALLS",
+    "NEXUS_GRAPH_MAX_LLM_CALLS",
+    "NEXUS_GRAPH_MAX_WEB_PAGES",
+    "NEXUS_GRAPH_MAX_PASSAGES",
+    "NEXUS_GRAPH_DEADLINE_SECONDS",
+    "NEXUS_GRAPH_EXCERPT_CHARS",
+    "NEXUS_STREAM_HEARTBEAT_SECONDS",
+    "NEXUS_STREAM_MAX_CONCURRENT",
+    "NEXUS_STREAM_CANCEL_PERSIST_SECONDS",
+    "NEXUS_OTEL_ENABLED",
+    "NEXUS_OTEL_ENDPOINT",
+    "NEXUS_OTEL_SERVICE_NAME",
+    "NEXUS_OTEL_SAMPLE_RATIO",
+    "NEXUS_LOG_FORMAT",
+    "NEXUS_TAVILY_USD_PER_SEARCH",
+}
+INIT_ENV = {"NEXUS_ENVIRONMENT", "NEXUS_DATABASE_URL", "NEXUS_QDRANT_URL"}
+PROVIDER_ENDPOINTS = {"OPENAI_BASE_URL", "OPENAI_API_BASE"}
 LOOPBACK = "127.0.0.1"
 
 failures: list[str] = []
@@ -167,7 +201,28 @@ def check_services(config: dict[str, object]) -> None:
                 f"{name} receives no POSTGRES_* variable",
             )
 
+    for name, service in services.items():
+        keys = set(service.get("environment") or {})
+        check(
+            not any(key.startswith("NEXT_PUBLIC_") for key in keys),
+            f"{name} receives no NEXT_PUBLIC_ variable",
+        )
+        check(
+            not keys & PROVIDER_ENDPOINTS,
+            f"{name} has no provider endpoint override",
+        )
+
     api_env = services["api"]["environment"]
+    unexpected = sorted(set(api_env) - API_ENV)
+    check(
+        not unexpected,
+        "api environment matches the allowlist"
+        + (f" (unexpected: {', '.join(unexpected)})" if unexpected else ""),
+    )
+    check(
+        set(services["init"].get("environment") or {}) == INIT_ENV,
+        "init receives only database, qdrant and environment settings",
+    )
     check(api_env.get("NEXUS_ENVIRONMENT") == "production", "api runs in production")
     check(
         api_env.get("NEXUS_QDRANT_URL") == "http://qdrant:6333"

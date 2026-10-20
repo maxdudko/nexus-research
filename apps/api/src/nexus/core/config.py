@@ -12,6 +12,7 @@ from pydantic import (
     PostgresDsn,
     SecretStr,
     ValidationError,
+    ValidationInfo,
     field_validator,
     model_validator,
 )
@@ -77,6 +78,19 @@ class Settings(BaseSettings):
         if self.chunk_overlap_tokens >= self.chunk_tokens:
             raise ValueError("chunk overlap must be smaller than the chunk size")
         return self
+
+    @field_validator("database_url")
+    @classmethod
+    def no_development_password(
+        cls, value: PostgresDsn, info: ValidationInfo
+    ) -> PostgresDsn:
+        if info.data.get("environment") != "production":
+            return value
+        if any(host.get("password") == "nexus" for host in value.hosts()):
+            raise ValueError(
+                "the development database password is not allowed in production"
+            )
+        return value
 
     @field_validator(
         "openai_api_key",
