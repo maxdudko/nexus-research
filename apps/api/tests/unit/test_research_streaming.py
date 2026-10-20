@@ -44,6 +44,7 @@ class MemoryHistory:
         self.order: list[str] = []
         self.fail_success = False
         self.block_failure = False
+        self.delay_failure = 0.0
         self.fail_failure = False
         self.fail_create = False
 
@@ -99,6 +100,8 @@ class MemoryHistory:
             raise RuntimeError("commit failed")
         if self.block_failure:
             await asyncio.Event().wait()
+        if self.delay_failure:
+            await asyncio.sleep(self.delay_failure)
         row = self.rows[run_id]
         if row["status"] != "running":
             raise HistoryConflict
@@ -565,6 +568,25 @@ async def test_asgi_disconnect_cancels_the_graph_and_marks_interrupted() -> None
             break
         await asyncio.sleep(0.05)
     assert running == baseline
+
+
+async def test_disconnect_waits_for_a_slow_status_write() -> None:
+    planner = BlockingPlanner()
+    runner, _recording = _runner(planner=planner, timeout_seconds=5)
+    history = MemoryHistory()
+    history.delay_failure = 0.3
+    app = _install(runner, history, stream_cancel_persist_seconds=2)
+
+    async with app.router.lifespan_context(app):
+        started = asyncio.get_running_loop().time()
+        await _disconnect_after_started(app)
+        elapsed = asyncio.get_running_loop().time() - started
+
+    row = next(iter(history.rows.values()))
+    assert row["status"] == "interrupted"
+    assert row["error_code"] == "interrupted"
+    assert row["report"] is None
+    assert elapsed >= 0.3
 
 
 async def test_disconnect_leaves_running_when_the_status_write_times_out() -> None:

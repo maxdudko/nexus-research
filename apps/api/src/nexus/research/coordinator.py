@@ -7,6 +7,8 @@ from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
+from anyio import CancelScope
+
 from nexus.ai.errors import ResearchError, invalid_state
 from nexus.observability.context import bind_run
 from nexus.research.events import (
@@ -182,14 +184,22 @@ class RunCoordinator:
         return True
 
     async def _best_effort_interrupt(self) -> None:
-        """Persist interrupted without shielding the graph task."""
+        """Persist interrupted without shielding the graph task.
+
+        A disconnect cancels this task through AnyIO. ``asyncio.shield`` would
+        keep the write running, but this task could not wait for it, so the
+        request returns while the row is still ``running``. The shielded scope
+        spends the persist budget, then the cancellation continues.
+        """
         task = asyncio.create_task(self._persist_code("interrupted", interrupted=True))
         try:
-            await asyncio.wait_for(asyncio.shield(task), self._cancel_seconds)
-        except TimeoutError:
-            task.cancel()
-            await _quiet(task)
-            logger.warning("interrupted research run was not stored")
+            with CancelScope(shield=True):
+                try:
+                    await asyncio.wait_for(task, self._cancel_seconds)
+                except TimeoutError:
+                    task.cancel()
+                    await _quiet(task)
+                    logger.warning("interrupted research run was not stored")
         except Exception as exc:
             logger.warning(
                 "could not record an interrupted run: %s",

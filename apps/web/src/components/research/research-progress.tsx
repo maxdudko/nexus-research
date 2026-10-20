@@ -61,7 +61,7 @@ export function ResearchProgress({ state }: { state: SessionState }) {
       ) : null}
       {state.retryNotice ? <p role="status">{state.retryNotice}</p> : null}
       {state.errorMessage && state.phase !== "upload_failed" ? (
-        <p role="alert" className="text-sm text-red-800">
+        <p role="alert" className="text-sm text-danger">
           {state.errorMessage}
         </p>
       ) : null}

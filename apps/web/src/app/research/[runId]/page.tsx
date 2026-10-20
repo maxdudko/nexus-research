@@ -61,13 +61,13 @@ export default function ResearchRunPage() {
 
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-8">
-      <p>
+      <p className="pr-12">
         <Link href="/" className="underline">
           Back to research
         </Link>
       </p>
       {error ? (
-        <p role="alert" className="text-sm text-red-800">
+        <p role="alert" className="text-sm text-danger">
           {error}
         </p>
       ) : null}
