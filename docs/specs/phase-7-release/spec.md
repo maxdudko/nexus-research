@@ -2,7 +2,7 @@
 
 **Project:** Nexus Research  
 **Target release:** MVP `v0.1.0`  
-**Status:** Proposed  
+**Status:** Accepted  
 **Date:** 2026-10-19  
 **Related:** `docs/roadmap.md`, ADR-003–006, `docs/evaluation/methodology.md`, `docs/evaluation/failure-matrix.md`  
 **Implementation branch:** `development`

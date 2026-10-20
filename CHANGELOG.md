@@ -2,11 +2,9 @@
 
 All notable changes to Nexus Research are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.1.0] - 2026-10-20
 
-## [0.1.0] - Unreleased
-
-Release candidate for the first MVP. This entry gets a date when the maintainer tags `v0.1.0` after Gate C in [`docs/release/checklist.md`](docs/release/checklist.md).
+First MVP release. Gate C evidence is in [`docs/release/checklist.md`](docs/release/checklist.md).
 
 ### Added
 

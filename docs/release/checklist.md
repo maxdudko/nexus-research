@@ -12,14 +12,14 @@ Rules for filling it in:
 
 | Field | Value |
 |---|---|
-| Release commit (SHA) | _to fill_ |
+| Release commit (SHA) | Documentation commit on top of `7096289ac8ee4b9ecf49e7002f088a8ba8013d35`. The commands below were run on that parent. This commit changes docs only; tag it after CI on it is green. |
 | Branch | `development` |
-| Date (UTC) | _to fill_ |
-| CI run on the release commit | _to fill_ |
+| Date (UTC) | 2026-10-20 |
+| CI run on the release commit | Code parent: [run 39450946288](https://github.com/maxdudko/nexus-research/actions/runs/39450946288) (`success`; API, Web, Release images and smoke). The run for this docs commit is linked from the GitHub release. |
 | Offline baseline | `docs/evaluation/baseline.json`, dataset `2026-10-19.2`, report version `1` |
 | Images | `nexus-api:0.1.0`, `nexus-web:0.1.0`, built locally from the release commit (not published to a registry) |
 | Tested platform | linux/amd64 |
-| Reviewer | _to fill_ |
+| Reviewer | maxdudko |
 
 ### Baseline evidence (before the documentation commit)
 
@@ -41,7 +41,7 @@ docker build -t nexus-web:0.1.0 apps/web
 ```
 
 **Pass:** both builds exit 0, and the CI job "Release images and smoke" is green on the release commit.
-**Evidence:** _to fill_ **Status:** [ ]
+**Evidence:** Fresh clone `/tmp/nexus-rc` at `7096289ac8ee4b9ecf49e7002f088a8ba8013d35`. `docker build -t nexus-api:0.1.0 apps/api` and `docker build -t nexus-web:0.1.0 apps/web` both exited 0 (local layer cache was used). CI job "Release images and smoke" succeeded in [run 39450946288](https://github.com/maxdudko/nexus-research/actions/runs/39450946288). **Status:** [x]
 
 ### AC-02: full-stack startup (blocking)
 
@@ -55,7 +55,7 @@ nr ps -a
 ```
 
 **Pass:** `config` exits 0; `postgres`, `qdrant`, `api` and `web` are `healthy`; `init` is `Exited (0)`.
-**Evidence:** _to fill_ **Status:** [ ]
+**Evidence:** In `/tmp/nexus-rc`, `config --quiet` exited 0. The first `up -d --build` reused a stopped local `nexus-release` stack: `api` was not recreated and stayed unhealthy (`qdrant readiness check failed: ConnectError`). `down -v` and a fresh `up -d --build` exited 0. `ps -a` then showed `postgres`, `qdrant`, `api` and `web` healthy, and `init` `Exited (0)`. **Status:** [x]
 
 ### AC-03: migrations and checkpoint setup, repeated (blocking)
 
@@ -68,7 +68,7 @@ nr exec -T postgres psql -U nexus -d nexus -Atc "select version_num from alembic
 ```
 
 **Pass:** both `init -` lines appear on the fresh stack; the rerun exits 0; the Alembic head is unchanged. `release-smoke.sh` step 6 checks the same thing automatically.
-**Evidence:** _to fill_ **Status:** [ ]
+**Evidence:** Fresh init logs contained `init - domain schema at head` and `init - checkpoint tables ready`. `run --rm init` exited 0 and printed both lines again. With this machine's `POSTGRES_USER=admin`, `psql -d nexus -Atc "select version_num from alembic_version"` returned `b7e2c91a4f10`. Smoke step 6: `init rerun exits 0 and leaves schema unchanged (b7e2c91a4f10|10:9)`. **Status:** [x]
 
 ### AC-04: API, Web, proxy and SSE (blocking)
 
@@ -81,7 +81,7 @@ scripts/release-smoke.sh
 ```
 
 **Pass:** live returns `{"status":"ok"}`; ready returns `{"status":"ok","postgres":"ok","qdrant":"ok"}`; the smoke prints `all release smoke checks passed`, which includes heartbeats arriving through Web before the stream ends (step 7). Progress events from a real run are confirmed under AC-10.
-**Evidence:** _to fill_ **Status:** [ ]
+**Evidence:** `curl` through `http://127.0.0.1:3000` returned `{"status":"ok"}` and `{"status":"ok","postgres":"ok","qdrant":"ok"}`. `scripts/release-smoke.sh --no-build` in `/tmp/nexus-rc` exited 0 and printed `all release smoke checks passed`. Step 7: `research.started` then 5 heartbeats before the client closed. The live UI run in AC-10 showed `Status: Researching`, an updating heartbeat, and stage rows. **Status:** [x]
 
 ### AC-05: persistence across restart (blocking)
 
@@ -91,7 +91,7 @@ scripts/release-smoke.sh
 - Checkpoints and evidence: **not covered by the smoke test.** Run the "Persistence after restart" steps in [`demo.md`](demo.md#persistence-after-restart-ac-05) after a real run. The evidence search needs an OpenAI key.
 
 **Pass:** smoke step 10 passes; the `checkpoints` count is unchanged across `down` / `up`; the run detail still returns its report; the evidence search for that run's `research_id` returns at least one match.
-**Evidence:** _to fill_ **Status:** [ ]
+**Evidence:** Smoke step 10 passed (`run history survives down and up`). After scenario 1, `select count(*) from checkpoints` was `35` before `down` and `35` after `up -d`. Run `1d15319e-623f-4091-be8a-987f38d080dc` still returned status `completed` and a report with 11 sources. `POST /api/v1/evidence/search` for that `research_id` returned 5 matches; the first URL was `https://www.mindstudio.ai/blog/what-are-ai-coding-agents`. **Status:** [x]
 
 ### AC-06: private port exposure (blocking)
 
@@ -103,7 +103,7 @@ nr ps --format '{{.Service}} {{.Ports}}'
 ```
 
 **Pass:** the static check exits 0; the only published port is `127.0.0.1:3000->3000/tcp` on `web`. Smoke step 5 checks the same thing on a running stack.
-**Evidence:** _to fill_ **Status:** [ ]
+**Evidence:** `python3 scripts/check_release_compose.py` exited 0 (`all release compose checks passed`). `ps --format '{{.Service}} {{.Ports}}'` showed `api 8000/tcp`, `postgres 5432/tcp`, `qdrant 6333-6334/tcp`, and `web 127.0.0.1:3000->3000/tcp`. Smoke step 5: only web published, on `127.0.0.1:41089`. **Status:** [x]
 
 ### AC-07: no baked or leaked secrets (blocking)
 
@@ -117,7 +117,7 @@ git check-ignore .env.release
 ```
 
 **Pass:** smoke steps 2 and 11 pass; `git grep` finds no real key; the three template values are empty; `.env.release` is ignored.
-**Evidence:** _to fill_ **Status:** [ ]
+**Evidence:** Smoke steps 2 and 11 passed (non-root images, no `.env` in the images, no secret-like environment, no server settings in the browser bundle, no password, provider key or database URL in service logs). `git grep` printed `no key-shaped strings`. The three template values in `.env.release.example` are empty. `git check-ignore` reports `.gitignore:6:.env.*` for `.env.release`. **Status:** [x]
 
 ### AC-08: offline CI and evaluation baseline (blocking)
 
@@ -133,7 +133,7 @@ npm ci && npm run lint && npm run typecheck && npm test && npm run build
 ```
 
 **Pass:** jobs API, Web and "Release images and smoke" are green on the release commit; `diff` prints nothing. `baseline.json` was not edited to make a check pass.
-**Evidence:** _to fill_ **Status:** [ ]
+**Evidence:** [Run 39450946288](https://github.com/maxdudko/nexus-research/actions/runs/39450946288) on `7096289ac8ee4b9ecf49e7002f088a8ba8013d35`: API, Web, and Release images and smoke all `success`. Local `uv run python -m nexus.evaluation --suite offline --output /tmp/nexus-eval-offline.json` then `diff -u` against `docs/evaluation/baseline.json` printed nothing. `baseline.json` was not edited. **Status:** [x]
 
 ### AC-09: documentation walkthrough (blocking)
 
@@ -144,7 +144,8 @@ npm ci && npm run lint && npm run typecheck && npm test && npm run build
 - Check that every relative link in `README.md`, `CHANGELOG.md` and `docs/release/*.md` resolves.
 
 **Pass:** every command ran as written, or the docs were corrected and the walkthrough repeated. Note any deviation.
-**Evidence:** _to fill_ **Status:** [ ]
+**Evidence:** From `/tmp/nexus-rc` at `7096289ac8ee4b9ecf49e7002f088a8ba8013d35`, with no `nexus-release` containers or volumes after `down -v`, the README / deployment `config`, `up -d --build`, `ps` and ready `curl` produced the healthy stack in AC-02. The operations stale-run query returned 0 rows (before the demo). 58 relative links in `README.md`, `CHANGELOG.md` and `docs/release/*.md` resolved, including heading anchors. `down` and `down -v` then exited 0 and `ps -a` was empty.
+Deviation: this machine's `.env.release` sets `POSTGRES_USER=admin`, so the documented `psql -U nexus` failed with `role "nexus" does not exist`. `.env.release.example` sets `POSTGRES_USER=nexus`. The same query as `admin` returned the Alembic head. No template change. **Status:** [x]
 
 ### AC-10: manual live demo (required for a *demonstrated* release)
 
@@ -153,14 +154,52 @@ npm ci && npm run lint && npm run typecheck && npm test && npm run build
 Follow [`demo.md` Part B](demo.md#part-b-manual-paid-provider-demo) with real keys and approved spend. Paste the filled evidence record here.
 
 **Pass:** Scenario 1 ends with a stored report (`completed`, `partial` or `insufficient_evidence`) whose citations were checked, and Scenario 3 stores `interrupted` (or `running`, recorded as observed). The outcomes are recorded exactly as seen. A mocked smoke run does not count.
-**Evidence:** _to fill_ **Status:** [ ]
+**Evidence:**
+
+```text
+Date (UTC): 2026-10-20
+Commit: 7096289ac8ee4b9ecf49e7002f088a8ba8013d35
+Operator: maxdudko
+Model (NEXUS_OPENAI_MODEL): absent in .env.release, so the API default gpt-4o-mini
+Non-default settings: POSTGRES_USER=admin (example is nexus). NEXUS_TAVILY_USD_PER_SEARCH is set but empty. NEXUS_VERSION=0.1.0.
+
+Scenario 1 — web research
+  Question: How do AI coding agents improve software development workflows?
+  run_id: 1d15319e-623f-4091-be8a-987f38d080dc
+  Final status: completed
+  Stages observed: Planning the research; Searching for sources; Indexing sources (4 pages); Selecting evidence; Checking coverage. Heartbeat updated (14s ago at elapsed 33s). The UI then opened the report; a separate synthesis row was not seen before that navigation.
+  Number of citations / sources: 11 sources (https). Warnings: page_failed. Usage on the run: iterations 2, search_calls 6, llm_calls 12, pages_indexed 4, pages_failed 1.
+  Citation checked (URL) and judgement: E1 opened a new tab to https://www.mindstudio.ai/blog/what-are-ai-coding-agents (HTTP 200, title "What Is an AI Coding Agent? How They Work and When to Use Them"). The page is about AI coding agents. Sentence-level entailment was not checked.
+  Refresh and history reload OK (yes/no): yes. Refresh showed Status: Completed and the same report. History on / listed the question as Completed · 10/20/2026, 10:24:37 PM.
+  research.usage coverage / estimated_usd: partial / 0.00468848
+  Notes: research_id 56f099aa-d8df-4563-99a2-1185b80e1d0f.
+
+Scenario 2 — text PDF (or "not run")
+  PDF (name, pages, origin): not run
+  run_id:
+  Final status:
+  Page label checked against the file:
+  Notes:
+
+Scenario 3 — cancellation
+  Attempt A, UI Stop: run_id a7394b68-d609-41e0-9d07-b65492543244. Question: What limits the reliability of AI coding agents in production? Planning row was visible and the Stop button was on screen. The click did not complete. Stored status: partial (warnings page_failed, duplicate_query_batch).
+  Attempt B, client disconnect through Web: run_id 5689ec0d-70bc-4962-b4ac-3b3d00c92ea3. Question: Which practices reduce defects from AI-generated code reviews? The stream returned event research.started and event research.progress, then the client closed the connection. Stored status: interrupted.
+  Notes: An earlier stream, run d05b3bc5-b8c5-4677-bf98-9b698935603a (How do teams review code produced by AI coding agents?), was meant to be closed at the first progress event but the client kept reading and the stored status was partial.
+
+Persistence after restart
+  checkpoints before / after: 35 / 35
+  Run detail after restart OK (yes/no): yes (completed, 11 sources)
+  Evidence search matches after restart: 5
+```
+
+**Status:** [x]
 
 ### AC-11: reviewed tag and release notes (blocking)
 
 **Criterion:** `v0.1.0` points to the reviewed release commit, and the GitHub release notes state the limitations.
 
 **Pass:** the maintainer approved the SHA, the annotated tag points to it, and the release notes include the known limitations below.
-**Evidence:** _to fill_ **Status:** [ ]
+**Evidence:** Pending. Tag `v0.1.0` and the GitHub release are created only after CI is green on this documentation commit. **Status:** [ ]
 
 ## Decision
 
@@ -170,7 +209,7 @@ Follow [`demo.md` Part B](demo.md#part-b-manual-paid-provider-demo) with real ke
 | **NO-GO** | Any of: a publicly exposed anonymous API, missing or failing init, broken SSE, unverified clean startup, leaked secrets, failing offline gate, or a tag on an unreviewed commit. |
 | **Conditional** | Everything except AC-10 passes because paid provider access is unavailable. Publish at most a packaging candidate (for example `v0.1.0-rc.1`), and do not call it a demonstrated `v0.1.0`. |
 
-**Decision:** _to fill_ **Decided by:** _to fill_ **Date:** _to fill_
+**Decision:** GO for AC-01 through AC-10. AC-11 is the tag and GitHub release on this commit after its CI run is green. No known critical security, boot or data-loss defect. The unhealthy API on the first `up` was a reused local container, and a fresh `down -v` / `up` was healthy. **Decided by:** maxdudko **Date:** 2026-10-20
 
 ## After a GO (maintainer only)
 

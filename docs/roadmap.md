@@ -10,7 +10,7 @@ Nexus Research was planned as a seven-phase, approximately 14-day MVP build, fol
 | 4. LangGraph | Done |
 | 5. Product UI | Done |
 | 6. Reliability | Done |
-| 7. Release | Release candidate. Packaging, smoke and documentation are on `development`; complete only after Gate C in [`release/checklist.md`](release/checklist.md) |
+| 7. Release | Done |
 | 8–10, Alpha `v0.2.0` | Not started; out of MVP scope |
 
 ## Phase 1 — Foundation (Days 1–2)
@@ -87,7 +87,7 @@ Nexus Research was planned as a seven-phase, approximately 14-day MVP build, fol
 
 ## Phase 7 — Release (Day 14)
 
-**Status:** Release candidate. Phase 7 is complete, and `v0.1.0` is tagged, only when every blocking criterion in [`release/checklist.md`](release/checklist.md) has recorded evidence. The release is *demonstrated* only after the manual paid-provider demo (AC-10).
+**Status:** Done. Gate C evidence, including the paid-provider demo, is recorded in [`release/checklist.md`](release/checklist.md). `v0.1.0` is the annotated tag on that release commit.
 
 **Goal:** Package a reproducible MVP demo.
 

@@ -8,7 +8,7 @@ Nexus Research answers a research question with a bounded LangGraph workflow. It
 
 ## Status
 
-**MVP `v0.1.0` release candidate.** Phases 1–6 and the Phase 7 packaging are on `development`. CI builds both images and runs a packaged smoke test with a mocked model. The release is called *demonstrated* only after the manual paid-provider demo in [`docs/release/demo.md`](docs/release/demo.md) has been run and recorded; see [`docs/release/checklist.md`](docs/release/checklist.md). Multi-user Alpha (`v0.2.0`) is a separate milestone in the [roadmap](docs/roadmap.md).
+**MVP `v0.1.0`.** Phases 1–7 are done. CI builds both images and runs a packaged smoke test with a mocked model. The paid-provider demo and the rest of Gate C are recorded in [`docs/release/checklist.md`](docs/release/checklist.md). Multi-user Alpha (`v0.2.0`) is a separate milestone in the [roadmap](docs/roadmap.md).
 
 ## Features in v0.1.0
 
