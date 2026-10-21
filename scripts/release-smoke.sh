@@ -160,8 +160,9 @@ if (( BUILD )); then
   ok "images built"
 fi
 
-API_IMAGE="nexus-api:0.1.0"
-WEB_IMAGE="nexus-web:0.1.0"
+VERSION="$(sed -n 's/^NEXUS_VERSION=//p' "$ENV_FILE")"
+API_IMAGE="nexus-api:$VERSION"
+WEB_IMAGE="nexus-web:$VERSION"
 
 # --- 2. image hygiene -------------------------------------------------------------
 

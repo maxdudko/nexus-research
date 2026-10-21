@@ -186,11 +186,35 @@ The Phase 3 retrieval fixture in `nexus.retrieval.evaluate` is a different, olde
 
 ### Continuous integration
 
-[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs on every push and pull request. It has three jobs and none of them calls a paid provider:
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs in two lanes. No job calls a paid provider.
 
-- **API:** starts PostgreSQL and Qdrant with `docker compose up -d`, copies `.env.example` to `.env`, then runs Ruff, mypy, pytest, the offline evaluation with the `baseline.json` diff, and `alembic upgrade head` twice.
-- **Web:** `npm ci`, lint, typecheck, tests and the production build on Node 24.
-- **Release images and smoke:** builds `nexus-api:0.1.0` and `nexus-web:0.1.0`, runs `scripts/check_release_compose.py`, then `scripts/release-smoke.sh --no-build`. Scrubbed logs are uploaded only when the job fails. What the smoke does and does not prove is in [`release/demo.md`](release/demo.md).
+| Trigger | Fast lane | Full lane |
+| --- | --- | --- |
+| Push to `development` | yes | no |
+| Pull request to `master` | yes | yes |
+| Push to `master` (after a merge) | yes | yes |
+| Release tag `v*` ([`release.yml`](../.github/workflows/release.yml)) | yes | yes, plus release verification |
+| Manual run (`workflow_dispatch`) | yes | only when `full` is checked |
+
+Pushes to other branches do not trigger CI on their own. Open a pull request instead.
+
+Fast lane, with no services and no Docker:
+
+- **API checks:** Ruff, mypy, `pytest -m "not integration and not live"`, and the offline evaluation with the `baseline.json` diff.
+- **Web checks:** `npm ci`, lint, typecheck and Vitest on Node 24.
+
+Full lane. It starts only after the fast lane passes:
+
+- **API integration:** starts PostgreSQL and Qdrant with `docker compose up -d`, runs `pytest -m "integration and not live"`, then `alembic upgrade head` twice.
+- **Release images and smoke:** builds `nexus-api` and `nexus-web` tagged with `NEXUS_VERSION` from `.env.release.example` (the image build includes `next build`), runs `scripts/check_release_compose.py`, then `scripts/release-smoke.sh --no-build`. Scrubbed logs are uploaded only when the job fails. What the smoke does and does not prove is in [`release/demo.md`](release/demo.md).
+
+A **Changes** job skips jobs whose paths did not change. API jobs need a change under `apps/api/`, Web jobs under `apps/web/`, and the image job under either. A change to `.github/`, `scripts/`, the Compose files, `.env.release.example` or `docs/evaluation/baseline.json` runs everything. A commit that touches only docs runs no checks. Tags and manual runs always run everything.
+
+Branch protection should require only the **ci-ok** check. It passes when every job either succeeded or was skipped. Superseded runs on `development` and on pull requests are cancelled. Runs on `master` and on tags are never cancelled.
+
+Caches: uv, npm, Ruff/mypy and the Docker layer cache (`type=gha`). GitHub only lets a run restore caches from its own ref or from `master`, so the full-lane run after each merge to `master` is what keeps pull-request builds warm. Pull requests write Docker layers to their own `pr-<number>-` scope, so they never evict the `master` entries.
+
+Release tags run [`.github/workflows/release.yml`](../.github/workflows/release.yml). It runs `scripts/check_release_version.py --tag <tag>`, which checks that the tag, `pyproject.toml`, `package.json`, `package-lock.json`, the `compose.release.yml` default, `.env.release.example` and a dated `CHANGELOG.md` entry agree. It also checks that the tag is annotated and reachable from `master`. It then runs the full CI and uploads `release-images-<version>`: gzipped `docker save` tarballs, `image-ids.txt`, `commit.txt` and `SHA256SUMS`, kept for 90 days. Nothing is pushed to a registry. Run `python3 scripts/check_release_version.py` locally before tagging.
 
 ## Evidence
 
