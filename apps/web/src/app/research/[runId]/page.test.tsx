@@ -7,8 +7,11 @@ import ResearchRunPage from "@/app/research/[runId]/page";
 import { ApiError } from "@/lib/errors";
 import type { RunDetailResponse } from "@/lib/types";
 
+const navigation = vi.hoisted(() => ({ replace: vi.fn() }));
+
 vi.mock("next/navigation", () => ({
   useParams: () => ({ runId: "11111111-1111-4111-8111-111111111111" }),
+  useRouter: () => navigation,
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -77,5 +80,15 @@ describe("ResearchRunPage", () => {
       "textContent",
       "The research run was not found.",
     );
+  });
+
+  it("sends an anonymous reader to login", async () => {
+    getRunMock.mockRejectedValue(
+      new ApiError("unauthenticated", "Authentication is required.", 401),
+    );
+    render(<ResearchRunPage />);
+    await screen.findByText("Loading run.");
+    expect(navigation.replace).toHaveBeenCalledWith("/login");
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });

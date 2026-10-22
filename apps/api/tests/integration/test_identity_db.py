@@ -84,6 +84,13 @@ async def test_identity_upgrade_is_repeatable_and_downgrade_keeps_research(
             assert row.password_hash is None
             await connection.execute(
                 text(
+                    "INSERT INTO research_scopes (research_id, owner_user_id) "
+                    "VALUES (:research_id, :owner)"
+                ),
+                {"research_id": research_id, "owner": QUARANTINE_USER_ID},
+            )
+            await connection.execute(
+                text(
                     "INSERT INTO research_runs (run_id, research_id, question, status) "
                     "VALUES (:run_id, :research_id, :question, 'running')"
                 ),
@@ -96,7 +103,7 @@ async def test_identity_upgrade_is_repeatable_and_downgrade_keeps_research(
     finally:
         await engine.dispose()
 
-    downgraded = await run_alembic(test_database_url, "downgrade", "-1")
+    downgraded = await run_alembic(test_database_url, "downgrade", "b7e2c91a4f10")
     assert downgraded.returncode == 0, downgraded.stderr
     engine = create_db_engine(test_database_url)
     try:

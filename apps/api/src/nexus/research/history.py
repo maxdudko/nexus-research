@@ -11,8 +11,9 @@ from pydantic import ValidationError
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from nexus.ai.errors import invalid_request, invalid_state
+from nexus.ai.errors import invalid_request, invalid_state, not_found
 from nexus.models.run import SUCCESS_STATUSES, ResearchReportRecord, ResearchRun
+from nexus.models.scope import ResearchScope
 from nexus.schemas.history import (
     RunDetail,
     RunDetailResponse,
@@ -69,11 +70,23 @@ class ResearchHistory:
         research_id: UUID,
         question: str,
         now: datetime,
+        *,
+        owner_id: UUID,
     ) -> None:
-        """Insert one running row and commit it before a graph starts."""
+        """Insert one running row when this user still owns the scope."""
         moment = _aware(now)
         async with self._sessions() as session:
             async with session.begin():
+                owned = await session.scalar(
+                    select(ResearchScope.research_id)
+                    .where(
+                        ResearchScope.research_id == research_id,
+                        ResearchScope.owner_user_id == owner_id,
+                    )
+                    .with_for_update()
+                )
+                if owned is None:
+                    raise not_found()
                 session.add(
                     ResearchRun(
                         run_id=run_id,
@@ -156,16 +169,26 @@ class ResearchHistory:
         self,
         limit: int,
         cursor: str | None,
+        *,
+        owner_id: UUID,
     ) -> RunListResponse:
-        """Return one keyset page. The report JSON is not selected."""
+        """Return one keyset page for this owner. The report JSON is not selected."""
         if not 1 <= limit <= _LIST_LIMIT:
             raise invalid_request("limit")
         bound = decode_cursor(cursor) if cursor else None
         async with self._sessions() as session:
             async with session.begin():
-                statement = select(ResearchRun).order_by(
-                    ResearchRun.created_at.desc(),
-                    ResearchRun.run_id.desc(),
+                statement = (
+                    select(ResearchRun)
+                    .join(
+                        ResearchScope,
+                        ResearchScope.research_id == ResearchRun.research_id,
+                    )
+                    .where(ResearchScope.owner_user_id == owner_id)
+                    .order_by(
+                        ResearchRun.created_at.desc(),
+                        ResearchRun.run_id.desc(),
+                    )
                 )
                 if bound is not None:
                     created_at, run_id = bound
@@ -187,11 +210,26 @@ class ResearchHistory:
                 items = [_summary(row) for row in visible]
         return RunListResponse(items=items, next_cursor=next_cursor)
 
-    async def get_run(self, run_id: UUID) -> RunDetailResponse | None:
-        """Return one run. A corrupt report is an error, not a partial body."""
+    async def get_run(
+        self,
+        run_id: UUID,
+        *,
+        owner_id: UUID,
+    ) -> RunDetailResponse | None:
+        """Return one owned run. A corrupt report is an error, not a partial body."""
         async with self._sessions() as session:
             async with session.begin():
-                run = await session.get(ResearchRun, run_id)
+                run = await session.scalar(
+                    select(ResearchRun)
+                    .join(
+                        ResearchScope,
+                        ResearchScope.research_id == ResearchRun.research_id,
+                    )
+                    .where(
+                        ResearchRun.run_id == run_id,
+                        ResearchScope.owner_user_id == owner_id,
+                    )
+                )
                 if run is None:
                     return None
                 record = await session.get(ResearchReportRecord, run_id)

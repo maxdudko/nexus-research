@@ -284,6 +284,8 @@ def production_context(
     settings: Settings,
     sessions: async_sessionmaker[AsyncSession],
     store: EvidenceVectorStore,
+    *,
+    owner_user_id: UUID,
 ) -> GraphContext:
     """The services one HTTP run calls. The store is closed by the caller."""
     embedder = OpenAIEmbedder(settings)
@@ -296,6 +298,7 @@ def production_context(
         synthesizer=OpenAIReportSynthesizer(settings),
         limits=limits_from_settings(settings),
         clock=lambda: datetime.now(UTC),
+        owner_user_id=owner_user_id,
     )
 
 

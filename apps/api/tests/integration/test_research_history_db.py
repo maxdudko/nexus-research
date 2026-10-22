@@ -5,13 +5,15 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import event, func, select, text
-from tests.conftest import client_for, make_settings
+from tests.conftest import client_for, make_settings, signed_in
 from tests.integration.conftest import run_alembic
+from tests.integration.scopes import quarantine_scopes
 
 from nexus.ai.errors import ResearchError
 from nexus.infrastructure.database import create_db_engine, session_factory
 from nexus.main import create_app
 from nexus.models.run import ResearchReportRecord
+from nexus.models.user import QUARANTINE_USER_ID
 from nexus.research.history import HistoryConflict, ResearchHistory
 from nexus.schemas.report import EvidenceRef, GraphUsage, ReportSection, ResearchReport
 
@@ -110,10 +112,17 @@ async def test_success_failure_and_conflict_transitions(test_database_url: str) 
     engine = create_db_engine(test_database_url)
     history = ResearchHistory(session_factory(engine))
     research_id = uuid.uuid4()
+    await quarantine_scopes(session_factory(engine), research_id)
     try:
         for status in ("completed", "partial", "insufficient_evidence"):
             run_id = uuid.uuid4()
-            await history.create_running(run_id, research_id, QUESTION, NOW)
+            await history.create_running(
+                run_id,
+                research_id,
+                QUESTION,
+                NOW,
+                owner_id=QUARANTINE_USER_ID,
+            )
             await history.finalize_success(
                 run_id,
                 _report(status),
@@ -128,7 +137,7 @@ async def test_success_failure_and_conflict_transitions(test_database_url: str) 
                 _usage(),
                 NOW + timedelta(seconds=9),
             )
-            stored = await history.get_run(run_id)
+            stored = await history.get_run(run_id, owner_id=QUARANTINE_USER_ID)
             assert stored is not None
             assert stored.run.status == status
             assert stored.run.finished_at == NOW + timedelta(seconds=5)
@@ -150,13 +159,19 @@ async def test_success_failure_and_conflict_transitions(test_database_url: str) 
                     interrupted=False,
                     now=NOW,
                 )
-            again = await history.get_run(run_id)
+            again = await history.get_run(run_id, owner_id=QUARANTINE_USER_ID)
             assert again is not None
             assert again.run.status == status
             assert again.report == stored.report
 
         failed_id = uuid.uuid4()
-        await history.create_running(failed_id, research_id, QUESTION, NOW)
+        await history.create_running(
+            failed_id,
+            research_id,
+            QUESTION,
+            NOW,
+            owner_id=QUARANTINE_USER_ID,
+        )
         await history.finalize_failure(
             failed_id,
             "provider exploded: secret",
@@ -169,7 +184,7 @@ async def test_success_failure_and_conflict_transitions(test_database_url: str) 
             interrupted=False,
             now=NOW + timedelta(seconds=2),
         )
-        failed = await history.get_run(failed_id)
+        failed = await history.get_run(failed_id, owner_id=QUARANTINE_USER_ID)
         assert failed is not None
         assert failed.run.status == "failed"
         assert failed.run.error_code == "provider_unavailable"
@@ -183,22 +198,34 @@ async def test_success_failure_and_conflict_transitions(test_database_url: str) 
             )
 
         stopped_id = uuid.uuid4()
-        await history.create_running(stopped_id, research_id, QUESTION, NOW)
+        await history.create_running(
+            stopped_id,
+            research_id,
+            QUESTION,
+            NOW,
+            owner_id=QUARANTINE_USER_ID,
+        )
         await history.finalize_failure(
             stopped_id,
             "deadline_exceeded",
             interrupted=True,
             now=NOW + timedelta(seconds=1),
         )
-        stopped = await history.get_run(stopped_id)
+        stopped = await history.get_run(stopped_id, owner_id=QUARANTINE_USER_ID)
         assert stopped is not None
         assert stopped.run.status == "interrupted"
         assert stopped.run.error_code == "deadline_exceeded"
         assert stopped.report is None
 
         stale_id = uuid.uuid4()
-        await history.create_running(stale_id, research_id, QUESTION, NOW)
-        stale = await history.get_run(stale_id)
+        await history.create_running(
+            stale_id,
+            research_id,
+            QUESTION,
+            NOW,
+            owner_id=QUARANTINE_USER_ID,
+        )
+        stale = await history.get_run(stale_id, owner_id=QUARANTINE_USER_ID)
         assert stale is not None
         assert stale.run.status == "running"
         assert stale.report is None
@@ -214,8 +241,16 @@ async def test_report_write_failure_rolls_back_the_status(
     engine = create_db_engine(test_database_url)
     history = ResearchHistory(session_factory(engine))
     run_id = uuid.uuid4()
+    research_id = uuid.uuid4()
     try:
-        await history.create_running(run_id, uuid.uuid4(), QUESTION, NOW)
+        await quarantine_scopes(session_factory(engine), research_id)
+        await history.create_running(
+            run_id,
+            research_id,
+            QUESTION,
+            NOW,
+            owner_id=QUARANTINE_USER_ID,
+        )
         async with engine.begin() as connection:
             await connection.execute(
                 text(
@@ -239,7 +274,7 @@ async def test_report_write_failure_rolls_back_the_status(
                 _usage(),
                 NOW + timedelta(seconds=1),
             )
-        stored = await history.get_run(run_id)
+        stored = await history.get_run(run_id, owner_id=QUARANTINE_USER_ID)
         assert stored is not None
         assert stored.run.status == "running"
         assert stored.report is None
@@ -259,23 +294,39 @@ async def test_keyset_pages_have_no_duplicates_or_gaps(
     engine = create_db_engine(test_database_url)
     history = ResearchHistory(session_factory(engine))
     research_id = uuid.uuid4()
+    await quarantine_scopes(session_factory(engine), research_id)
     same_time = NOW + timedelta(minutes=5)
     low = uuid.UUID("00000000-0000-4000-8000-000000000001")
     high = uuid.UUID("00000000-0000-4000-8000-000000000002")
     try:
-        await history.create_running(low, research_id, QUESTION, same_time)
-        await history.create_running(high, research_id, QUESTION, same_time)
+        await history.create_running(
+            low,
+            research_id,
+            QUESTION,
+            same_time,
+            owner_id=QUARANTINE_USER_ID,
+        )
+        await history.create_running(
+            high,
+            research_id,
+            QUESTION,
+            same_time,
+            owner_id=QUARANTINE_USER_ID,
+        )
         earlier = uuid.uuid4()
         await history.create_running(
             earlier,
             research_id,
             QUESTION,
             NOW,
+            owner_id=QUARANTINE_USER_ID,
         )
-        first = await history.list_runs(2, None)
+        first = await history.list_runs(2, None, owner_id=QUARANTINE_USER_ID)
         assert [item.run_id for item in first.items] == [high, low]
         assert first.next_cursor is not None
-        second = await history.list_runs(2, first.next_cursor)
+        second = await history.list_runs(
+            2, first.next_cursor, owner_id=QUARANTINE_USER_ID
+        )
         assert [item.run_id for item in second.items] == [earlier]
         assert second.next_cursor is None
         seen = [item.run_id for item in first.items + second.items]
@@ -291,6 +342,7 @@ async def test_read_api_hides_reports_and_rejects_a_bad_cursor(
     engine = create_db_engine(test_database_url)
     history = ResearchHistory(session_factory(engine))
     run_id = uuid.uuid4()
+    research_id = uuid.uuid4()
     statements: list[str] = []
 
     def capture(
@@ -304,9 +356,16 @@ async def test_read_api_hides_reports_and_rejects_a_bad_cursor(
         statements.append(statement)
 
     event.listen(engine.sync_engine, "before_cursor_execute", capture)
-    app = create_app(make_settings(database_url=test_database_url))
+    app = signed_in(create_app(make_settings(database_url=test_database_url)))
     try:
-        await history.create_running(run_id, uuid.uuid4(), QUESTION, NOW)
+        await quarantine_scopes(session_factory(engine), research_id)
+        await history.create_running(
+            run_id,
+            research_id,
+            QUESTION,
+            NOW,
+            owner_id=QUARANTINE_USER_ID,
+        )
         await history.finalize_success(
             run_id,
             _report("completed"),
@@ -320,12 +379,12 @@ async def test_read_api_hides_reports_and_rejects_a_bad_cursor(
                 assert record is not None
                 record.report = {"title": "broken"}
         statements.clear()
-        listed = await history.list_runs(20, None)
+        listed = await history.list_runs(20, None, owner_id=QUARANTINE_USER_ID)
         assert listed.items[0].run_id == run_id
         assert all("research_reports" not in statement for statement in statements)
         assert all("checkpoint" not in statement.lower() for statement in statements)
         with pytest.raises(ResearchError) as corrupt:
-            await history.get_run(run_id)
+            await history.get_run(run_id, owner_id=QUARANTINE_USER_ID)
         assert corrupt.value.code == "invalid_state"
         detail_sql = [item for item in statements if "research_reports" in item]
         assert detail_sql

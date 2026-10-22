@@ -51,6 +51,18 @@ async function readJson(response: Response): Promise<unknown> {
   }
 }
 
+export async function createResearchScope(fetchImpl: FetchLike = fetch): Promise<string> {
+  const response = await fetchImpl("/api/v1/research/scopes", {
+    method: "POST",
+    headers: csrfHeaders(),
+  });
+  const body = await readJson(response);
+  if (!isRecord(body) || !isString(body.research_id)) {
+    throw new ApiError("request_failed", "The request could not be completed.", response.status);
+  }
+  return body.research_id;
+}
+
 export async function listRuns(
   limit = 20,
   cursor?: string,

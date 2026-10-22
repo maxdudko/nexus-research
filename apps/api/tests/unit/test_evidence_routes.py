@@ -4,7 +4,7 @@ import uuid
 from collections.abc import AsyncIterator
 
 import pytest
-from tests.conftest import client_for, make_settings
+from tests.conftest import client_for, make_settings, signed_in
 
 from nexus.ai.errors import provider_timeout, provider_unavailable
 from nexus.api.v1.evidence import get_ingestion, get_retrieval
@@ -13,6 +13,8 @@ from nexus.main import create_app
 from nexus.retrieval.vector_store import EvidenceMatch
 
 RESEARCH_ID = uuid.UUID("a8c11b5e-fd31-4c24-9d80-132b317fa7f5")
+
+pytestmark = pytest.mark.usefixtures("stub_scopes")
 
 
 class FakeIngestion:
@@ -28,7 +30,10 @@ class FakeIngestion:
         research_id: uuid.UUID,
         data: bytes,
         display_name: str | None,
+        *,
+        owner_id: uuid.UUID,
     ) -> IngestionResult:
+        del owner_id
         self.pdf = (research_id, data, display_name)
         return IngestionResult(
             source_id=uuid.UUID("11111111-1111-4111-8111-111111111111"),
@@ -38,7 +43,14 @@ class FakeIngestion:
             deduplicated=False,
         )
 
-    async def ingest_web(self, research_id: uuid.UUID, url: str) -> IngestionResult:
+    async def ingest_web(
+        self,
+        research_id: uuid.UUID,
+        url: str,
+        *,
+        owner_id: uuid.UUID,
+    ) -> IngestionResult:
+        del owner_id
         self.web = (research_id, url)
         return IngestionResult(
             source_id=uuid.UUID("22222222-2222-4222-8222-222222222222"),
@@ -50,7 +62,7 @@ class FakeIngestion:
 
 
 async def test_pdf_route_returns_the_ingestion_contract() -> None:
-    app = create_app(make_settings())
+    app = signed_in(create_app(make_settings()))
     fake = FakeIngestion()
 
     async def override() -> AsyncIterator[FakeIngestion]:
@@ -78,7 +90,7 @@ async def test_pdf_route_returns_the_ingestion_contract() -> None:
 
 
 async def test_unsafe_web_url_is_rejected_before_indexing() -> None:
-    app = create_app(make_settings())
+    app = signed_in(create_app(make_settings()))
     async with client_for(app) as client:
         response = await client.post(
             "/api/v1/evidence/web",
@@ -105,7 +117,10 @@ class FakeRetrieval:
         research_id: uuid.UUID,
         query: str,
         top_k: int,
+        *,
+        owner_id: uuid.UUID,
     ) -> list[EvidenceMatch]:
+        del owner_id
         self.calls.append((research_id, query, top_k))
         if self.error is not None:
             raise self.error
@@ -126,7 +141,7 @@ class FakeRetrieval:
 
 
 async def test_search_route_returns_evidence_without_an_answer() -> None:
-    app = create_app(make_settings())
+    app = signed_in(create_app(make_settings()))
     fake = FakeRetrieval()
 
     async def override() -> AsyncIterator[FakeRetrieval]:
@@ -187,7 +202,7 @@ async def test_search_route_returns_evidence_without_an_answer() -> None:
 async def test_search_validation_names_the_field_only(
     payload: dict[str, object],
 ) -> None:
-    app = create_app(make_settings())
+    app = signed_in(create_app(make_settings()))
     async with client_for(app) as client:
         response = await client.post("/api/v1/evidence/search", json=payload)
     assert response.status_code == 422
@@ -203,7 +218,7 @@ async def test_search_provider_errors_use_the_envelope(
     error: Exception,
     status: int,
 ) -> None:
-    app = create_app(make_settings())
+    app = signed_in(create_app(make_settings()))
 
     async def override() -> AsyncIterator[FakeRetrieval]:
         yield FakeRetrieval(error=error)

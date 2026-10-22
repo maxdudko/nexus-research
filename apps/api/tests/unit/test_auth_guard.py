@@ -60,7 +60,8 @@ async def test_session_cookie_without_csrf_does_not_reach_plan() -> None:
             "/api/v1/research/plan",
             json={"question": "short"},
         )
-    assert anonymous.status_code == 422
+    assert anonymous.status_code == 401
+    assert anonymous.json()["error"]["code"] == "unauthenticated"
 
 
 @pytest.mark.parametrize("role,status_code", [("user", 403), ("admin", 200)])

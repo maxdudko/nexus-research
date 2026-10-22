@@ -37,7 +37,12 @@ async def retrieve_node(
     found: list[EvidenceState] = []
     for query in batch:
         try:
-            matches = await runtime.context.retrieval.search(research_id, query, top_k)
+            matches = await runtime.context.retrieval.search(
+                research_id,
+                query,
+                top_k,
+                owner_id=runtime.context.owner_user_id,
+            )
         except asyncio.CancelledError:
             raise
         except ResearchError as exc:

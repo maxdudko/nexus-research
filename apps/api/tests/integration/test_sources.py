@@ -7,6 +7,7 @@ import pytest
 from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from tests.integration.conftest import run_alembic
+from tests.integration.scopes import quarantine_scopes
 
 from nexus.infrastructure.database import create_db_engine, session_factory
 from nexus.models.source import Source, SourceStatus, SourceType
@@ -70,6 +71,7 @@ async def test_claims_are_scoped_by_research_and_roll_back(
     factory = session_factory(engine)
     first_research = uuid.uuid4()
     second_research = uuid.uuid4()
+    await quarantine_scopes(factory, first_research, second_research)
     try:
         async with factory() as session:
             with pytest.raises(RuntimeError, match="boom"):
@@ -128,6 +130,7 @@ async def test_same_pdf_is_deduplicated_and_a_new_hash_is_another_source(
     engine = create_db_engine(test_database_url)
     factory = session_factory(engine)
     research_id = uuid.uuid4()
+    await quarantine_scopes(factory, research_id)
     try:
         async with factory() as session:
             async with session.begin():
@@ -175,6 +178,7 @@ async def test_web_content_change_keeps_the_row_and_the_last_good_hash(
     engine = create_db_engine(test_database_url)
     factory = session_factory(engine)
     research_id = uuid.uuid4()
+    await quarantine_scopes(factory, research_id)
     try:
         async with factory() as session:
             async with session.begin():
@@ -227,6 +231,7 @@ async def test_failed_retry_and_unchanged_refresh(test_database_url: str) -> Non
     engine = create_db_engine(test_database_url)
     factory = session_factory(engine)
     research_id = uuid.uuid4()
+    await quarantine_scopes(factory, research_id)
     try:
         async with factory() as session:
             async with session.begin():
@@ -288,6 +293,7 @@ async def test_replaced_token_cannot_finish(test_database_url: str) -> None:
     engine = create_db_engine(test_database_url)
     factory = session_factory(engine)
     research_id = uuid.uuid4()
+    await quarantine_scopes(factory, research_id)
     try:
         async with factory() as session:
             async with session.begin():
@@ -334,6 +340,7 @@ async def test_direct_duplicate_pdf_identity_is_rejected(
     engine = create_db_engine(test_database_url)
     factory = session_factory(engine)
     research_id = uuid.uuid4()
+    await quarantine_scopes(factory, research_id)
     try:
         async with factory() as session:
             session.add(
@@ -368,6 +375,7 @@ async def test_concurrent_claims_leave_one_row(test_database_url: str) -> None:
     engine = create_db_engine(test_database_url)
     factory = session_factory(engine)
     research_id = uuid.uuid4()
+    await quarantine_scopes(factory, research_id)
 
     async def claim_once() -> uuid.UUID:
         async with factory() as session:

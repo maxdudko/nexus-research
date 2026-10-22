@@ -6,6 +6,7 @@ import pytest
 from langgraph.checkpoint.memory import InMemorySaver
 from tests.conftest import make_settings
 from tests.integration.conftest import require_local_qdrant
+from tests.integration.scopes import quarantine_scopes
 from tests.integration.test_ingestion import (
     APPLICATION_COLLECTION,
     ARTICLE,
@@ -31,6 +32,7 @@ from nexus.core.config import Settings, get_settings
 from nexus.infrastructure.database import create_db_engine, session_factory
 from nexus.ingestion.service import IngestionResult, IngestionService
 from nexus.ingestion.transport import FetchedPage
+from nexus.models.user import QUARANTINE_USER_ID
 from nexus.research.budgets import limits_from_settings
 from nexus.research.graph import GraphContext, build_graph
 from nexus.research.nodes.synthesis import StaticSynthesizer
@@ -97,6 +99,7 @@ async def test_duplicate_ingest_stays_one_source_and_foreign_text_is_not_cited(
     )
     research_id = uuid.uuid4()
     other_id = uuid.uuid4()
+    await quarantine_scopes(factory, research_id, other_id)
     document = _pdf(
         [
             "First page explains the indexing token.",
@@ -105,11 +108,21 @@ async def test_duplicate_ingest_stays_one_source_and_foreign_text_is_not_cited(
     )
     foreign = _pdf([FOREIGN])
     try:
-        first_page = await service.ingest_web(research_id, page_url)
-        second_page = await service.ingest_web(research_id, page_url)
-        first_pdf = await service.ingest_pdf(research_id, document, "notes.pdf")
-        second_pdf = await service.ingest_pdf(research_id, document, "notes.pdf")
-        await service.ingest_pdf(other_id, foreign, "other.pdf")
+        first_page = await service.ingest_web(
+            research_id, page_url, owner_id=QUARANTINE_USER_ID
+        )
+        second_page = await service.ingest_web(
+            research_id, page_url, owner_id=QUARANTINE_USER_ID
+        )
+        first_pdf = await service.ingest_pdf(
+            research_id, document, "notes.pdf", owner_id=QUARANTINE_USER_ID
+        )
+        second_pdf = await service.ingest_pdf(
+            research_id, document, "notes.pdf", owner_id=QUARANTINE_USER_ID
+        )
+        await service.ingest_pdf(
+            other_id, foreign, "other.pdf", owner_id=QUARANTINE_USER_ID
+        )
         assert second_page.deduplicated is True
         assert second_page.source_id == first_page.source_id
         assert second_pdf.deduplicated is True
@@ -124,6 +137,7 @@ async def test_duplicate_ingest_stays_one_source_and_foreign_text_is_not_cited(
             synthesizer=StaticSynthesizer(),
             limits=limits_from_settings(make_settings()),
             clock=lambda: NOW,
+            owner_user_id=QUARANTINE_USER_ID,
         )
         runner = ResearchRunner(graph=build_graph(InMemorySaver()), context=context)
         result = await runner.run(QUESTION, research_id)
@@ -148,8 +162,14 @@ class _RecordingIngestion(IngestionService):
         super().__init__(*args, **kwargs)  # type: ignore[arg-type]
         self.results: list[IngestionResult] = []
 
-    async def ingest_web(self, research_id: uuid.UUID, url: str) -> IngestionResult:
-        result = await super().ingest_web(research_id, url)
+    async def ingest_web(
+        self,
+        research_id: uuid.UUID,
+        url: str,
+        *,
+        owner_id: uuid.UUID,
+    ) -> IngestionResult:
+        result = await super().ingest_web(research_id, url, owner_id=owner_id)
         self.results.append(result)
         return result
 
@@ -195,10 +215,13 @@ async def test_a_second_graph_run_refetches_and_keeps_one_source(
         synthesizer=StaticSynthesizer(),
         limits=limits_from_settings(make_settings()),
         clock=lambda: NOW,
+        owner_user_id=QUARANTINE_USER_ID,
     )
     runner = ResearchRunner(graph=build_graph(InMemorySaver()), context=context)
+    research_id = uuid.uuid4()
+    await quarantine_scopes(factory, research_id)
     try:
-        first = await runner.run(QUESTION, None)
+        first = await runner.run(QUESTION, research_id)
         second = await runner.run(QUESTION, first.research_id)
     finally:
         await engine.dispose()

@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 import sys
+import uuid
 from datetime import UTC, datetime
 from typing import TextIO
 
@@ -10,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from nexus.core.config import Settings, get_settings
 from nexus.identity.errors import IdentityError
+from nexus.identity.scopes import adopt_scope
 from nexus.identity.store import (
     any_admin,
     bootstrap_admin,
@@ -28,6 +30,9 @@ _MESSAGES = {
     "not_found": "No account was found for that email.",
     "quarantine": "That account cannot be changed.",
     "invalid_role": "The account role is not supported.",
+    "invalid_scope": "Enter a research scope id.",
+    "scope_not_found": "No research scope was found.",
+    "not_quarantined": "That scope cannot be adopted.",
 }
 
 
@@ -70,6 +75,9 @@ def _parser() -> argparse.ArgumentParser:
     disable.add_argument("email")
     reset = sub.add_parser("reset-password")
     reset.add_argument("email")
+    adopt = sub.add_parser("adopt-scope")
+    adopt.add_argument("research_id")
+    adopt.add_argument("email")
     return parser
 
 
@@ -114,6 +122,16 @@ async def _command(
         if account is None or account.status == "quarantine":
             raise IdentityError("not_found" if account is None else "quarantine")
         await set_password(factory, account.id, _password(stdin), now, audit=True)
+        return 0
+    if args.command == "adopt-scope":
+        try:
+            research_id = uuid.UUID(args.research_id)
+        except ValueError:
+            raise IdentityError("invalid_scope") from None
+        account = await get_user_by_email(factory, args.email)
+        if account is None or account.status == "quarantine":
+            raise IdentityError("not_found" if account is None else "quarantine")
+        await adopt_scope(factory, research_id, account.id, now)
         return 0
     print("The account command is not supported.", file=stderr)
     return 1

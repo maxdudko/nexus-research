@@ -42,7 +42,11 @@ async def ingest_node(
     warnings = list(state["warnings"])
     for url in urls:
         try:
-            result = await runtime.context.ingestion.ingest_web(research_id, url)
+            result = await runtime.context.ingestion.ingest_web(
+                research_id,
+                url,
+                owner_id=runtime.context.owner_user_id,
+            )
         except asyncio.CancelledError:
             raise
         except ResearchError:

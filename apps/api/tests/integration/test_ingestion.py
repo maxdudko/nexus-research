@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 from tests.conftest import make_settings
 from tests.integration.conftest import require_local_qdrant, run_alembic
+from tests.integration.scopes import quarantine_scopes
 
 from nexus.ai.errors import ResearchError, provider_unavailable
 from nexus.core.config import Settings, get_settings
@@ -17,6 +18,7 @@ from nexus.infrastructure.database import create_db_engine, session_factory
 from nexus.ingestion.service import IngestionService
 from nexus.ingestion.transport import FetchedPage
 from nexus.models.source import Source, SourceStatus
+from nexus.models.user import QUARANTINE_USER_ID
 from nexus.retrieval.vector_store import (
     EvidenceVectorStore,
     create_qdrant_client,
@@ -95,6 +97,7 @@ async def test_pdf_ingestion_is_idempotent_and_keeps_page_numbers(
     factory = session_factory(engine)
     service = IngestionService(factory, store, DeterministicEmbedder(), settings)
     research_id = uuid.uuid4()
+    await quarantine_scopes(factory, research_id)
     data = _pdf(
         [
             "First page explains the indexing token.",
@@ -102,8 +105,12 @@ async def test_pdf_ingestion_is_idempotent_and_keeps_page_numbers(
         ],
     )
     try:
-        first = await service.ingest_pdf(research_id, data, "notes.pdf")
-        second = await service.ingest_pdf(research_id, data, "notes.pdf")
+        first = await service.ingest_pdf(
+            research_id, data, "notes.pdf", owner_id=QUARANTINE_USER_ID
+        )
+        second = await service.ingest_pdf(
+            research_id, data, "notes.pdf", owner_id=QUARANTINE_USER_ID
+        )
         async with factory() as session:
             source = await session.get(Source, first.source_id)
         assert source is not None
@@ -147,6 +154,7 @@ async def test_failed_upsert_retries_and_web_replacement_hides_the_old_digest(
     engine = create_db_engine(test_database_url)
     factory = session_factory(engine)
     research_id = uuid.uuid4()
+    await quarantine_scopes(factory, research_id)
     bodies = {
         "first": "The original article describes the first accepted digest.",
         "second": "The replacement article describes the newer accepted digest.",
@@ -176,7 +184,11 @@ async def test_failed_upsert_retries_and_web_replacement_hides_the_old_digest(
     store.upsert = fail_upsert  # type: ignore[method-assign]
     try:
         with pytest.raises(ResearchError) as exc_info:
-            await service.ingest_web(research_id, "https://example.org/article")
+            await service.ingest_web(
+                research_id,
+                "https://example.org/article",
+                owner_id=QUARANTINE_USER_ID,
+            )
         assert exc_info.value.code == "provider_unavailable"
         async with factory() as session:
             found = await session.scalars(
@@ -186,9 +198,17 @@ async def test_failed_upsert_retries_and_web_replacement_hides_the_old_digest(
         assert source.status is SourceStatus.FAILED
         assert source.content_hash is None
         store.upsert = original_upsert  # type: ignore[method-assign]
-        indexed = await service.ingest_web(research_id, "https://example.org/article")
+        indexed = await service.ingest_web(
+            research_id,
+            "https://example.org/article",
+            owner_id=QUARANTINE_USER_ID,
+        )
         current = "second"
-        replaced = await service.ingest_web(research_id, "https://example.org/article")
+        replaced = await service.ingest_web(
+            research_id,
+            "https://example.org/article",
+            owner_id=QUARANTINE_USER_ID,
+        )
         async with factory() as session:
             source = await session.get(Source, indexed.source_id)
         assert source is not None
@@ -228,6 +248,7 @@ async def test_publish_failure_keeps_the_previous_accepted_points(
     engine = create_db_engine(test_database_url)
     factory = session_factory(engine)
     research_id = uuid.uuid4()
+    await quarantine_scopes(factory, research_id)
     original = "The original article describes the first accepted digest."
     replacement = "The replacement article describes the newer accepted digest."
     bodies = {"text": original}
@@ -275,7 +296,11 @@ async def test_publish_failure_keeps_the_previous_accepted_points(
     store.delete_other_claims = delete_other_claims  # type: ignore[method-assign]
     store.delete_claim = delete_claim  # type: ignore[method-assign]
     try:
-        indexed = await service.ingest_web(research_id, "https://example.org/article")
+        indexed = await service.ingest_web(
+            research_id,
+            "https://example.org/article",
+            owner_id=QUARANTINE_USER_ID,
+        )
         async with factory() as session:
             source = await session.get(Source, indexed.source_id)
         assert source is not None
@@ -300,7 +325,11 @@ async def test_publish_failure_keeps_the_previous_accepted_points(
         )
         bodies["text"] = replacement
         with pytest.raises(OperationalError):
-            await service.ingest_web(research_id, "https://example.org/article")
+            await service.ingest_web(
+                research_id,
+                "https://example.org/article",
+                owner_id=QUARANTINE_USER_ID,
+            )
         after = await store._client.retrieve(
             collection_name=settings.rag_collection,
             ids=[str(visible[0].chunk_id)],
@@ -333,6 +362,7 @@ async def test_abandon_failure_still_marks_the_row_failed(
     engine = create_db_engine(test_database_url)
     factory = session_factory(engine)
     research_id = uuid.uuid4()
+    await quarantine_scopes(factory, research_id)
     bodies = {"text": "The original article describes the first accepted digest."}
 
     async def fetch_page(url: str) -> FetchedPage:
@@ -372,10 +402,18 @@ async def test_abandon_failure_still_marks_the_row_failed(
     store.delete_claim = delete_claim  # type: ignore[method-assign]
     store.delete_other_claims = delete_other_claims  # type: ignore[method-assign]
     try:
-        indexed = await service.ingest_web(research_id, "https://example.org/article")
+        indexed = await service.ingest_web(
+            research_id,
+            "https://example.org/article",
+            owner_id=QUARANTINE_USER_ID,
+        )
         bodies["text"] = "The replacement article describes a newer digest."
         with pytest.raises(ResearchError) as exc_info:
-            await service.ingest_web(research_id, "https://example.org/article")
+            await service.ingest_web(
+                research_id,
+                "https://example.org/article",
+                owner_id=QUARANTINE_USER_ID,
+            )
         assert exc_info.value.code == "provider_unavailable"
         async with factory() as session:
             source = await session.get(Source, indexed.source_id)

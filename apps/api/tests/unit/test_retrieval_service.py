@@ -17,10 +17,13 @@ from nexus.retrieval.versions import AcceptedVersion
 
 RESEARCH_ID = uuid.UUID("a8c11b5e-fd31-4c24-9d80-132b317fa7f5")
 OTHER_RESEARCH = uuid.UUID("b8c11b5e-fd31-4c24-9d80-132b317fa7f5")
+OWNER = uuid.UUID("11111111-1111-4111-8111-111111111111")
 SOURCE_ID = uuid.UUID("11111111-1111-4111-8111-111111111111")
 OTHER_SOURCE = uuid.UUID("22222222-2222-4222-8222-222222222222")
 OLD_HASH = "ab" * 32
 NEW_HASH = "cd" * 32
+
+pytestmark = pytest.mark.usefixtures("stub_scopes")
 
 
 class Row:
@@ -178,7 +181,7 @@ async def test_top_k_keeps_the_higher_score() -> None:
         store,
     )
 
-    matches = await service.search(RESEARCH_ID, "relevant passage", 1)
+    matches = await service.search(RESEARCH_ID, "relevant passage", 1, owner_id=OWNER)
 
     assert [match.text for match in matches] == ["relevant passage"]
     assert store.calls[0][1] == 1
@@ -198,7 +201,7 @@ async def test_unknown_research_does_not_embed() -> None:
         store,
     )
 
-    assert await service.search(OTHER_RESEARCH, "anything", 5) == []
+    assert await service.search(OTHER_RESEARCH, "anything", 5, owner_id=OWNER) == []
     assert embedder.calls == []
     assert store.calls == []
 
@@ -230,7 +233,7 @@ async def test_another_research_version_is_not_requested() -> None:
         store,
     )
 
-    matches = await service.search(RESEARCH_ID, "local passage", 5)
+    matches = await service.search(RESEARCH_ID, "local passage", 5, owner_id=OWNER)
 
     versions = store.calls[0][2]
     assert versions == [AcceptedVersion(source_id=SOURCE_ID, content_hash=NEW_HASH)]
@@ -255,7 +258,7 @@ async def test_replaced_digest_is_absent_and_a_failure_keeps_the_last_text() -> 
         ],
         replaced,
     )
-    current = await service.search(RESEARCH_ID, "new sentence", 5)
+    current = await service.search(RESEARCH_ID, "new sentence", 5, owner_id=OWNER)
     assert [match.text for match in current] == ["new sentence"]
 
     failed = RecordingStore([_match(text="last good", content_hash=OLD_HASH)])
@@ -271,7 +274,7 @@ async def test_replaced_digest_is_absent_and_a_failure_keeps_the_last_text() -> 
         ],
         failed,
     )
-    kept = await service.search(RESEARCH_ID, "last good", 5)
+    kept = await service.search(RESEARCH_ID, "last good", 5, owner_id=OWNER)
     assert [match.text for match in kept] == ["last good"]
     assert kept[0].content_hash == OLD_HASH
 
@@ -290,7 +293,7 @@ async def test_missing_provenance_stays_missing() -> None:
         store,
     )
 
-    matches = await service.search(RESEARCH_ID, "kept passage", 5)
+    matches = await service.search(RESEARCH_ID, "kept passage", 5, owner_id=OWNER)
 
     assert matches[0].page_number is None
     assert matches[0].url is None
@@ -316,7 +319,7 @@ async def test_embedding_failure_does_not_search(error: Exception) -> None:
     )
 
     with pytest.raises(type(error)) as exc_info:
-        await service.search(RESEARCH_ID, "kept passage", 5)
+        await service.search(RESEARCH_ID, "kept passage", 5, owner_id=OWNER)
 
     assert exc_info.value is error
     assert store.calls == []
@@ -338,7 +341,7 @@ async def test_store_failure_propagates() -> None:
     )
 
     with pytest.raises(type(error)):
-        await service.search(RESEARCH_ID, "kept passage", 5)
+        await service.search(RESEARCH_ID, "kept passage", 5, owner_id=OWNER)
 
 
 class SequencedSession:
@@ -388,7 +391,7 @@ async def test_recheck_drops_a_digest_replaced_during_search() -> None:
     )
     service = RetrievalService(lambda: session, store, RecordingEmbedder())  # type: ignore[arg-type]
 
-    assert await service.search(RESEARCH_ID, "old sentence", 5) == []
+    assert await service.search(RESEARCH_ID, "old sentence", 5, owner_id=OWNER) == []
     assert store.calls[0][2] == [
         AcceptedVersion(source_id=SOURCE_ID, content_hash=OLD_HASH),
     ]

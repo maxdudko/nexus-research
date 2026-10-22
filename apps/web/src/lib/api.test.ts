@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { getRun, listRuns, uploadPdf } from "@/lib/api";
+import { createResearchScope, getRun, listRuns, uploadPdf } from "@/lib/api";
 import { ApiError } from "@/lib/errors";
 
 const RUN = "11111111-1111-4111-8111-111111111111";
@@ -11,6 +11,16 @@ afterEach(() => {
 });
 
 describe("api client", () => {
+  it("mints a research scope with the csrf header", async () => {
+    vi.stubGlobal("document", { cookie: "nexus_csrf=token" });
+    const fetchImpl = vi.fn(async () => Response.json({ research_id: RESEARCH }));
+    await expect(createResearchScope(fetchImpl)).resolves.toBe(RESEARCH);
+    expect(fetchImpl).toHaveBeenCalledWith("/api/v1/research/scopes", {
+      method: "POST",
+      headers: { "x-csrf-token": "token" },
+    });
+  });
+
   it("loads the first page of runs", async () => {
     const fetchImpl = vi.fn(async () =>
       Response.json({

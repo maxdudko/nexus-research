@@ -268,7 +268,7 @@ async def test_secure_cookies_expired_revoked_and_rehash(
         await engine.dispose()
 
 
-async def test_cookie_on_plan_requires_csrf_and_anonymous_plan_stays_open(
+async def test_cookie_on_plan_requires_csrf_and_anonymous_plan_is_rejected(
     test_database_url: str,
 ) -> None:
     await _upgrade(test_database_url)
@@ -303,4 +303,5 @@ async def test_cookie_on_plan_requires_csrf_and_anonymous_plan_stays_open(
         )
     assert blocked.status_code == 403
     assert reached.status_code == 422
-    assert anonymous.status_code == 422
+    assert anonymous.status_code == 401
+    assert anonymous.json()["error"]["code"] == "unauthenticated"

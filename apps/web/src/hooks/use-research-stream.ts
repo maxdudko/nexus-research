@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useReducer, useRef } from "react";
 
 import { errorFromResponse, isApiError, REQUEST_FAILED_MESSAGE } from "@/lib/errors";
-import { getRun, openResearchStream, uploadPdf } from "@/lib/api";
+import { createResearchScope, getRun, openResearchStream, uploadPdf } from "@/lib/api";
 import {
   canStart,
   createSession,
@@ -61,7 +61,13 @@ export function useResearchStream(navigate?: (href: string) => void): ResearchSt
   }, [state]);
 
   useEffect(() => {
-    dispatch({ type: "assign_id", researchId: crypto.randomUUID() });
+    let cancelled = false;
+    void createResearchScope().then((researchId) => {
+      if (!cancelled) dispatch({ type: "assign_id", researchId });
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -102,10 +108,14 @@ export function useResearchStream(navigate?: (href: string) => void): ResearchSt
   }, []);
 
   const retry = useCallback(() => {
-    generation.current += 1;
+    const token = generation.current + 1;
+    generation.current = token;
     abortRef.current?.abort();
     abortRef.current = null;
-    dispatch({ type: "retry", researchId: crypto.randomUUID() });
+    void createResearchScope().then((researchId) => {
+      if (token !== generation.current) return;
+      dispatch({ type: "retry", researchId });
+    });
   }, []);
 
   const applyFrame = useCallback((frame: SseFrame, at: number) => {

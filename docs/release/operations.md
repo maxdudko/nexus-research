@@ -81,7 +81,7 @@ Do not delete volumes to get past an init failure unless you intend to lose all 
 
 | Volume | Contents |
 |---|---|
-| `nexus-release_postgres_data` | `research_runs` and `research_reports` (history and reports), `sources` (one row per indexed PDF or page, with its digest), `alembic_version`, and the LangGraph checkpoint tables |
+| `nexus-release_postgres_data` | `users` and `auth_sessions`, `research_scopes` (one owner per research id), `research_runs` and `research_reports` (history and reports), `sources` (one row per indexed PDF or page, with its digest), `alembic_version`, and the LangGraph checkpoint tables |
 | `nexus-release_qdrant_data` | The `nexus_evidence_v1` collection: chunk vectors and passage payloads, filtered by `research_id` |
 
 `stop`, `down`, image rebuilds and host reboots keep both volumes. Only `down -v` or `docker volume rm` deletes them.
@@ -89,6 +89,8 @@ Do not delete volumes to get past an init failure unless you intend to lose all 
 The two volumes describe one evidence state. Retrieval reads the accepted digest of each source from PostgreSQL and then searches Qdrant. Back up and restore them together, from the same moment. Restoring only one of them leaves sources without passages or passages without an accepted source.
 
 Original PDF bytes are not stored anywhere. Lost PDF evidence can be rebuilt only by uploading the file again.
+
+Cold-copy both volumes before an upgrade that adds ownership. `init` only runs `alembic upgrade head`. Pre-Alpha research ids become scopes owned by the non-loginable quarantine user. They stay unreadable through the API until an operator runs `python -m nexus.identity adopt-scope RESEARCH_ID EMAIL` for a reviewed scope. That command refuses a scope that already has a real owner.
 
 ## Backups
 
@@ -155,7 +157,7 @@ To restore only the logical dump into an initialized database: `nr exec -T postg
 - `v0.1.0` is the first release. There is no earlier release stack to roll back to.
 - For later releases, rolling back the images alone (checking out the previous tag, setting the previous `NEXUS_VERSION`, `up -d --build`) works only when the database schema is still compatible with the older code. `init` runs `alembic upgrade head` for whatever code it was built from; it never downgrades.
 - If an upgrade ran a migration that the old code cannot use, the only supported rollback is to restore the backup taken before the upgrade, which discards everything written since.
-- Running `alembic downgrade` by hand is not a supported release procedure. Checkpoint tables are not covered by Alembic at all.
+- Running `alembic downgrade` by hand is not a supported release procedure. Checkpoint tables and Qdrant are not covered by Alembic. The supported rollback is still the cold backup taken before the upgrade. A downgrade of the scope revision also aborts once any scope has a real owner, and it never deletes runs, reports, or sources.
 - There is no rollback guarantee for data written by a newer version.
 
 ## Stale `running` rows

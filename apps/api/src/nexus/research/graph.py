@@ -48,7 +48,13 @@ class DiscoveryProtocol(Protocol):
 class WebIngestor(Protocol):
     """Index one public page in an existing research scope."""
 
-    async def ingest_web(self, research_id: UUID, url: str) -> IngestionResult: ...
+    async def ingest_web(
+        self,
+        research_id: UUID,
+        url: str,
+        *,
+        owner_id: UUID,
+    ) -> IngestionResult: ...
 
 
 class EvidenceSearcher(Protocol):
@@ -59,6 +65,8 @@ class EvidenceSearcher(Protocol):
         research_id: UUID,
         query: str,
         top_k: int,
+        *,
+        owner_id: UUID,
     ) -> list[EvidenceMatch]: ...
 
 
@@ -92,6 +100,7 @@ class GraphContext:
     synthesizer: ReportSynthesizer
     limits: BudgetLimits
     clock: Callable[[], datetime]
+    owner_user_id: UUID
 
 
 def build_graph(

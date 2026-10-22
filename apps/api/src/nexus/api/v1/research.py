@@ -2,9 +2,10 @@
 
 import asyncio
 import logging
+import uuid
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from typing import Annotated
-from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
@@ -16,8 +17,11 @@ from nexus.ai.errors import (
     too_many_requests,
 )
 from nexus.ai.planner import Planner
+from nexus.api.deps import CurrentUser, get_current_user
+from nexus.api.ownership import OwnedRun, read_question, resolve_run
 from nexus.api.v1.runs import get_history
 from nexus.core.config import Settings
+from nexus.identity.scopes import mint_scope
 from nexus.research.checkpoint import CheckpointRuntime, open_checkpointer
 from nexus.research.coordinator import RunCoordinator
 from nexus.research.discovery import Discovery
@@ -28,7 +32,6 @@ from nexus.schemas.research import (
     DiscoveryResult,
     ResearchPlan,
     ResearchQuestionRequest,
-    ResearchRunRequest,
     ResearchRunResponse,
 )
 
@@ -37,36 +40,47 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def get_planner(request: Request) -> Planner:
-    """Build a planner for this request. The model is created when planning."""
+def get_planner(
+    request: Request,
+    question: Annotated[ResearchQuestionRequest, Depends(read_question)],
+) -> Planner:
+    """Build a planner after the caller is authenticated."""
+    del question
     settings: Settings = request.app.state.settings
     return Planner(settings)
 
 
 @router.post("/plan", response_model=ResearchPlan)
 async def create_research_plan(
-    body: ResearchQuestionRequest,
+    question: Annotated[ResearchQuestionRequest, Depends(read_question)],
     planner: Annotated[Planner, Depends(get_planner)],
 ) -> ResearchPlan:
-    return await planner.create_plan(body.question)
+    return await planner.create_plan(question.question)
 
 
-def get_discovery(request: Request) -> Discovery:
-    """Build a discovery run for this request. Providers are created on use."""
+def get_discovery(
+    request: Request,
+    question: Annotated[ResearchQuestionRequest, Depends(read_question)],
+) -> Discovery:
+    """Build a discovery run after the caller is authenticated."""
+    del question
     settings: Settings = request.app.state.settings
     return Discovery(settings)
 
 
 @router.post("/discover", response_model=DiscoveryResult)
 async def discover_research(
-    body: ResearchQuestionRequest,
+    question: Annotated[ResearchQuestionRequest, Depends(read_question)],
     discovery: Annotated[Discovery, Depends(get_discovery)],
 ) -> DiscoveryResult:
-    return await discovery.discover(body.question)
+    return await discovery.discover(question.question)
 
 
-async def get_runner(request: Request) -> AsyncIterator[ResearchRunner]:
-    """Open the shared checkpointer on first use and close the vector client."""
+async def get_runner(
+    request: Request,
+    owned: Annotated[OwnedRun, Depends(resolve_run)],
+) -> AsyncIterator[ResearchRunner]:
+    """Open clients only after the scope belongs to the caller."""
     settings: Settings = request.app.state.settings
     runtime = await _checkpoint(request)
     store = EvidenceVectorStore(settings)
@@ -77,6 +91,7 @@ async def get_runner(request: Request) -> AsyncIterator[ResearchRunner]:
                 settings,
                 request.app.state.session_factory,
                 store,
+                owner_user_id=owned.user.id,
             ),
         )
     finally:
@@ -102,18 +117,32 @@ async def _checkpoint(request: Request) -> CheckpointRuntime:
         return opened
 
 
+@router.post("/scopes")
+async def create_research_scope(
+    request: Request,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+) -> dict[str, str]:
+    """Mint a research id for this user. The client does not supply one."""
+    research_id = await mint_scope(
+        request.app.state.session_factory,
+        current.id,
+        datetime.now(UTC),
+    )
+    return {"research_id": str(research_id)}
+
+
 @router.post("/run", response_model=ResearchRunResponse)
 async def run_research(
-    body: ResearchRunRequest,
+    owned: Annotated[OwnedRun, Depends(resolve_run)],
     runner: Annotated[ResearchRunner, Depends(get_runner)],
 ) -> ResearchRunResponse:
     """Run one question to a report. The request waits, and nothing is queued."""
-    return await runner.run(body.question, body.research_id)
+    return await runner.run(owned.question, owned.research_id)
 
 
 @router.post("/stream")
 async def stream_research(
-    body: ResearchRunRequest,
+    owned: Annotated[OwnedRun, Depends(resolve_run)],
     request: Request,
     runner: Annotated[ResearchRunner, Depends(get_runner)],
     history: Annotated[ResearchHistory, Depends(get_history)],
@@ -124,14 +153,14 @@ async def stream_research(
     held = await _acquire(semaphore)
     if not held:
         raise too_many_requests()
-    run_id = uuid4()
-    research_id = body.research_id or uuid4()
+    run_id = uuid.uuid4()
     try:
         await history.create_running(
             run_id,
-            research_id,
-            body.question,
+            owned.research_id,
+            owned.question,
             runner.clock(),
+            owner_id=owned.user.id,
         )
     except ResearchError:
         semaphore.release()
@@ -143,8 +172,8 @@ async def stream_research(
     coordinator = RunCoordinator(
         runner=runner,
         history=history,
-        question=body.question,
-        research_id=research_id,
+        question=owned.question,
+        research_id=owned.research_id,
         run_id=run_id,
         heartbeat_seconds=settings.stream_heartbeat_seconds,
         cancel_persist_seconds=settings.stream_cancel_persist_seconds,

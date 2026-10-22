@@ -2,7 +2,7 @@
 
 import pytest
 from langchain_core.messages import AIMessage
-from tests.conftest import client_for, make_settings
+from tests.conftest import client_for, make_settings, signed_in
 
 from nexus.ai.planner import Planner
 from nexus.api.v1.health import ReadyStatus, get_ready_status
@@ -13,6 +13,8 @@ from nexus.schemas.research import ResearchPlan, ResearchTask, SearchResult
 
 QUESTION = "How do AI coding agents improve software development workflows?"
 SECRET = "sk-route-secret"
+
+pytestmark = pytest.mark.usefixtures("stub_scopes")
 
 
 class FakeModel:
@@ -38,7 +40,7 @@ def _plan() -> ResearchPlan:
 
 
 async def test_plan_returns_the_contract_and_live_stays_ok() -> None:
-    app = create_app(make_settings(openai_api_key=SECRET))
+    app = signed_in(create_app(make_settings(openai_api_key=SECRET)))
     app.dependency_overrides[get_planner] = lambda: Planner(
         app.state.settings,
         model=FakeModel(_plan()),
@@ -77,7 +79,7 @@ async def test_invalid_question_does_not_echo_the_body(
     path: str,
     payload: object,
 ) -> None:
-    app = create_app(make_settings())
+    app = signed_in(create_app(make_settings()))
 
     async with client_for(app) as client:
         response = await client.post(path, json=payload)
@@ -91,7 +93,7 @@ async def test_invalid_question_does_not_echo_the_body(
 
 
 async def test_invalid_json_does_not_echo_the_body() -> None:
-    app = create_app(make_settings())
+    app = signed_in(create_app(make_settings()))
     secret = "sk-echoed"
 
     async with client_for(app) as client:
@@ -113,7 +115,7 @@ async def test_invalid_json_does_not_echo_the_body() -> None:
 
 
 async def test_invalid_question_is_422_and_does_not_echo_the_body() -> None:
-    app = create_app(make_settings())
+    app = signed_in(create_app(make_settings()))
     question = "  sk-echoed  "
 
     async with client_for(app) as client:
@@ -131,7 +133,7 @@ async def test_invalid_question_is_422_and_does_not_echo_the_body() -> None:
 
 
 async def test_missing_key_is_503_and_live_stays_ok() -> None:
-    app = create_app(make_settings(openai_api_key=None))
+    app = signed_in(create_app(make_settings(openai_api_key=None)))
 
     async with client_for(app) as client:
         response = await client.post(
@@ -153,7 +155,7 @@ async def test_missing_key_is_503_and_live_stays_ok() -> None:
 
 
 async def test_provider_failure_does_not_leak_the_secret() -> None:
-    app = create_app(make_settings(openai_api_key=SECRET))
+    app = signed_in(create_app(make_settings(openai_api_key=SECRET)))
     app.dependency_overrides[get_planner] = lambda: Planner(
         app.state.settings,
         model=FakeModel(RuntimeError(f"{SECRET} planner prompt")),
@@ -208,7 +210,9 @@ class _RouteModel:
 
 
 async def test_discover_returns_the_contract_and_live_stays_ok() -> None:
-    app = create_app(make_settings(openai_api_key=SECRET, tavily_api_key="tvly-test"))
+    app = signed_in(
+        create_app(make_settings(openai_api_key=SECRET, tavily_api_key="tvly-test"))
+    )
     app.dependency_overrides[get_discovery] = lambda: Discovery(
         app.state.settings,
         model=_RouteModel(),
@@ -242,7 +246,9 @@ async def test_discover_returns_the_contract_and_live_stays_ok() -> None:
 
 
 async def test_discover_without_tavily_key_is_503_and_live_stays_ok() -> None:
-    app = create_app(make_settings(openai_api_key=SECRET, tavily_api_key=None))
+    app = signed_in(
+        create_app(make_settings(openai_api_key=SECRET, tavily_api_key=None))
+    )
 
     async with client_for(app) as client:
         response = await client.post(
@@ -258,7 +264,9 @@ async def test_discover_without_tavily_key_is_503_and_live_stays_ok() -> None:
 
 
 async def test_discover_without_openai_key_is_503_and_ready_stays_ok() -> None:
-    app = create_app(make_settings(openai_api_key=None, tavily_api_key="tvly-test"))
+    app = signed_in(
+        create_app(make_settings(openai_api_key=None, tavily_api_key="tvly-test"))
+    )
 
     async def ready_override() -> ReadyStatus:
         return ReadyStatus(status="ok", postgres="ok", qdrant="ok")

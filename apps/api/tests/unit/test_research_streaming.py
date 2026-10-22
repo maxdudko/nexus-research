@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from langgraph.checkpoint.memory import InMemorySaver
-from tests.conftest import client_for, make_settings
+from tests.conftest import client_for, make_settings, signed_in
 from tests.unit.graph_support import (
     QUESTION,
     FakeDiscovery,
@@ -35,6 +35,8 @@ from nexus.research.runner import ResearchRunner
 from nexus.schemas.report import GraphUsage, ResearchReport
 from nexus.schemas.research import ResearchPlan
 
+pytestmark = pytest.mark.usefixtures("stub_scopes")
+
 
 class MemoryHistory:
     """In-memory domain rows for stream tests."""
@@ -54,7 +56,10 @@ class MemoryHistory:
         research_id: UUID,
         question: str,
         now: datetime,
+        *,
+        owner_id: UUID | None = None,
     ) -> None:
+        del owner_id
         if self.fail_create:
             self.fail_create = False
             raise RuntimeError("database unavailable")
@@ -250,7 +255,7 @@ def _install(
     history: MemoryHistory,
     **settings: object,
 ):
-    app = create_app(make_settings(**settings))
+    app = signed_in(create_app(make_settings(**settings)))
 
     async def override_runner() -> ResearchRunner:
         return runner
