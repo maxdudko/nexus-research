@@ -2,10 +2,10 @@
 
 **Project:** Nexus Research  
 **Target:** Alpha `v0.2.0` — Phase 8  
-**Status:** Proposed — requires architecture/security review before implementation  
+**Status:** Accepted — Gate 0 approved 2026-10-22; implementation not started  
 **Date:** 2026-10-22  
-**Baseline:** `development` at `7f25fa0e07c1705d6ad77da23f984df80dd3721b`  
-**Related:** [`docs/specs/alpha-v0.2.0-vision.md`](../alpha-v0.2.0-vision.md), [`docs/roadmap.md`](../../roadmap.md), [`ADR-008`](../../adr/ADR-008.md), [`plan.md`](plan.md)
+**Baseline:** `development` at `7f25fa0e07c1705d6ad77da23f984df80dd3721b` (verified unchanged at `05ce011` except these Phase 8 documents)  
+**Related:** [`docs/specs/alpha-v0.2.0-vision.md`](../alpha-v0.2.0-vision.md), [`docs/roadmap.md`](../../roadmap.md), [`ADR-008`](../../adr/ADR-008.md), [`plan.md`](plan.md), [`gate-0.md`](gate-0.md)
 
 ## 1. Objective
 
@@ -188,14 +188,16 @@ Public registration, OAuth/social login, enterprise SSO, organization/workspace 
 6. Security, unit, integration, regression, migration and packaged smoke tests pass; no live paid provider calls are required in CI.
 7. A private two-user demo and focused security review are recorded; documentation states remaining public-deployment limitations.
 
-## 11. Open decisions to resolve before Build
+## 11. Decisions resolved at Gate 0
 
-1. Accept or reject ADR-008's proposed local Argon2id + opaque PostgreSQL session approach versus managed identity.
-2. Accept the `ResearchScope` ownership model and explicit `POST /research/scopes` API, or document a safer alternative.
-3. Approve the legacy quarantine/adoption migration and operator bootstrap workflow.
-4. Specify session expiry, cookie names/path, CSRF mechanism and proxy forwarding semantics for dev and private release environments.
-5. Specify rate/concurrency enforcement for all billable endpoints and the actual API process topology.
-6. Decide what happens to an active SSE stream when its user/session is disabled or revoked.
-7. Confirm whether Phase 8 includes minimal login UI or only API/proxy functionality; Phase 9 owns the redesigned experience, but Phase 8 needs a usable authentication test path.
+Reviewed against the implementation baseline and recorded in [`gate-0.md`](gate-0.md). Normative parameters are in accepted [`ADR-008`](../../adr/ADR-008.md).
 
-**No implementation should start until decisions 1–5 are explicitly reviewed.**
+1. **Accepted:** local Argon2id passwords and opaque, revocable PostgreSQL sessions. Managed identity is deferred until a public-exposure review.
+2. **Accepted:** `ResearchScope` plus `POST /api/v1/research/scopes`. The server mints ids. PDF upload requires an existing owned scope.
+3. **Accepted:** quarantine user `00000000-0000-4000-8000-000000000001` and explicit `adopt-scope`. No implicit assignment to the first admin.
+4. **Accepted:** `nexus_session` and `nexus_csrf`, `Path=/`, no `Domain`, `SameSite=Lax`, Origin allowlist plus double-submit CSRF, and the proxy cookie allowlist. Production `Secure` cookies, with an explicit HTTP loopback exception for the private release stack.
+5. **Accepted:** one uvicorn process. Process-local login throttle and per-user billable quotas share that process with `NEXUS_STREAM_MAX_CONCURRENT`. Multiple API processes are unsupported.
+6. **Accepted:** a stream whose session is revoked or whose user is disabled cancels through the existing `interrupted` path at the next heartbeat or pre-provider check. The residual window is bounded by the graph deadline.
+7. **Accepted:** a minimal `/login` page, `me` strip, and logout are in Phase 8. The redesigned shell remains Phase 9.
+
+Implementation starts at plan Step 1. Gates A–C are still open.

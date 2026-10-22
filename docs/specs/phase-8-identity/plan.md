@@ -2,9 +2,9 @@
 
 **Project:** Nexus Research  
 **Target:** Alpha `v0.2.0` — Phase 8  
-**Status:** Proposed — do not start Build until specification and ADR are reviewed  
+**Status:** Gate 0 approved 2026-10-22 — Step 1 may start; Gates A–C are open  
 **Date:** 2026-10-22  
-**References:** [`spec.md`](spec.md), [`ADR-008`](../../adr/ADR-008.md), [`Alpha vision`](../alpha-v0.2.0-vision.md), [`docs/roadmap.md`](../../roadmap.md)
+**References:** [`spec.md`](spec.md), [`ADR-008`](../../adr/ADR-008.md), [`gate-0.md`](gate-0.md), [`Alpha vision`](../alpha-v0.2.0-vision.md), [`docs/roadmap.md`](../../roadmap.md)
 
 ## Execution model
 
@@ -44,7 +44,7 @@ flowchart TD
 5. Specify login throttling, per-user research quotas, process count and handling of active streams after revocation.
 6. Record decisions, threat model, rollback/recovery procedure and measurable acceptance cases. Change ADR status to Accepted only after review.
 
-**Gate 0:** no unresolved security-critical decisions. The Phase 8 API/auth/migration contract is reviewed. No code changes are needed to pass this gate.
+**Gate 0 — passed 2026-10-22:** no unresolved security-critical decisions. The API, auth, CSRF, quota, and migration contract is accepted in ADR-008 and recorded in [`gate-0.md`](gate-0.md). No application code changed.
 
 ## Group A — Identity & Sessions
 
@@ -152,7 +152,7 @@ flowchart TD
 
 ## Recommended review checklist
 
-- [ ] ADR-008 accepted; exact auth, CSRF, ownership and migration contracts recorded.
+- [x] ADR-008 accepted; exact auth, CSRF, ownership and migration contracts recorded (Gate 0, 2026-10-22).
 - [ ] No anonymous billable API access; no credential or cookie leaks.
 - [ ] Session expiry/revocation, disabled users, CSRF and admin role tested.
 - [ ] PostgreSQL queries are owner-filtered before pagination and report loading.
