@@ -1,5 +1,6 @@
 """Shared test helpers."""
 
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -8,6 +9,14 @@ from fastapi import FastAPI
 from httpx import ASGITransport
 
 from nexus.core.config import Settings
+
+
+def pytest_configure() -> None:
+    """Let imports of the app succeed when .env has no session pepper yet."""
+    os.environ.setdefault(
+        "NEXUS_SESSION_PEPPER",
+        "test-session-pepper-0123456789abcdef",
+    )
 
 
 def make_settings(**overrides: object) -> Settings:
@@ -19,6 +28,8 @@ def make_settings(**overrides: object) -> Settings:
         "database_url": "postgresql+asyncpg://nexus:nexus@127.0.0.1:9/unused",
         "qdrant_url": "http://127.0.0.1:6333",
         "readiness_timeout_seconds": 2.0,
+        "session_pepper": "test-session-pepper-0123456789abcdef",
+        "trusted_origins": ["http://127.0.0.1:3000", "http://localhost:3000"],
     }
     values.update(overrides)
     return Settings(_env_file=None, **values)  # type: ignore[arg-type]

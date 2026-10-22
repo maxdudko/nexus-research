@@ -175,7 +175,113 @@ describe("proxyApi", () => {
     expect(response.headers.get("authorization")).toBeNull();
     expect(response.headers.get("x-internal-host")).toBeNull();
   });
+
+  it("forwards session cookies and strips every other cookie", async () => {
+    let seenCookie = "";
+    let seenCsrf = "";
+    let seenOrigin = "";
+    server = createServer((request, response) => {
+      seenCookie = request.headers.cookie ?? "";
+      seenCsrf = String(request.headers["x-csrf-token"] ?? "");
+      seenOrigin = String(request.headers.origin ?? "");
+      response.setHeader("set-cookie", [
+        "nexus_session=sess; HttpOnly; Path=/",
+        "nexus_csrf=csrf; Path=/",
+        "other=no",
+      ]);
+      response.end("{}");
+    });
+    const port = await listen();
+
+    const response = await proxyApi(
+      new Request("http://ui.local/api/v1/auth/login", {
+        method: "POST",
+        headers: {
+          cookie: "other=no; nexus_session=sess; nexus_csrf=csrf",
+          "x-csrf-token": "csrf",
+          origin: "http://127.0.0.1:3000",
+          authorization: "Bearer leak",
+        },
+      }),
+      ["auth", "login"],
+      `http://127.0.0.1:${port}`,
+    );
+    expect(seenCookie).toBe("nexus_session=sess; nexus_csrf=csrf");
+    expect(seenCsrf).toBe("csrf");
+    expect(seenOrigin).toBe("http://127.0.0.1:3000");
+    const cookies = response.headers.getSetCookie();
+    expect(cookies).toEqual([
+      "nexus_session=sess; HttpOnly; Path=/",
+      "nexus_csrf=csrf; Path=/",
+    ]);
+  });
+
+  it("forwards a multipart body without waiting for a later chunk", async () => {
+    let seenType = "";
+    let seenBody = "";
+    server = createServer((request, response) => {
+      seenType = request.headers["content-type"] ?? "";
+      const chunks: Buffer[] = [];
+      request.on("data", (chunk: Buffer) => chunks.push(chunk));
+      request.on("end", () => {
+        seenBody = Buffer.concat(chunks).toString("utf8");
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end("{}");
+      });
+    });
+    const port = await listen();
+    const body = "--x\r\nContent-Disposition: form-data; name=\"file\"\r\n\nhello\r\n--x--\r\n";
+    const response = await proxyApi(
+      new Request("http://ui.local/api/v1/evidence/pdf", withDuplex({
+        method: "POST",
+        headers: { "content-type": "multipart/form-data; boundary=x" },
+        body,
+      })),
+      ["evidence", "pdf"],
+      `http://127.0.0.1:${port}`,
+    );
+    expect(response.status).toBe(200);
+    expect(seenType).toContain("multipart/form-data");
+    expect(seenBody).toContain("hello");
+  });
+
+  it("still yields the first SSE chunk when session cookies are present", async () => {
+    let completed = false;
+    server = createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/event-stream; charset=utf-8" });
+      response.write("event: research.started\ndata: {}\n\n");
+      setTimeout(() => {
+        completed = true;
+        response.end();
+      }, 50);
+    });
+    const port = await listen();
+    const response = await proxyApi(
+      new Request("http://ui.local/api/v1/research/stream", withDuplex({
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          cookie: "nexus_session=sess; nexus_csrf=csrf",
+          "x-csrf-token": "csrf",
+        },
+        body: JSON.stringify({ question: "How does the proxy stream results?" }),
+      })),
+      ["research", "stream"],
+      `http://127.0.0.1:${port}`,
+    );
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("missing body");
+    const first = await reader.read();
+    const text = new TextDecoder().decode(first.value);
+    expect(text).toContain("research.started");
+    expect(completed).toBe(false);
+    await reader.cancel();
+  });
 });
+
+function withDuplex(init: RequestInit): RequestInit {
+  return Object.assign(init, { duplex: "half" });
+}
 
 async function listen(): Promise<number> {
   await new Promise<void>((resolve) => {

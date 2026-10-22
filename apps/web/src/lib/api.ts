@@ -1,3 +1,4 @@
+import { csrfHeaders } from "@/lib/csrf";
 import { ApiError, errorFromResponse } from "@/lib/errors";
 import type {
   IngestionResponse,
@@ -91,6 +92,7 @@ export async function uploadPdf(
   form.set("file", file);
   const response = await fetchImpl("/api/v1/evidence/pdf", {
     method: "POST",
+    headers: csrfHeaders(),
     body: form,
     signal,
   });
@@ -118,6 +120,7 @@ export function openResearchStream(
     headers: {
       accept: "text/event-stream",
       "content-type": "application/json",
+      ...csrfHeaders(),
     },
     body: JSON.stringify(body),
     signal,

@@ -29,6 +29,7 @@ PROJECT="nexus-smoke-$$"
 ARTIFACTS="${SMOKE_ARTIFACTS:-/tmp/nexus-smoke}"
 TMP="$(mktemp -d)"
 PASSWORD="$(python3 -c 'import secrets; print(secrets.token_hex(16))')"
+PEPPER="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
 OPENAI_SENTINEL="sk-smoke-$(python3 -c 'import secrets; print(secrets.token_hex(12))')"
 TAVILY_SENTINEL="tvly-smoke-$(python3 -c 'import secrets; print(secrets.token_hex(12))')"
 PORT="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
@@ -40,6 +41,7 @@ sed -e "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$PASSWORD/" \
     -e "s/^NEXUS_OPENAI_API_KEY=.*/NEXUS_OPENAI_API_KEY=$OPENAI_SENTINEL/" \
     -e "s/^NEXUS_TAVILY_API_KEY=.*/NEXUS_TAVILY_API_KEY=$TAVILY_SENTINEL/" \
     -e "s/^NEXUS_WEB_PORT=.*/NEXUS_WEB_PORT=$PORT/" \
+    -e "s|^NEXUS_SESSION_PEPPER=.*|NEXUS_SESSION_PEPPER=$PEPPER|" \
     .env.release.example > "$ENV_FILE"
 
 RELEASE=(docker compose -p "$PROJECT" --env-file "$ENV_FILE" -f compose.release.yml)
@@ -52,6 +54,7 @@ fail() { printf 'FAIL %s\n' "$*" >&2; exit 1; }
 
 scrub() {
   sed -e "s/$PASSWORD/[password]/g" \
+      -e "s/$PEPPER/[session-pepper]/g" \
       -e "s/$OPENAI_SENTINEL/[openai-key]/g" \
       -e "s/$TAVILY_SENTINEL/[tavily-key]/g"
 }

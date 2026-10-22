@@ -195,7 +195,10 @@ jobs:
           exit 1
 
       - name: Create local env
-        run: cp .env.example .env
+        run: |
+          cp .env.example .env
+          pepper="$(openssl rand -hex 32)"
+          sed -i "s/^NEXUS_SESSION_PEPPER=.*/NEXUS_SESSION_PEPPER=${pepper}/" .env
 
       - name: Pytest (integration)
         run: uv run pytest -m "integration and not live"

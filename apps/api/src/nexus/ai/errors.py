@@ -157,6 +157,30 @@ def not_found() -> ResearchError:
     )
 
 
+def invalid_credentials() -> ResearchError:
+    return ResearchError(
+        "invalid_credentials",
+        401,
+        "The email or password is incorrect.",
+    )
+
+
+def unauthenticated() -> ResearchError:
+    return ResearchError(
+        "unauthenticated",
+        401,
+        "Authentication is required.",
+    )
+
+
+def forbidden() -> ResearchError:
+    return ResearchError(
+        "forbidden",
+        403,
+        "The request was rejected.",
+    )
+
+
 def invalid_request(field: str) -> ResearchError:
     return ResearchError("invalid_request", 422, f"{field}: invalid value")
 

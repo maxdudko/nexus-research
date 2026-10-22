@@ -84,7 +84,7 @@ async def test_research_revision_matches_the_model_and_keeps_sources(
     checked = await run_alembic(test_database_url, "check")
     assert checked.returncode == 0, checked.stdout + checked.stderr
 
-    downgraded = await run_alembic(test_database_url, "downgrade", "-1")
+    downgraded = await run_alembic(test_database_url, "downgrade", "6f509f423779")
     assert downgraded.returncode == 0, downgraded.stderr
     engine = create_db_engine(test_database_url)
     try:
