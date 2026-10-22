@@ -21,14 +21,14 @@ It checks, in order:
 1. `compose.release.yml` and the smoke override render, and `scripts/check_release_compose.py` passes.
 2. Both images run as a non-root user, contain no `.env` file and no secret-like environment variable, and the browser bundle references no server setting.
 3. `init` exits 0 after both `init -` lines, and `api` and `web` become healthy.
-4. Through Web: `/` renders HTML; live is 200; ready is 200 with both dependencies `ok`; the run history is 200. Inside the API container `/docs` and `/openapi.json` are 404. No provider request happened during startup.
+4. Through Web: `/` renders HTML; live is 200; ready is 200 with both dependencies `ok`; anonymous run history is 401 `unauthenticated`. Inside the API container `/docs` and `/openapi.json` are 404. No provider request happened during startup.
 5. Only `web` is published, on `127.0.0.1`.
 6. Rerunning `init` exits 0 and leaves `alembic_version` and `checkpoint_migrations` unchanged.
-7. A stream through Web starts with `research.started`, delivers at least three heartbeats in six seconds and reaches the model stub. Closing the client stores the run as `interrupted`.
-8. Stopping the API during a stream finishes within the grace period without a kill. Web keeps serving and returns 502 `history_unavailable`. The run is stored as `interrupted`, or left `running` with a warning (the documented stale-running case).
+7. After `init`, `bootstrap-admin` creates `smoke@example.com` inside the API container. Anonymous `POST /api/v1/research/stream` is 401 `unauthenticated` and does not reach the model stub. Login through Web sends `Origin: http://127.0.0.1:<port>`, which matches `NEXUS_TRUSTED_ORIGINS`, and the script keeps the cookie jar plus `X-CSRF-Token`. Authenticated run history is 200. An authenticated stream starts with `research.started`, delivers at least three heartbeats in six seconds, and reaches the model stub. Closing the client stores the run as `interrupted`.
+8. Stopping the API during an authenticated stream finishes within the grace period without a kill. Web keeps serving. An anonymous history request returns 502 `history_unavailable`, because the proxy fails before the API. The run is stored as `interrupted`, or left `running` with a warning (the documented stale-running case).
 9. Stopping PostgreSQL, then Qdrant, makes ready 503 while live stays 200, and ready recovers.
-10. After `down` and `up`, both runs are still in the history.
-11. No service log contains the password, either provider key or the database URL.
+10. After `down` and `up`, both runs are still in the authenticated history.
+11. No service log contains the database password, the smoke account password, either provider key, or the database URL.
 
 It does **not** show:
 
@@ -41,6 +41,15 @@ It does **not** show:
 ## Part B: manual paid-provider demo
 
 This spends real OpenAI and Tavily credit. Run it only with approved spend, on the release stack described in [`deployment.md`](deployment.md), with both keys set in `.env.release`. Keep the default budgets unless you record the change.
+
+Create the operator account once. The password is read from stdin and is not an argument:
+
+```bash
+printf '%s\n' 'a-long-password' | docker compose --env-file .env.release -f compose.release.yml exec -T api \
+  python -m nexus.identity bootstrap-admin you@example.com
+```
+
+Sign in at `http://127.0.0.1:3000/login` before the scenarios. Later curls need that session: send the `nexus_session` cookie, and on POST also `Origin: http://127.0.0.1:3000` and `X-CSRF-Token` equal to the `nexus_csrf` cookie. Anonymous research is 401.
 
 Before you start, record the commit (`git rev-parse HEAD`), the date, `NEXUS_OPENAI_MODEL` (default `gpt-4o-mini`) and any non-default tunables. Keep a second terminal on the API logs:
 

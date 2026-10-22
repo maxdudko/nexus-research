@@ -1,5 +1,7 @@
 """Shared node helpers. Nodes replace fields; they do not mutate the input."""
 
+from collections.abc import Awaitable, Callable
+
 from nexus.research.state import ResearchState, UsageSnapshot
 
 _STOPPED = {"failed", "interrupted"}
@@ -8,6 +10,22 @@ _STOPPED = {"failed", "interrupted"}
 def stopped(state: ResearchState) -> bool:
     """A failed or interrupted run must not call another provider."""
     return state["status"] in _STOPPED
+
+
+async def before_provider(
+    state: ResearchState,
+    session_active: Callable[[], Awaitable[bool]],
+) -> dict[str, object] | None:
+    """Return an update when this node must not call a provider."""
+    if stopped(state):
+        return {}
+    if await session_active():
+        return None
+    return {
+        "status": "interrupted",
+        "report": None,
+        "error_code": "interrupted",
+    }
 
 
 def warnings_with(state: ResearchState, code: str) -> list[str]:

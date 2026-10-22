@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from nexus.identity.errors import IdentityError
 from nexus.identity.passwords import hash_password, validate_password
+from nexus.identity.sessions import session_verdict
 from nexus.identity.tokens import normalize_email
 from nexus.models.user import QUARANTINE_USER_ID, AuthSession, User
 from nexus.observability.logging import log_event
@@ -253,6 +254,37 @@ async def get_session_by_hash(
             auth_session.last_used_at,
             auth_session.revoked_at,
         )
+
+
+async def session_is_active(
+    factory: async_sessionmaker[AsyncSession],
+    session_id: uuid.UUID,
+    now: datetime,
+    *,
+    idle_seconds: int,
+) -> bool:
+    """True when this session is unrevoked, inside both lifetimes, and active."""
+    async with factory() as db, db.begin():
+        row = await db.execute(
+            select(AuthSession, User)
+            .join(User, User.id == AuthSession.user_id)
+            .where(AuthSession.id == session_id)
+        )
+        found = row.one_or_none()
+    if found is None:
+        return False
+    auth_session, user = found
+    return (
+        session_verdict(
+            status=user.status,
+            expires_at=auth_session.expires_at,
+            last_used_at=auth_session.last_used_at,
+            revoked_at=auth_session.revoked_at,
+            now=now,
+            idle_seconds=idle_seconds,
+        )
+        == "ok"
+    )
 
 
 async def touch_session(

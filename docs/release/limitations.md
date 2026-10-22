@@ -1,24 +1,29 @@
 # Limitations
 
-`v0.1.0` is a single-operator MVP for a workstation or a private demo host. The limits below are deliberate scope decisions (see [ADR-007](../adr/ADR-007.md)), not bugs awaiting a patch. Identity and multi-user features are planned for Alpha `v0.2.0` in the [roadmap](../roadmap.md).
+The current private build adds login and owner-scoped research on the single-operator MVP. It is still one host, one API process, and loopback-only. These notes are not approval to deploy it on the public internet, and they do not tag `v0.2.0`. The contract is [ADR-008](../adr/ADR-008.md). Phase 8 stays open until the operator demo in [Gate C](../specs/phase-8-identity/gate-c.md) is recorded.
 
 ## Authentication and access
 
-- There is no login, session, API key or rate limit on any route. Anyone who can reach port 3000 can start research billed to the operator's OpenAI and Tavily accounts, upload PDFs, and read every stored question and report.
-- The release stack binds Web to `127.0.0.1` only. Remote access must go through an SSH tunnel, a VPN or an independently enforced authentication gate ([Private remote access](deployment.md#private-remote-access)). HTTPS alone is not access control.
-- A public, anonymous deployment is not supported.
+- Research, evidence, and history require a session. The operator CLI creates accounts. There is no self-signup and no HTTP admin API.
+- Login allows 5 failures per 15 minutes for one normalized email and 30 for the address the API sees. A full bucket returns 429 before the password hash runs. Through the web proxy that address is the web container, so the address cap is instance-wide.
+- Plan, discover, run, stream, PDF upload, web ingestion, and search share 10 requests per 60 seconds per user. Minting a scope is a separate 30 per hour. Each user can hold one `/run` and one `/stream`. The process still allows at most `NEXUS_STREAM_MAX_CONCURRENT` streams (default 2, maximum 8).
+- Those counters are process memory. A restart clears them. There is one API process and no TLS in this stack.
+- Logout or a disabled account ends a live stream at the next heartbeat. A provider call already in flight can finish. `/run` notices at the next provider node.
+- The release stack binds Web to `127.0.0.1` only. Remote access must go through an SSH tunnel, a VPN, or an independently enforced gate ([Private remote access](deployment.md#private-remote-access)). A public deployment is not supported.
 
 ## Tenant isolation
 
-- `research_id` selects which evidence a retrieval may see. Qdrant searches are filtered by it on the server, and the tests check that another research's passages are not cited. It is not an access token: any client that knows or guesses a `research_id` can search that evidence.
-- There is no `user_id`. `GET /api/v1/research/runs` lists every run on the instance, and any run can be opened by its `run_id`.
+- Every research id has one owner. History, runs, uploads, web ingestion, search, and the graph read that owner in PostgreSQL before Qdrant or a checkpoint.
+- An admin session uses the same check. Another account receives 404 and does not receive the question.
+- Qdrant searches stay filtered by `research_id`. Payloads do not carry an owner. The owner check is what keeps a guessed id from opening the vector store.
+- Rows upgraded from the MVP are owned by a quarantine user that cannot log in, until `adopt-scope` assigns a reviewed id.
 
 ## Request-scoped execution
 
 - A research run executes only while its HTTP request is open. There is no worker, queue, scheduler or background job.
 - Closing the tab, pressing Stop, a proxy timeout, an API restart or a crash ends the run. Nothing resumes it. LangGraph checkpoints are stored but never used to continue a thread.
 - A run cut off before its status write completes stays `running` permanently ([Stale `running` rows](operations.md#stale-running-rows)). There is no cleanup tool.
-- At most `NEXUS_STREAM_MAX_CONCURRENT` (default 2, maximum 8) streams run at once per API process; more get 429.
+- Each user can have one active stream. Across users, at most `NEXUS_STREAM_MAX_CONCURRENT` (default 2, maximum 8) streams run at once per API process; more get 429.
 - A run is bounded by default to 2 iterations, 6 searches, 13 logical model calls, 5 fetched pages, 12 passages and 180 seconds. Hitting a cap produces `partial` or `insufficient_evidence`, not a longer run.
 - Checkpoint rows are never deleted.
 
@@ -56,4 +61,4 @@
 - Secrets live in `.env.release`, a plain file read by Docker Compose. Values are visible to anyone who can run `docker inspect` on the host. It is not a secret manager.
 - Backups are manual cold volume copies; restoration is documented but not exercised by CI ([Backups](operations.md#backups)). There is no automated rollback, and `v0.1.0` has no earlier release to roll back to.
 - Container logs are not rotated by the stack. Tracing is off by default, and Jaeger keeps traces in memory only.
-- No public SaaS security posture: no WAF, abuse protection, audit log, data retention policy or data deletion API.
+- No public SaaS security posture: no WAF, no data retention policy, and no data deletion API. The process-local limits above are not a substitute for one.

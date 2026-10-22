@@ -305,3 +305,108 @@ async def test_cookie_on_plan_requires_csrf_and_anonymous_plan_is_rejected(
     assert reached.status_code == 422
     assert anonymous.status_code == 401
     assert anonymous.json()["error"]["code"] == "unauthenticated"
+
+
+async def test_five_bad_logins_stop_before_another_argon2(
+    test_database_url: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _upgrade(test_database_url)
+    assert (
+        await _cli(
+            test_database_url,
+            ["create-user", "limited@example.com"],
+            PASSWORD + "\n",
+        )
+        == 0
+    )
+    calls = {"n": 0}
+    real = verify_password
+
+    def spy(password: str, hashed: str) -> bool:
+        calls["n"] += 1
+        return real(password, hashed)
+
+    monkeypatch.setattr("nexus.api.v1.auth.verify_password", spy)
+    app = create_app(_settings(test_database_url))
+    async with client_for(app) as client:
+        malformed = await client.post(
+            "/api/v1/auth/login",
+            json={"email": "limited@example.com"},
+            headers=ORIGIN,
+        )
+        assert malformed.status_code == 422
+        for _ in range(5):
+            failed = await client.post(
+                "/api/v1/auth/login",
+                json={"email": "Limited@Example.com", "password": OTHER},
+                headers=ORIGIN,
+            )
+            assert failed.status_code == 401
+        blocked = await client.post(
+            "/api/v1/auth/login",
+            json={"email": "limited@example.com", "password": PASSWORD},
+            headers=ORIGIN,
+        )
+
+    assert calls["n"] == 5
+    assert blocked.status_code == 429
+    assert blocked.json()["error"]["code"] == "too_many_requests"
+    assert int(blocked.headers["retry-after"]) >= 1
+
+
+async def test_the_address_bucket_blocks_before_argon2(
+    test_database_url: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _upgrade(test_database_url)
+    assert (
+        await _cli(
+            test_database_url, ["create-user", "ip-a@example.com"], PASSWORD + "\n"
+        )
+        == 0
+    )
+    assert (
+        await _cli(test_database_url, ["create-user", "ip-b@example.com"], OTHER + "\n")
+        == 0
+    )
+    calls = {"n": 0}
+    real = verify_password
+
+    def spy(password: str, hashed: str) -> bool:
+        calls["n"] += 1
+        return real(password, hashed)
+
+    monkeypatch.setattr("nexus.api.v1.auth.verify_password", spy)
+    app = create_app(_settings(test_database_url, login_max_ip_failures=2))
+    clock = {"now": datetime.now(UTC)}
+    app.state.limiter.clock = lambda: clock["now"]
+    async with client_for(app) as client:
+        first = await client.post(
+            "/api/v1/auth/login",
+            json={"email": "ip-a@example.com", "password": OTHER},
+            headers=ORIGIN,
+        )
+        second = await client.post(
+            "/api/v1/auth/login",
+            json={"email": "ip-b@example.com", "password": PASSWORD},
+            headers=ORIGIN,
+        )
+        blocked = await client.post(
+            "/api/v1/auth/login",
+            json={"email": "ip-a@example.com", "password": PASSWORD},
+            headers=ORIGIN,
+        )
+        assert first.status_code == second.status_code == 401
+        assert blocked.status_code == 429
+        assert calls["n"] == 2
+        clock["now"] += timedelta(seconds=15 * 60)
+        allowed = await client.post(
+            "/api/v1/auth/login",
+            json={"email": "ip-a@example.com", "password": PASSWORD},
+            headers=ORIGIN,
+        )
+
+    assert allowed.status_code == 200
+    assert calls["n"] == 3
+    assert int(blocked.headers["retry-after"]) >= 1

@@ -43,8 +43,9 @@ async def read_question(
     request: Request,
 ) -> ResearchQuestionRequest:
     """Parse a question after authentication, so an anonymous caller gets 401."""
-    del current
-    return await _model(request, ResearchQuestionRequest)
+    body = await _model(request, ResearchQuestionRequest)
+    await request.app.state.limiter.charge_billable(current.id)
+    return body
 
 
 async def resolve_run(
@@ -53,8 +54,11 @@ async def resolve_run(
 ) -> OwnedRun:
     """Mint a scope or accept one this user already owns. Never insert a miss."""
     body = await _model(request, ResearchRunRequest)
+    limiter = request.app.state.limiter
+    await limiter.charge_billable(current.id)
     factory = request.app.state.session_factory
     if body.research_id is None:
+        await limiter.charge_mint(current.id)
         research_id = await mint_scope(factory, current.id, datetime.now(UTC))
     else:
         found = await owned_scope(factory, current.id, body.research_id)
@@ -74,6 +78,7 @@ async def authorize_pdf(
     upload = form.get("file")
     if not isinstance(upload, UploadFile):
         raise _invalid(("file",))
+    await request.app.state.limiter.charge_billable(current.id)
     await _require_owned(request, current, research_id)
     return OwnedEvidence(user=current, research_id=research_id, upload=upload)
 
@@ -84,6 +89,7 @@ async def authorize_web(
 ) -> OwnedEvidence:
     """Require an owned scope before a page is fetched."""
     body = await _model(request, WebIngestionRequest)
+    await request.app.state.limiter.charge_billable(current.id)
     await _require_owned(request, current, body.research_id)
     return OwnedEvidence(user=current, research_id=body.research_id, web=body)
 
@@ -94,6 +100,7 @@ async def authorize_search(
 ) -> OwnedEvidence:
     """Require an owned scope before a query is embedded."""
     body = await _model(request, SearchRequest)
+    await request.app.state.limiter.charge_billable(current.id)
     await _require_owned(request, current, body.research_id)
     return OwnedEvidence(user=current, research_id=body.research_id, search=body)
 

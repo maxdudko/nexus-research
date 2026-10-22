@@ -16,9 +16,13 @@ def register_exception_handlers(app: FastAPI) -> None:
         _request: Request,
         exc: ResearchError,
     ) -> JSONResponse:
+        headers = None
+        if exc.retry_after is not None:
+            headers = {"Retry-After": str(exc.retry_after)}
         return JSONResponse(
             status_code=exc.status_code,
             content={"error": {"code": exc.code, "message": exc.message}},
+            headers=headers,
         )
 
     @app.exception_handler(RequestValidationError)

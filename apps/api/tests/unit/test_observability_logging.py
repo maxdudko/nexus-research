@@ -120,3 +120,40 @@ def test_formatter_failure_returns_a_fixed_event(
     logging.getLogger("nexus.observability").info("hello")
 
     assert '"event":"log_failed"' in stream.getvalue()
+
+
+def test_identity_audit_and_research_lines_omit_secrets() -> None:
+    stream = io.StringIO()
+    configure_logging(make_settings(log_format="json"), stream=stream)
+    password = "correct-horse-battery-staple"
+    token = "session.token.example-value"
+    question = "Where did the amber ledger hide the spare key?"
+    excerpt = "PDF excerpt amber-ledger-page-four"
+
+    log_event(
+        "identity.audit",
+        action="login",
+        password=password,
+        token=token,
+        question=question,
+        excerpt=excerpt,
+    )
+    logging.getLogger("nexus.research").info(
+        "started %s %s %s %s",
+        password,
+        token,
+        question,
+        excerpt,
+        extra={
+            "password": password,
+            "token": token,
+            "question": question,
+            "excerpt": excerpt,
+        },
+    )
+
+    text = stream.getvalue()
+    assert '"event":"identity.audit"' in text
+    assert '"action":"login"' in text
+    for secret in (password, token, question, excerpt):
+        assert secret not in text

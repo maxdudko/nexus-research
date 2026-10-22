@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from nexus import __version__
 from nexus.api.csrf import SessionCsrfMiddleware
 from nexus.api.errors import register_exception_handlers
+from nexus.api.limits import UsageLimiter
 from nexus.api.v1.router import api_router
 from nexus.core.config import Settings, get_settings
 from nexus.identity.passwords import dummy_password_hash
@@ -51,6 +52,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         redoc_url=None,
     )
     app.state.settings = resolved
+    app.state.limiter = UsageLimiter(resolved)
     register_exception_handlers(app)
     app.add_middleware(SessionCsrfMiddleware)
     app.include_router(api_router, prefix="/api/v1")

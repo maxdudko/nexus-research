@@ -9,7 +9,7 @@ from pydantic import ValidationError
 
 from nexus.ai.errors import ResearchError
 from nexus.research.budgets import charge_evaluation, evaluation_call_allowed
-from nexus.research.nodes.common import failed, stopped, warnings_with
+from nexus.research.nodes.common import before_provider, failed, warnings_with
 from nexus.research.outcomes import EvaluationOutcome
 from nexus.research.state import CoverageState, ResearchState, UsageSnapshot
 from nexus.schemas.coverage import task_labels
@@ -53,8 +53,9 @@ async def evaluate_node(
     runtime: Runtime[GraphContext],
 ) -> dict[str, object]:
     """Record coverage advice. Routing still applies the budget policy."""
-    if stopped(state):
-        return {}
+    gate = await before_provider(state, runtime.context.session_active)
+    if gate is not None:
+        return gate
     if not state["evidence"]:
         return {"coverage": _untrusted_coverage(state, _NO_EVIDENCE)}
     limits = runtime.context.limits

@@ -8,8 +8,9 @@ from typing import cast
 from uuid import UUID, uuid4
 
 import pytest
+from fastapi import Request
 from langgraph.checkpoint.memory import InMemorySaver
-from tests.conftest import client_for, make_settings, signed_in
+from tests.conftest import PRINCIPAL, client_for, make_settings, signed_in
 from tests.unit.graph_support import (
     QUESTION,
     FakeDiscovery,
@@ -26,6 +27,7 @@ from tests.unit.graph_support import (
 )
 
 from nexus.ai.errors import provider_not_configured
+from nexus.api.deps import CurrentUser, get_current_user
 from nexus.api.v1.research import get_runner
 from nexus.api.v1.runs import get_history
 from nexus.main import create_app
@@ -161,9 +163,11 @@ class SlowPlanner:
 class BlockingPlanner:
     def __init__(self) -> None:
         self.started = asyncio.Event()
+        self.calls = 0
 
     async def create_plan(self, question: str) -> ResearchPlan:
         del question
+        self.calls += 1
         self.started.set()
         await asyncio.Event().wait()
         raise AssertionError("a cancelled planner continued")
@@ -549,6 +553,168 @@ async def test_a_second_stream_is_rejected_while_one_is_running() -> None:
     assert second.status_code == 429
     assert second.json()["error"]["code"] == "too_many_requests"
     assert len(history.rows) == 1
+
+
+class _HoldPlanner:
+    """Blocks in the first plans until the test opens the gate."""
+
+    def __init__(self, ready_at: int) -> None:
+        self.ready_at = ready_at
+        self.calls = 0
+        self.ready = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def create_plan(self, question: str) -> ResearchPlan:
+        del question
+        self.calls += 1
+        if self.calls >= self.ready_at:
+            self.ready.set()
+        await self.release.wait()
+        return plan_for(["alpha limits"])
+
+
+async def test_a_second_stream_for_one_user_does_not_take_the_semaphore() -> None:
+    planner = _HoldPlanner(ready_at=1)
+    runner, _recording = _runner(planner=planner, timeout_seconds=5)
+    app = _install(runner, MemoryHistory(), stream_max_concurrent=4)
+
+    async with client_for(app) as client:
+        first = asyncio.create_task(
+            client.post("/api/v1/research/stream", json={"question": QUESTION})
+        )
+        await planner.ready.wait()
+        held = app.state.stream_semaphore._value
+        second = await client.post(
+            "/api/v1/research/stream",
+            json={"question": QUESTION},
+        )
+        still_held = app.state.stream_semaphore._value
+        planner.release.set()
+        first_response = await first
+
+    assert held == 3
+    assert still_held == 3
+    assert second.status_code == 429
+    assert second.headers["retry-after"] == "1"
+    assert second.json()["error"]["code"] == "too_many_requests"
+    assert first_response.status_code == 200
+    assert planner.calls == 1
+
+
+async def test_two_users_can_each_hold_one_stream_under_the_process_cap() -> None:
+    bea = CurrentUser(
+        id=UUID("33333333-3333-4333-8333-333333333333"),
+        email="bea@example.com",
+        role="user",
+        session_id=UUID("44444444-4444-4444-8444-444444444444"),
+    )
+    planner = _HoldPlanner(ready_at=2)
+    runner, _recording = _runner(planner=planner, timeout_seconds=5)
+    app = _install(runner, MemoryHistory(), stream_max_concurrent=4)
+
+    async def current(request: Request) -> CurrentUser:
+        if request.headers.get("x-test-user") == "bea":
+            return bea
+        return PRINCIPAL
+
+    app.dependency_overrides[get_current_user] = current
+
+    async with client_for(app) as client:
+        first = asyncio.create_task(
+            client.post("/api/v1/research/stream", json={"question": QUESTION})
+        )
+        second = asyncio.create_task(
+            client.post(
+                "/api/v1/research/stream",
+                json={"question": QUESTION},
+                headers={"x-test-user": "bea"},
+            )
+        )
+        await planner.ready.wait()
+        held = app.state.stream_semaphore._value
+        third = await client.post(
+            "/api/v1/research/stream",
+            json={"question": QUESTION},
+        )
+        still_held = app.state.stream_semaphore._value
+        planner.release.set()
+        first_response = await first
+        second_response = await second
+
+    assert held == 2
+    assert still_held == 2
+    assert third.status_code == 429
+    assert third.headers["retry-after"] == "1"
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    assert planner.calls == 2
+
+
+async def test_the_process_cap_still_rejects_another_user() -> None:
+    bea = CurrentUser(
+        id=UUID("33333333-3333-4333-8333-333333333333"),
+        email="bea@example.com",
+        role="user",
+        session_id=UUID("44444444-4444-4444-8444-444444444444"),
+    )
+    planner = BlockingPlanner()
+    runner, _recording = _runner(planner=planner, timeout_seconds=5)
+    app = _install(runner, MemoryHistory(), stream_max_concurrent=1)
+
+    async def current(request: Request) -> CurrentUser:
+        if request.headers.get("x-test-user") == "bea":
+            return bea
+        return PRINCIPAL
+
+    app.dependency_overrides[get_current_user] = current
+
+    async with client_for(app) as client:
+        first = asyncio.create_task(
+            client.post("/api/v1/research/stream", json={"question": QUESTION})
+        )
+        await planner.started.wait()
+        second = await client.post(
+            "/api/v1/research/stream",
+            json={"question": QUESTION},
+            headers={"x-test-user": "bea"},
+        )
+        first.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await first
+
+    assert second.status_code == 429
+    assert second.json()["error"]["message"] == (
+        "Too many research runs are in progress."
+    )
+    assert "retry-after" not in second.headers
+
+
+async def test_logout_flag_interrupts_a_blocked_stream_on_the_heartbeat() -> None:
+    planner = BlockingPlanner()
+    runner, _recording = _runner(planner=planner, timeout_seconds=5)
+    alive = {"ok": True}
+
+    async def session_active() -> bool:
+        return alive["ok"]
+
+    runner.context.session_active = session_active
+    history = MemoryHistory()
+    app = _install(runner, history, stream_heartbeat_seconds=0.05)
+
+    async with client_for(app) as client:
+        task = asyncio.create_task(
+            client.post("/api/v1/research/stream", json={"question": QUESTION})
+        )
+        await planner.started.wait()
+        alive["ok"] = False
+        response = await asyncio.wait_for(task, timeout=2)
+
+    assert response.status_code == 200
+    assert "research.interrupted" in response.text
+    assert planner.calls == 1
+    row = next(iter(history.rows.values()))
+    assert row["status"] == "interrupted"
+    assert row["error_code"] == "interrupted"
 
 
 async def test_asgi_disconnect_cancels_the_graph_and_marks_interrupted() -> None:

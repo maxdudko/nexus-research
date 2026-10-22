@@ -68,6 +68,7 @@ _FORBIDDEN = frozenset(
         "password",
         "token",
         "pepper",
+        "question",
     }
 )
 _EVENTS = frozenset({"operation", "research.usage", "identity.audit"})

@@ -30,10 +30,13 @@ ARTIFACTS="${SMOKE_ARTIFACTS:-/tmp/nexus-smoke}"
 TMP="$(mktemp -d)"
 PASSWORD="$(python3 -c 'import secrets; print(secrets.token_hex(16))')"
 PEPPER="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
+SMOKE_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')"
+SMOKE_EMAIL="smoke@example.com"
 OPENAI_SENTINEL="sk-smoke-$(python3 -c 'import secrets; print(secrets.token_hex(12))')"
 TAVILY_SENTINEL="tvly-smoke-$(python3 -c 'import secrets; print(secrets.token_hex(12))')"
 PORT="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
 ENV_FILE="$TMP/smoke.env"
+JAR="$TMP/cookies.txt"
 BASE="http://127.0.0.1:$PORT"
 QUESTION='{"question":"What does the packaged smoke test verify?"}'
 
@@ -55,6 +58,7 @@ fail() { printf 'FAIL %s\n' "$*" >&2; exit 1; }
 scrub() {
   sed -e "s/$PASSWORD/[password]/g" \
       -e "s/$PEPPER/[session-pepper]/g" \
+      -e "s/$SMOKE_PASSWORD/[smoke-password]/g" \
       -e "s/$OPENAI_SENTINEL/[openai-key]/g" \
       -e "s/$TAVILY_SENTINEL/[tavily-key]/g"
 }
@@ -86,6 +90,35 @@ web() {
   local code
   code="$(curl "${args[@]}" "$BASE$path" || true)"
   printf '%s %s' "$code" "$(cat "$TMP/body" 2>/dev/null)"
+}
+
+csrf_token() {
+  awk '$6 == "nexus_csrf" { token = $7 } END { if (token == "") exit 1; print token }' "$JAR"
+}
+
+# Same as web, with the smoke session and CSRF header.
+auth() {
+  local method="$1" path="$2" body="${3:-}"
+  local token code
+  token="$(csrf_token)" || fail "smoke session has no csrf cookie"
+  local args=(-s -m 10 -o "$TMP/body" -w '%{http_code}' -X "$method" -b "$JAR" -c "$JAR")
+  args+=(-H "origin: $BASE" -H "x-csrf-token: $token")
+  [[ -n $body ]] && args+=(-H 'content-type: application/json' -d "$body")
+  code="$(curl "${args[@]}" "$BASE$path" || true)"
+  printf '%s %s' "$code" "$(cat "$TMP/body" 2>/dev/null)"
+}
+
+sse_post() {
+  local output="$1" max_time="$2"
+  local token
+  token="$(csrf_token)" || fail "smoke session has no csrf cookie"
+  curl -sN -m "$max_time" -b "$JAR" -c "$JAR" -X POST \
+    -H 'content-type: application/json' \
+    -H 'accept: text/event-stream' \
+    -H "origin: $BASE" \
+    -H "x-csrf-token: $token" \
+    -d "$QUESTION" \
+    "$BASE/api/v1/research/stream" > "$output" || true
 }
 
 # Print "STATUS BODY" for a URL fetched from inside the API container.
@@ -132,7 +165,7 @@ wait_ready() {
   done
 }
 
-run_status() { web GET "/api/v1/research/runs/$1" | cut -d' ' -f2- | json_field run.status; }
+run_status() { auth GET "/api/v1/research/runs/$1" | cut -d' ' -f2- | json_field run.status; }
 
 wait_status() {
   local run_id="$1" wanted="$2" timeout="$3" waited=0 status=""
@@ -214,8 +247,9 @@ ok "GET /api/v1/health/live is 200"
 [[ "$(web GET /api/v1/health/ready)" == '200 {"status":"ok","postgres":"ok","qdrant":"ok"}' ]] \
   || fail "ready through proxy: $(web GET /api/v1/health/ready)"
 ok "GET /api/v1/health/ready is 200 with postgres and qdrant ok"
-[[ "$(web GET /api/v1/research/runs)" == 200* ]] || fail "run history through proxy"
-ok "GET /api/v1/research/runs is 200"
+[[ "$(web GET /api/v1/research/runs)" == 401*unauthenticated* ]] \
+  || fail "anonymous run history: $(web GET /api/v1/research/runs)"
+ok "anonymous GET /api/v1/research/runs is 401"
 for path in /docs /openapi.json; do
   [[ "$(inside_api "http://127.0.0.1:8000$path")" == 404* ]] || fail "$path is served in production"
 done
@@ -255,9 +289,30 @@ ok "init rerun exits 0 and leaves schema unchanged ($after)"
 
 # --- 7. streaming and cancellation ----------------------------------------------
 
-phase "7. SSE through web and client cancellation"
-curl -sN -m 6 -X POST -H 'content-type: application/json' -H 'accept: text/event-stream' \
-  -d "$QUESTION" "$BASE/api/v1/research/stream" > "$TMP/sse-cancel.txt" || true
+phase "7. account, anonymous rejection, and authenticated SSE"
+printf '%s\n' "$SMOKE_PASSWORD" | "${C[@]}" exec -T api \
+  python -m nexus.identity bootstrap-admin "$SMOKE_EMAIL" \
+  > "$TMP/bootstrap.txt" 2>&1 \
+  || { scrub < "$TMP/bootstrap.txt" >&2; fail "bootstrap-admin"; }
+ok "bootstrap-admin created the smoke account"
+before_posts="$(stub_posts)"
+anonymous="$(web POST /api/v1/research/stream "$QUESTION")"
+[[ $anonymous == 401*unauthenticated* ]] \
+  || fail "anonymous stream: ${anonymous:0:160}"
+[[ "$(stub_posts)" == "$before_posts" ]] || fail "anonymous stream reached the model stub"
+ok "anonymous POST /api/v1/research/stream is 401 and does not reach the model"
+login_code="$(curl -s -m 10 -c "$JAR" -b "$JAR" -o "$TMP/login.json" -w '%{http_code}' \
+  -H 'content-type: application/json' \
+  -H "origin: $BASE" \
+  -d "{\"email\":\"$SMOKE_EMAIL\",\"password\":\"$SMOKE_PASSWORD\"}" \
+  "$BASE/api/v1/auth/login" || true)"
+[[ $login_code == 200 ]] || fail "login failed with HTTP $login_code"
+csrf_token > /dev/null || fail "login did not set a csrf cookie"
+ok "logged in through web"
+history="$(auth GET /api/v1/research/runs)"
+[[ $history == 200* ]] || fail "authenticated run history: ${history:0:160}"
+ok "authenticated GET /api/v1/research/runs is 200"
+sse_post "$TMP/sse-cancel.txt" 6
 [[ "$(head -n 1 "$TMP/sse-cancel.txt")" == "event: research.started" ]] \
   || fail "stream did not start with research.started"
 pings="$(grep -c '^: ping' "$TMP/sse-cancel.txt" || true)"
@@ -274,8 +329,7 @@ ok "client disconnect stored run $CANCELLED_RUN as interrupted"
 # --- 8. shutdown during a stream -----------------------------------------------
 
 phase "8. API shutdown during a stream"
-curl -sN -m 90 -X POST -H 'content-type: application/json' -H 'accept: text/event-stream' \
-  -d "$QUESTION" "$BASE/api/v1/research/stream" > "$TMP/sse-shutdown.txt" &
+sse_post "$TMP/sse-shutdown.txt" 90 &
 stream_pid=$!
 waited=0
 until grep -q '^: ping' "$TMP/sse-shutdown.txt" 2>/dev/null; do
@@ -325,7 +379,7 @@ phase "10. restart persistence"
 "${C[@]}" up -d > "$TMP/up-again.log" 2>&1 || { cat "$TMP/up-again.log"; fail "compose up after down"; }
 wait_healthy api
 wait_healthy web
-runs="$(web GET '/api/v1/research/runs?limit=50')"
+runs="$(auth GET '/api/v1/research/runs?limit=50')"
 for run_id in "$CANCELLED_RUN" "$SHUTDOWN_RUN"; do
   [[ $runs == *"$run_id"* ]] || fail "run $run_id is missing after restart"
 done
@@ -335,7 +389,7 @@ ok "run history survives down and up"
 
 phase "11. log secret scan"
 "${C[@]}" logs --no-color > "$TMP/logs-after-restart.txt" 2>&1
-for needle in "$PASSWORD" "$OPENAI_SENTINEL" "$TAVILY_SENTINEL" "postgresql+asyncpg://"; do
+for needle in "$PASSWORD" "$SMOKE_PASSWORD" "$OPENAI_SENTINEL" "$TAVILY_SENTINEL" "postgresql+asyncpg://"; do
   if grep -qF -- "$needle" "$TMP/logs-before-restart.txt" "$TMP/logs-after-restart.txt"; then
     fail "logs contain a secret or database URL"
   fi

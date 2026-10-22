@@ -13,7 +13,7 @@ from nexus.research.budgets import (
     charge_discovery,
     discovery_question,
 )
-from nexus.research.nodes.common import failed, stopped, warnings_with
+from nexus.research.nodes.common import before_provider, failed, warnings_with
 from nexus.research.state import (
     ResearchState,
     UsageSnapshot,
@@ -32,8 +32,9 @@ async def discover_node(
     runtime: Runtime[GraphContext],
 ) -> dict[str, object]:
     """Run one Discovery call when the worst-case nested budget still fits."""
-    if stopped(state):
-        return {}
+    gate = await before_provider(state, runtime.context.session_active)
+    if gate is not None:
+        return gate
     limits = runtime.context.limits
     if state["plan"] is None or not can_discover(
         state["usage"], limits, state["iteration"]

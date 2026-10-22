@@ -44,6 +44,12 @@ async def synthesize_node(
     """Write the report the route already chose. Do not invent provenance."""
     if stopped(state):
         return {"report": None}
+    if not await runtime.context.session_active():
+        return {
+            "status": "interrupted",
+            "report": None,
+            "error_code": "interrupted",
+        }
     decision = route_decision(state, runtime.context.limits, runtime.context.clock())
     if decision.route == "fail" or decision.report_status is None:
         code = state["error_code"] or "invalid_state"

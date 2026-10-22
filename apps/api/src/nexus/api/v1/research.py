@@ -92,6 +92,7 @@ async def get_runner(
                 request.app.state.session_factory,
                 store,
                 owner_user_id=owned.user.id,
+                session_id=owned.user.session_id,
             ),
         )
     finally:
@@ -123,6 +124,7 @@ async def create_research_scope(
     current: Annotated[CurrentUser, Depends(get_current_user)],
 ) -> dict[str, str]:
     """Mint a research id for this user. The client does not supply one."""
+    await request.app.state.limiter.charge_mint(current.id)
     research_id = await mint_scope(
         request.app.state.session_factory,
         current.id,
@@ -134,10 +136,15 @@ async def create_research_scope(
 @router.post("/run", response_model=ResearchRunResponse)
 async def run_research(
     owned: Annotated[OwnedRun, Depends(resolve_run)],
+    request: Request,
     runner: Annotated[ResearchRunner, Depends(get_runner)],
 ) -> ResearchRunResponse:
     """Run one question to a report. The request waits, and nothing is queued."""
-    return await runner.run(owned.question, owned.research_id)
+    await request.app.state.limiter.acquire_run(owned.user.id)
+    try:
+        return await runner.run(owned.question, owned.research_id)
+    finally:
+        await request.app.state.limiter.release_run(owned.user.id)
 
 
 @router.post("/stream")
@@ -149,26 +156,33 @@ async def stream_research(
 ) -> StreamingResponse:
     """Stream one request-scoped run. Disconnect cancels that run."""
     settings: Settings = request.app.state.settings
+    limiter = request.app.state.limiter
     semaphore: asyncio.Semaphore = request.app.state.stream_semaphore
-    held = await _acquire(semaphore)
-    if not held:
-        raise too_many_requests()
-    run_id = uuid.uuid4()
+    await limiter.acquire_stream(owned.user.id)
+    semaphore_held = False
     try:
-        await history.create_running(
-            run_id,
-            owned.research_id,
-            owned.question,
-            runner.clock(),
-            owner_id=owned.user.id,
-        )
-    except ResearchError:
-        semaphore.release()
+        semaphore_held = await _acquire(semaphore)
+        if not semaphore_held:
+            raise too_many_requests()
+        run_id = uuid.uuid4()
+        try:
+            await history.create_running(
+                run_id,
+                owned.research_id,
+                owned.question,
+                runner.clock(),
+                owner_id=owned.user.id,
+            )
+        except ResearchError:
+            raise
+        except Exception as exc:
+            logger.warning("could not store a research run: %s", type(exc).__name__)
+            raise history_unavailable() from None
+    except BaseException:
+        if semaphore_held:
+            semaphore.release()
+        await limiter.release_stream(owned.user.id)
         raise
-    except Exception as exc:
-        semaphore.release()
-        logger.warning("could not store a research run: %s", type(exc).__name__)
-        raise history_unavailable() from None
     coordinator = RunCoordinator(
         runner=runner,
         history=history,
@@ -178,6 +192,7 @@ async def stream_research(
         heartbeat_seconds=settings.stream_heartbeat_seconds,
         cancel_persist_seconds=settings.stream_cancel_persist_seconds,
         clock=runner.clock,
+        session_active=runner.context.session_active,
     )
 
     async def frames() -> AsyncIterator[str]:
@@ -186,6 +201,7 @@ async def stream_research(
                 yield frame
         finally:
             semaphore.release()
+            await limiter.release_stream(owned.user.id)
 
     return StreamingResponse(
         frames(),

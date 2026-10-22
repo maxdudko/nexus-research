@@ -8,9 +8,10 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
-from nexus.ai.errors import forbidden, invalid_credentials
+from nexus.ai.errors import forbidden, invalid_credentials, too_many_requests
 from nexus.api.csrf import origin_allowed
 from nexus.api.deps import CurrentUser, get_current_user
+from nexus.api.limits import LOGIN_LIMIT_MESSAGE, client_host
 from nexus.core.config import Settings
 from nexus.identity.cookies import CSRF_COOKIE, SESSION_COOKIE
 from nexus.identity.errors import IdentityError
@@ -22,7 +23,7 @@ from nexus.identity.store import (
     revoke_session,
     set_password,
 )
-from nexus.identity.tokens import new_token, token_hash
+from nexus.identity.tokens import new_token, normalize_email, token_hash
 
 router = APIRouter()
 
@@ -106,9 +107,22 @@ async def login(body: LoginRequest, request: Request) -> Response:
     settings: Settings = request.app.state.settings
     if not origin_allowed(request, settings):
         raise forbidden()
+    try:
+        email_key = normalize_email(body.email)
+    except IdentityError:
+        verify_password(body.password, request.app.state.dummy_password_hash)
+        raise invalid_credentials() from None
+    host = client_host(None if request.client is None else request.client.host)
+    limiter = request.app.state.limiter
+    retry_after = await limiter.login_retry_after(email_key, host)
+    if retry_after is not None:
+        raise too_many_requests(
+            retry_after=retry_after,
+            message=LOGIN_LIMIT_MESSAGE,
+        )
     now = datetime.now(UTC)
     factory = request.app.state.session_factory
-    account = await get_user_by_email(factory, body.email)
+    account = await get_user_by_email(factory, email_key)
     password_hash = None if account is None else account.password_hash
     email = None if account is None else account.email
     active = (
@@ -119,11 +133,13 @@ async def login(body: LoginRequest, request: Request) -> Response:
     )
     if not active or account is None or password_hash is None or email is None:
         verify_password(body.password, request.app.state.dummy_password_hash)
+        await limiter.record_login_failure(email_key, host)
         raise invalid_credentials()
     assert account is not None
     assert password_hash is not None
     assert email is not None
     if not verify_password(body.password, password_hash):
+        await limiter.record_login_failure(email_key, host)
         raise invalid_credentials()
     if needs_rehash(password_hash):
         try:
@@ -146,6 +162,7 @@ async def login(body: LoginRequest, request: Request) -> Response:
         now,
         expires_at(now, settings.session_absolute_seconds),
     )
+    await limiter.clear_email_failures(email_key)
     payload = IdentityResponse(id=account.id, email=email, role=_role(account.role))
     response = JSONResponse(payload.model_dump(mode="json"))
     _set_cookies(response, settings, session_token, csrf_token)

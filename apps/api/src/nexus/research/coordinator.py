@@ -2,14 +2,14 @@
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
 from anyio import CancelScope
 
-from nexus.ai.errors import ResearchError, invalid_state
+from nexus.ai.errors import ResearchError, invalid_state, run_interrupted
 from nexus.observability.context import bind_run
 from nexus.research.events import (
     ResearchCompleted,
@@ -74,6 +74,7 @@ class RunCoordinator:
         heartbeat_seconds: float,
         cancel_persist_seconds: float,
         clock: Callable[[], datetime],
+        session_active: Callable[[], Awaitable[bool]] | None = None,
     ) -> None:
         self._runner = runner
         self._history = history
@@ -83,6 +84,7 @@ class RunCoordinator:
         self._heartbeat = heartbeat_seconds
         self._cancel_seconds = cancel_persist_seconds
         self._clock = clock
+        self._session_active = session_active or _session_open
         self._committed = False
 
     async def events(self) -> AsyncIterator[str]:
@@ -110,6 +112,8 @@ class RunCoordinator:
                 self._heartbeat,
             ):
                 if item is HEARTBEAT or isinstance(item, Heartbeat):
+                    if not await self._session_active():
+                        raise run_interrupted()
                     yield writer.ping()
                     continue
                 if isinstance(item, GraphProgress):
@@ -225,6 +229,10 @@ def _terminal_frame(writer: SseWriter, run_id: UUID, exc: ResearchError) -> str:
         ResearchFailed(run_id=run_id, code=_safe_failure_code(exc.code)),
         terminal=True,
     )
+
+
+async def _session_open() -> bool:
+    return True
 
 
 def _safe_failure_code(code: str) -> str:

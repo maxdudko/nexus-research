@@ -126,7 +126,7 @@ The MVP is complete when a user can submit a research question, optionally provi
 
 ## Phase 8 — Identity & Multi-User
 
-**Status:** Gate 0 approved (2026-10-22). ADR-008 is accepted. Implementation not started. Phase 8 is not done; Gates A–C remain.
+**Status:** Phase 8 code is complete (2026-10-22). Gate C is waiting on the recorded two-account operator demo. Phase 8 is not done.
 
 **Goal:** Introduce authenticated users and ownership-aware authorization without exposing one user's research, reports or evidence to another.
 

@@ -1,6 +1,6 @@
 """Sequential research graph. Services travel in runtime context, not state."""
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Protocol, cast
@@ -88,6 +88,11 @@ class ReportSynthesizer(Protocol):
     ) -> SynthesisOutcome: ...
 
 
+async def session_stays_active() -> bool:
+    """Offline and direct callers keep running until a route installs a check."""
+    return True
+
+
 @dataclass
 class GraphContext:
     """Services for one run. LangGraph does not checkpoint this object."""
@@ -101,6 +106,7 @@ class GraphContext:
     limits: BudgetLimits
     clock: Callable[[], datetime]
     owner_user_id: UUID
+    session_active: Callable[[], Awaitable[bool]] = session_stays_active
 
 
 def build_graph(

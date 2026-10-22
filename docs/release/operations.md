@@ -90,7 +90,17 @@ The two volumes describe one evidence state. Retrieval reads the accepted digest
 
 Original PDF bytes are not stored anywhere. Lost PDF evidence can be rebuilt only by uploading the file again.
 
-Cold-copy both volumes before an upgrade that adds ownership. `init` only runs `alembic upgrade head`. Pre-Alpha research ids become scopes owned by the non-loginable quarantine user. They stay unreadable through the API until an operator runs `python -m nexus.identity adopt-scope RESEARCH_ID EMAIL` for a reviewed scope. That command refuses a scope that already has a real owner.
+Cold-copy both volumes before an upgrade that adds ownership. `init` only runs `alembic upgrade head`. Pre-Alpha research ids become scopes owned by the non-loginable quarantine user `00000000-0000-4000-8000-000000000001`. They stay unreadable through the API until an operator adopts a reviewed id.
+
+Operator sequence after the new stack is healthy:
+
+1. Keep the cold copy of both volumes until the checks below succeed.
+2. Let `init` upgrade to head. Do not name a revision.
+3. Confirm legacy scopes are still quarantined: `select count(*) from research_scopes where owner_user_id = '00000000-0000-4000-8000-000000000001';`
+4. Adopt one reviewed id, inside the API container: `python -m nexus.identity adopt-scope RESEARCH_ID EMAIL`. The command refuses a scope that already has a real owner.
+5. Sign in as a different account and open that research id. The response is 404 and does not include the question.
+
+The automated proof is the migration test that starts at `b7e2c91a4f10`, the v0.1.0 schema head, plus smoke's fresh init. That proof does not pull the `v0.1.0` image.
 
 ## Backups
 
@@ -182,6 +192,20 @@ nr exec -T postgres psql -U nexus -d nexus -c \
 
 Any row listed while no research request is in flight is stale. The release provides no cleanup command and no supported way to change its status. Start a new run with the same question if you need a result.
 
+## Accounts, quotas, and residual risk
+
+Research, evidence, and history require a session. Accounts are created with `python -m nexus.identity` (`bootstrap-admin`, `create-user`, `disable-user`, `reset-password`, `adopt-scope`). There is no HTTP admin API. An administrator does not receive another user's research.
+
+A session lasts 12 hours from creation and goes idle after 4 hours. `nexus_session` is HttpOnly. Unsafe requests also send `Origin` and `X-CSRF-Token`. This stack does not terminate TLS. Production cookies are Secure unless `NEXUS_COOKIE_INSECURE_LOOPBACK` is set for the loopback bind.
+
+Limits are memory inside the one API process. A restart clears them. Through the Next.js proxy the API sees the web container's address, so the login address bucket is an instance-wide cap on failed sign-ins. The proxy does not add a forwarded client address.
+
+Each account may hold one `/run` and one `/stream`. Plan, discover, run, stream, PDF upload, web ingestion, and search share 10 requests per minute. Minting a scope is 30 per hour. Excess is HTTP 429 `too_many_requests` with `Retry-After`, except the process-wide stream cap, which keeps its own message. That cap is still `NEXUS_STREAM_MAX_CONCURRENT`.
+
+Logout or a disabled account ends a live stream at the next heartbeat. `/run` has no heartbeat; the next provider node is its check. A provider call already inside the current node can finish. That window, plus the heartbeat interval, is the accepted residual risk.
+
+These controls are not approval for a public deployment and do not tag `v0.2.0`.
+
 ## Provider and runtime failures
 
 | HTTP | Code | Meaning |
@@ -189,7 +213,7 @@ Any row listed while no research request is in flight is stale. The release prov
 | 503 | `provider_not_configured` | `NEXUS_OPENAI_API_KEY` is empty, or `NEXUS_TAVILY_API_KEY` is empty for a route that searches |
 | 503 | `provider_unavailable` | Invalid key, connection failure or another provider error. Qdrant failures during ingestion also map here |
 | 429 | `provider_rate_limited` | OpenAI or Tavily rate limit. Tavily 429 is not retried |
-| 429 | `too_many_requests` | `NEXUS_STREAM_MAX_CONCURRENT` (default 2) streams are already running |
+| 429 | `too_many_requests` | A process-local budget is full, or `NEXUS_STREAM_MAX_CONCURRENT` (default 2) streams are already running. Window and per-user slot responses include `Retry-After`. The process cap keeps the message "Too many research runs are in progress." |
 | 504 | `provider_timeout` | A provider call or the discovery deadline timed out |
 | 503 | `checkpoint_unavailable` | PostgreSQL is down or checkpoint tables are missing; rerun `init` |
 | 503 | `history_unavailable` | The run history could not be read or written |
