@@ -81,7 +81,7 @@ Do not delete volumes to get past an init failure unless you intend to lose all 
 
 | Volume | Contents |
 |---|---|
-| `nexus-release_postgres_data` | `research_runs` and `research_reports` (history and reports), `sources` (one row per indexed PDF or page, with its digest), `alembic_version`, and the LangGraph checkpoint tables |
+| `nexus-release_postgres_data` | `users` and `auth_sessions`, `research_scopes` (one owner per research id), `research_runs` and `research_reports` (history and reports), `sources` (one row per indexed PDF or page, with its digest), `alembic_version`, and the LangGraph checkpoint tables |
 | `nexus-release_qdrant_data` | The `nexus_evidence_v1` collection: chunk vectors and passage payloads, filtered by `research_id` |
 
 `stop`, `down`, image rebuilds and host reboots keep both volumes. Only `down -v` or `docker volume rm` deletes them.
@@ -89,6 +89,20 @@ Do not delete volumes to get past an init failure unless you intend to lose all 
 The two volumes describe one evidence state. Retrieval reads the accepted digest of each source from PostgreSQL and then searches Qdrant. Back up and restore them together, from the same moment. Restoring only one of them leaves sources without passages or passages without an accepted source.
 
 Original PDF bytes are not stored anywhere. Lost PDF evidence can be rebuilt only by uploading the file again.
+
+Cold-copy both volumes before an upgrade that adds ownership. `init` only runs `alembic upgrade head`. That head is two revisions: `c8e4a1b27d05` (accounts, sessions, and the quarantine user) and then `e3b7d91c4a20` (one scope per existing research id, with foreign keys). Pre-Alpha research ids become scopes owned by the non-loginable quarantine user `00000000-0000-4000-8000-000000000001`. They stay unreadable through the API until an operator adopts a reviewed id.
+
+Each revision is its own transaction. A failure inside one rolls that revision back and leaves Qdrant and checkpoint bytes unchanged. A database left at `c8e4a1b27d05` has accounts but no scope foreign keys; the repair is another `upgrade head`, which only adds scopes. Do not start the previous image against either revision. Its Alembic scripts do not contain them, and `init` never downgrades.
+
+Operator sequence after the new stack is healthy:
+
+1. Keep the cold copy of both volumes, the recorded commit, and `.env.release` until the checks below succeed.
+2. Let `init` upgrade to head. Do not name a revision.
+3. Confirm legacy scopes are still quarantined: `select count(*) from research_scopes where owner_user_id = '00000000-0000-4000-8000-000000000001';`
+4. Adopt one reviewed id, inside the API container: `python -m nexus.identity adopt-scope RESEARCH_ID EMAIL`. The command refuses a scope that already has a real owner.
+5. Sign in as a different account and open that research id. The response is 404 and does not include the question.
+
+The automated proof is the migration test that starts at `b7e2c91a4f10`, the v0.1.0 schema head, plus smoke's fresh init. That proof does not pull the `v0.1.0` image.
 
 ## Backups
 
@@ -152,10 +166,12 @@ To restore only the logical dump into an initialized database: `nr exec -T postg
 
 ## Rollback limitations
 
+The supported recovery after a real owner exists, or after invited users have written data, is the cold restore in [Restoration](#restoration). Stop the stack, restore `postgres_data` and `qdrant_data` from the same backup, check out the commit recorded with that backup, and point `.env.release` at the password that volume was using. Restoring only one volume is not supported. Writes after the backup are lost. Do not run the previous image against the new schema.
+
 - `v0.1.0` is the first release. There is no earlier release stack to roll back to.
 - For later releases, rolling back the images alone (checking out the previous tag, setting the previous `NEXUS_VERSION`, `up -d --build`) works only when the database schema is still compatible with the older code. `init` runs `alembic upgrade head` for whatever code it was built from; it never downgrades.
 - If an upgrade ran a migration that the old code cannot use, the only supported rollback is to restore the backup taken before the upgrade, which discards everything written since.
-- Running `alembic downgrade` by hand is not a supported release procedure. Checkpoint tables are not covered by Alembic at all.
+- Running `alembic downgrade` by hand is not a supported release procedure. Checkpoint tables and Qdrant are not covered by Alembic. Downgrade order, if someone runs it anyway, is `e3b7d91c4a20` and then `c8e4a1b27d05`. The scope revision aborts while any owner is not the quarantine user and does not delete runs, reports, or sources. The identity revision then drops `auth_sessions` and `users`, and it aborts if `research_scopes` still exists. After a real owner exists, use the paired volume restore instead.
 - There is no rollback guarantee for data written by a newer version.
 
 ## Stale `running` rows
@@ -180,6 +196,20 @@ nr exec -T postgres psql -U nexus -d nexus -c \
 
 Any row listed while no research request is in flight is stale. The release provides no cleanup command and no supported way to change its status. Start a new run with the same question if you need a result.
 
+## Accounts, quotas, and residual risk
+
+Research, evidence, and history require a session. Accounts are created with `python -m nexus.identity` (`bootstrap-admin`, `create-user`, `disable-user`, `reset-password`, `adopt-scope`). There is no HTTP admin API. An administrator does not receive another user's research.
+
+A session lasts 12 hours from creation and goes idle after 4 hours. `nexus_session` is HttpOnly. `nexus_csrf` is the MAC of that session token, not a separate random value. Unsafe requests also send `Origin` and `X-CSRF-Token`. This stack does not terminate TLS. Production cookies are Secure unless `NEXUS_COOKIE_INSECURE_LOOPBACK` is set for the loopback bind.
+
+Limits are memory inside the one API process. A restart clears them. Login throttling counts the address on the API socket and ignores `X-Forwarded-For` and `Forwarded`. Through the Next.js proxy that socket address is the web container, so the login address bucket is an instance-wide cap on failed sign-ins. The proxy does not send a verified client address. Trusting a forwarding header would let a caller choose a fresh bucket.
+
+Each account may hold one `/run` and one `/stream`. Plan, discover, run, stream, PDF upload, web ingestion, and search share 10 requests per minute. Minting a scope is 30 per hour. Excess is HTTP 429 `too_many_requests` with `Retry-After`, except the process-wide stream cap, which keeps its own message. That cap is still `NEXUS_STREAM_MAX_CONCURRENT`.
+
+Logout, password reset, or a disabled account ends a live stream at the next heartbeat. A provider call already inside the current node can finish and spend its cost. The successful history write locks the account and the session and stores `interrupted` with no report when that session is no longer valid. `/run` has no history row; the next provider node is its check. The remaining window for a success write is that one locked transaction.
+
+These controls are not approval for a public deployment and do not tag `v0.2.0`.
+
 ## Provider and runtime failures
 
 | HTTP | Code | Meaning |
@@ -187,7 +217,7 @@ Any row listed while no research request is in flight is stale. The release prov
 | 503 | `provider_not_configured` | `NEXUS_OPENAI_API_KEY` is empty, or `NEXUS_TAVILY_API_KEY` is empty for a route that searches |
 | 503 | `provider_unavailable` | Invalid key, connection failure or another provider error. Qdrant failures during ingestion also map here |
 | 429 | `provider_rate_limited` | OpenAI or Tavily rate limit. Tavily 429 is not retried |
-| 429 | `too_many_requests` | `NEXUS_STREAM_MAX_CONCURRENT` (default 2) streams are already running |
+| 429 | `too_many_requests` | A process-local budget is full, or `NEXUS_STREAM_MAX_CONCURRENT` (default 2) streams are already running. Window and per-user slot responses include `Retry-After`. The process cap keeps the message "Too many research runs are in progress." |
 | 504 | `provider_timeout` | A provider call or the discovery deadline timed out |
 | 503 | `checkpoint_unavailable` | PostgreSQL is down or checkpoint tables are missing; rerun `init` |
 | 503 | `history_unavailable` | The run history could not be read or written |

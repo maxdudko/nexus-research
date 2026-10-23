@@ -9,7 +9,7 @@ from uuid import UUID
 
 from nexus.ai.errors import ResearchError
 from nexus.research.budgets import merge_passages
-from nexus.research.nodes.common import failed, stopped
+from nexus.research.nodes.common import before_provider, failed
 from nexus.research.state import EvidenceState, ResearchState
 from nexus.retrieval.vector_store import SEARCH_LIMIT
 from nexus.tools.web_search import normalize_url
@@ -26,8 +26,9 @@ async def retrieve_node(
     runtime: Runtime[GraphContext],
 ) -> dict[str, object]:
     """Search the accepted index with this round's queries only."""
-    if stopped(state):
-        return {}
+    gate = await before_provider(state, runtime.context.session_active)
+    if gate is not None:
+        return gate
     batch = state["query_batches"][-1] if state["query_batches"] else []
     if not batch:
         return {}
@@ -37,7 +38,12 @@ async def retrieve_node(
     found: list[EvidenceState] = []
     for query in batch:
         try:
-            matches = await runtime.context.retrieval.search(research_id, query, top_k)
+            matches = await runtime.context.retrieval.search(
+                research_id,
+                query,
+                top_k,
+                owner_id=runtime.context.owner_user_id,
+            )
         except asyncio.CancelledError:
             raise
         except ResearchError as exc:

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { ResearchReportView } from "@/components/research/research-report";
@@ -36,6 +36,7 @@ function usageText(usage: GraphUsage): string {
 
 export default function ResearchRunPage() {
   const params = useParams<{ runId: string }>();
+  const router = useRouter();
   const runId = typeof params.runId === "string" ? params.runId : "";
   const [detail, setDetail] = useState<RunDetailResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -48,13 +49,18 @@ export default function ResearchRunPage() {
         if (!cancelled) setDetail(body);
       },
       (cause: unknown) => {
-        if (!cancelled) setError(isApiError(cause) ? cause.message : REQUEST_FAILED_MESSAGE);
+        if (cancelled) return;
+        if (isApiError(cause) && cause.status === 401) {
+          router.replace("/login");
+          return;
+        }
+        setError(isApiError(cause) ? cause.message : REQUEST_FAILED_MESSAGE);
       },
     );
     return () => {
       cancelled = true;
     };
-  }, [runId]);
+  }, [runId, router]);
 
   const prominent =
     detail?.run.status === "partial" || detail?.run.status === "insufficient_evidence";

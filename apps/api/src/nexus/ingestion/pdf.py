@@ -9,7 +9,7 @@ import logging
 from pathlib import PurePosixPath
 
 import pymupdf  # type: ignore[import-untyped]
-from fastapi import UploadFile
+from starlette.datastructures import UploadFile
 
 from nexus.ai.errors import payload_too_large, unsupported_media
 

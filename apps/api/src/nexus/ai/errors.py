@@ -9,11 +9,19 @@ from pydantic import ValidationError
 class ResearchError(Exception):
     """A research failure with a fixed public code and message."""
 
-    def __init__(self, code: str, status_code: int, message: str) -> None:
+    def __init__(
+        self,
+        code: str,
+        status_code: int,
+        message: str,
+        *,
+        retry_after: int | None = None,
+    ) -> None:
         super().__init__(message)
         self.code = code
         self.status_code = status_code
         self.message = message
+        self.retry_after = retry_after
 
 
 PROVIDER_NOT_CONFIGURED = "Research provider is not configured."
@@ -157,6 +165,30 @@ def not_found() -> ResearchError:
     )
 
 
+def invalid_credentials() -> ResearchError:
+    return ResearchError(
+        "invalid_credentials",
+        401,
+        "The email or password is incorrect.",
+    )
+
+
+def unauthenticated() -> ResearchError:
+    return ResearchError(
+        "unauthenticated",
+        401,
+        "Authentication is required.",
+    )
+
+
+def forbidden() -> ResearchError:
+    return ResearchError(
+        "forbidden",
+        403,
+        "The request was rejected.",
+    )
+
+
 def invalid_request(field: str) -> ResearchError:
     return ResearchError("invalid_request", 422, f"{field}: invalid value")
 
@@ -169,11 +201,16 @@ def history_unavailable() -> ResearchError:
     )
 
 
-def too_many_requests() -> ResearchError:
+def too_many_requests(
+    *,
+    retry_after: int | None = None,
+    message: str | None = None,
+) -> ResearchError:
     return ResearchError(
         "too_many_requests",
         429,
-        "Too many research runs are in progress.",
+        message or "Too many research runs are in progress.",
+        retry_after=retry_after,
     )
 
 

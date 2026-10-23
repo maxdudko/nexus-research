@@ -1,6 +1,8 @@
 """Streaming runs persisted in PostgreSQL. The graph is a local fake."""
 
+import asyncio
 import uuid
+from io import StringIO
 from uuid import UUID
 
 import pytest
@@ -8,6 +10,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from sqlalchemy import text
 from tests.conftest import client_for, make_settings
 from tests.integration.conftest import run_alembic
+from tests.integration.scopes import quarantine_scopes
 from tests.unit.graph_support import (
     QUESTION,
     FakeDiscovery,
@@ -26,9 +29,13 @@ from tests.unit.test_research_streaming import (
     parse_sse,
 )
 
+from nexus.api.deps import CurrentUser, get_current_user
 from nexus.api.v1.research import get_runner
+from nexus.identity.cli import run_cli
+from nexus.identity.store import get_user_by_email
 from nexus.infrastructure.database import create_db_engine, session_factory
 from nexus.main import create_app
+from nexus.models.user import QUARANTINE_USER_ID
 from nexus.research.coordinator import RunCoordinator
 from nexus.research.graph import build_graph
 from nexus.research.history import ResearchHistory
@@ -57,16 +64,34 @@ async def test_completed_stream_is_readable_after_the_terminal_event(
     test_database_url: str,
 ) -> None:
     await _upgrade(test_database_url)
-    app = create_app(make_settings(database_url=test_database_url))
+    settings = make_settings(database_url=test_database_url)
+    created = await asyncio.to_thread(
+        run_cli,
+        ["create-user", "ada@example.com"],
+        stdin=StringIO("correct-horse-1\n"),
+        stderr=StringIO(),
+        settings=settings,
+    )
+    assert created == 0
+    app = create_app(settings)
 
     async def override() -> ResearchRunner:
         return _runner()
 
     app.dependency_overrides[get_runner] = override
+    origin = {"origin": "http://127.0.0.1:3000"}
     async with client_for(app) as client:
+        logged_in = await client.post(
+            "/api/v1/auth/login",
+            json={"email": "ada@example.com", "password": "correct-horse-1"},
+            headers=origin,
+        )
+        assert logged_in.status_code == 200
+        token = client.cookies.get("nexus_csrf")
         response = await client.post(
             "/api/v1/research/stream",
             json={"question": QUESTION},
+            headers={**origin, "x-csrf-token": token or ""},
         )
         assert response.status_code == 200
         frames = parse_sse(response.text)
@@ -88,10 +113,28 @@ async def test_disconnect_persists_interrupted_without_a_report(
     test_database_url: str,
 ) -> None:
     await _upgrade(test_database_url)
-    app = create_app(make_settings(database_url=test_database_url))
+    settings = make_settings(database_url=test_database_url)
+    created = await asyncio.to_thread(
+        run_cli,
+        ["create-user", "ada@example.com"],
+        stdin=StringIO("correct-horse-1\n"),
+        stderr=StringIO(),
+        settings=settings,
+    )
+    assert created == 0
+    app = create_app(settings)
     app.dependency_overrides[get_runner] = lambda: _runner(BlockingPlanner())
     engine = create_db_engine(test_database_url)
-    history = ResearchHistory(session_factory(engine))
+    factory = session_factory(engine)
+    account = await get_user_by_email(factory, "ada@example.com")
+    assert account is not None
+    app.dependency_overrides[get_current_user] = lambda: CurrentUser(
+        id=account.id,
+        email="ada@example.com",
+        role="user",
+        session_id=uuid.uuid4(),
+    )
+    history = ResearchHistory(factory)
     try:
         async with app.router.lifespan_context(app):
             payload = await _disconnect_after_started(app)
@@ -99,7 +142,7 @@ async def test_disconnect_persists_interrupted_without_a_report(
         started = next(data for name, data in frames if name == "research.started")
         assert started is not None
         run_id = uuid.UUID(str(started["run_id"]))
-        stored = await history.get_run(run_id)
+        stored = await history.get_run(run_id, owner_id=account.id)
     finally:
         await engine.dispose()
 
@@ -154,11 +197,18 @@ async def test_report_insert_failure_stores_failed_without_completed(
     history = ResearchHistory(session_factory(engine))
     runner = _runner()
     coordinator, run_id, research_id = _coordinator(runner, history)
+    await quarantine_scopes(session_factory(engine), research_id)
     try:
-        await history.create_running(run_id, research_id, QUESTION, runner.clock())
+        await history.create_running(
+            run_id,
+            research_id,
+            QUESTION,
+            runner.clock(),
+            owner_id=QUARANTINE_USER_ID,
+        )
         body = "".join([frame async for frame in coordinator.events()])
         names = [name for name, _data in parse_sse(body)]
-        stored = await history.get_run(run_id)
+        stored = await history.get_run(run_id, owner_id=QUARANTINE_USER_ID)
     finally:
         await engine.dispose()
 
@@ -186,11 +236,18 @@ async def test_status_update_failure_leaves_running_without_a_terminal_frame(
     history = ResearchHistory(session_factory(engine))
     runner = _runner()
     coordinator, run_id, research_id = _coordinator(runner, history)
+    await quarantine_scopes(session_factory(engine), research_id)
     try:
-        await history.create_running(run_id, research_id, QUESTION, runner.clock())
+        await history.create_running(
+            run_id,
+            research_id,
+            QUESTION,
+            runner.clock(),
+            owner_id=QUARANTINE_USER_ID,
+        )
         body = "".join([frame async for frame in coordinator.events()])
         names = [name for name, _data in parse_sse(body)]
-        stored = await history.get_run(run_id)
+        stored = await history.get_run(run_id, owner_id=QUARANTINE_USER_ID)
     finally:
         await engine.dispose()
 

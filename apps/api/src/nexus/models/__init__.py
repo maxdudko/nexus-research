@@ -2,6 +2,17 @@
 
 from nexus.models.base import Base
 from nexus.models.run import ResearchReportRecord, ResearchRun
+from nexus.models.scope import ResearchScope
 from nexus.models.source import Source
+from nexus.models.user import QUARANTINE_USER_ID, AuthSession, User
 
-__all__ = ["Base", "ResearchReportRecord", "ResearchRun", "Source"]
+__all__ = [
+    "QUARANTINE_USER_ID",
+    "AuthSession",
+    "Base",
+    "ResearchReportRecord",
+    "ResearchRun",
+    "ResearchScope",
+    "Source",
+    "User",
+]

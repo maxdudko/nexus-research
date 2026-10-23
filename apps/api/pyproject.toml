@@ -5,6 +5,7 @@ description = "Nexus Research API"
 requires-python = ">=3.14,<3.15"
 dependencies = [
     "alembic>=1.20.0,<2",
+    "argon2-cffi>=25.1.0,<26",
     "asyncpg>=0.32.0,<1",
     "fastapi>=0.143.0,<1",
     "httpx>=0.28.1,<1",

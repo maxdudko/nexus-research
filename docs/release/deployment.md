@@ -76,7 +76,7 @@ In production the API serves neither `/docs` nor `/openapi.json`.
 
 PostgreSQL holds two schemas with different owners:
 
-- **Domain schema**, owned by Alembic: `sources`, `research_runs`, `research_reports` and `alembic_version`.
+- **Domain schema**, owned by Alembic: `users`, `auth_sessions`, `research_scopes`, `sources`, `research_runs`, `research_reports` and `alembic_version`. Head is `e3b7d91c4a20`, after `c8e4a1b27d05`.
 - **LangGraph checkpoint tables**, created by `python -m nexus.research.checkpoint`. Alembic does not manage them.
 
 The `init` service is built from the API image and runs both, in order, on every `up`:

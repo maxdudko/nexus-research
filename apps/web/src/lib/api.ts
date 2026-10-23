@@ -1,3 +1,4 @@
+import { csrfHeaders } from "@/lib/csrf";
 import { ApiError, errorFromResponse } from "@/lib/errors";
 import type {
   IngestionResponse,
@@ -50,6 +51,18 @@ async function readJson(response: Response): Promise<unknown> {
   }
 }
 
+export async function createResearchScope(fetchImpl: FetchLike = fetch): Promise<string> {
+  const response = await fetchImpl("/api/v1/research/scopes", {
+    method: "POST",
+    headers: csrfHeaders(),
+  });
+  const body = await readJson(response);
+  if (!isRecord(body) || !isString(body.research_id)) {
+    throw new ApiError("request_failed", "The request could not be completed.", response.status);
+  }
+  return body.research_id;
+}
+
 export async function listRuns(
   limit = 20,
   cursor?: string,
@@ -91,6 +104,7 @@ export async function uploadPdf(
   form.set("file", file);
   const response = await fetchImpl("/api/v1/evidence/pdf", {
     method: "POST",
+    headers: csrfHeaders(),
     body: form,
     signal,
   });
@@ -118,6 +132,7 @@ export function openResearchStream(
     headers: {
       accept: "text/event-stream",
       "content-type": "application/json",
+      ...csrfHeaders(),
     },
     body: JSON.stringify(body),
     signal,

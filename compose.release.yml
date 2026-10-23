@@ -80,6 +80,10 @@ services:
       NEXUS_ENVIRONMENT: production
       NEXUS_DATABASE_URL: *database-url
       NEXUS_QDRANT_URL: http://qdrant:6333
+      NEXUS_SESSION_PEPPER: ${NEXUS_SESSION_PEPPER:?set NEXUS_SESSION_PEPPER in .env.release}
+      NEXUS_TRUSTED_ORIGINS: http://127.0.0.1:${NEXUS_WEB_PORT:-3000}
+      NEXUS_COOKIE_SECURE: "false"
+      NEXUS_COOKIE_INSECURE_LOOPBACK: "true"
     networks: [data]
     depends_on:
       postgres:
@@ -93,6 +97,10 @@ services:
       NEXUS_ENVIRONMENT: production
       NEXUS_DATABASE_URL: *database-url
       NEXUS_QDRANT_URL: http://qdrant:6333
+      NEXUS_SESSION_PEPPER: ${NEXUS_SESSION_PEPPER:?set NEXUS_SESSION_PEPPER in .env.release}
+      NEXUS_TRUSTED_ORIGINS: http://127.0.0.1:${NEXUS_WEB_PORT:-3000}
+      NEXUS_COOKIE_SECURE: "false"
+      NEXUS_COOKIE_INSECURE_LOOPBACK: "true"
       # Values below come from .env.release. Unset names are not passed and the
       # API default applies.
       NEXUS_OPENAI_API_KEY:

@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import pytest
 from langgraph.checkpoint.memory import InMemorySaver
-from tests.conftest import client_for, make_settings
+from tests.conftest import client_for, make_settings, signed_in
 from tests.unit.graph_support import (
     QUESTION,
     FakeDiscovery,
@@ -32,6 +32,8 @@ from nexus.research.runner import ResearchRunner
 from nexus.schemas.research import ResearchPlan
 
 SECRET = "sk-run-secret"
+
+pytestmark = pytest.mark.usefixtures("stub_scopes")
 
 
 class BlockingPlanner:
@@ -83,7 +85,7 @@ def _runner(
 
 
 def _install(runner: ResearchRunner):
-    app = create_app(make_settings())
+    app = signed_in(create_app(make_settings()))
 
     async def override() -> ResearchRunner:
         return runner

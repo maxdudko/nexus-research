@@ -1,0 +1,40 @@
+name: Release
+
+# Verifies a release tag and keeps the built images as a workflow artifact.
+# Nothing here pushes images or creates a GitHub release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  version:
+    name: Release version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Version sources match the tag
+        run: python3 scripts/check_release_version.py --tag "$GITHUB_REF_NAME"
+
+      - name: Tag is annotated and on master
+        run: |
+          [[ "$(git cat-file -t "refs/tags/$GITHUB_REF_NAME")" == tag ]] \
+            || { echo "$GITHUB_REF_NAME is not an annotated tag"; exit 1; }
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/master \
+            || { echo "$GITHUB_SHA is not reachable from origin/master"; exit 1; }
+          echo "$GITHUB_REF_NAME -> $GITHUB_SHA (annotated, on master)"
+
+  ci:
+    name: CI
+    needs: version
+    uses: ./.github/workflows/ci.yml
+    with:
+      full: true
+      release_artifact: true

@@ -73,7 +73,14 @@ class ResearchRun(Base):
     )
 
     run_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
-    research_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True))
+    research_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey(
+            "research_scopes.research_id",
+            name="fk_research_runs_research_id",
+            ondelete="RESTRICT",
+        ),
+    )
     question: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text)
     error_code: Mapped[str | None] = mapped_column(Text)

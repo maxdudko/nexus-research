@@ -4,11 +4,13 @@ import os
 import uuid
 
 import pytest
+from tests.integration.scopes import quarantine_scopes
 from tests.integration.test_ingestion import _pdf
 
 from nexus.core.config import get_settings
 from nexus.infrastructure.database import create_db_engine, session_factory
 from nexus.ingestion.service import IngestionService
+from nexus.models.user import QUARANTINE_USER_ID
 from nexus.research.checkpoint import open_checkpointer, setup_checkpoint
 from nexus.research.runner import ResearchRunner, production_context
 from nexus.retrieval.embeddings import OpenAIEmbedder
@@ -39,7 +41,9 @@ async def test_live_runner_returns_a_report() -> None:
     try:
         runner = ResearchRunner(
             graph=runtime.graph,
-            context=production_context(settings, factory, store),
+            context=production_context(
+                settings, factory, store, owner_user_id=QUARANTINE_USER_ID
+            ),
         )
         result = await runner.run(QUESTION, None)
     finally:
@@ -64,6 +68,7 @@ async def test_live_preindexed_pdf_can_be_cited_by_page() -> None:
     engine = create_db_engine(database_url)
     factory = session_factory(engine)
     research_id = uuid.uuid4()
+    await quarantine_scopes(factory, research_id)
     document = _pdf(["First page is only context.", PAGE_SENTENCE])
     try:
         indexed = await IngestionService(
@@ -71,10 +76,12 @@ async def test_live_preindexed_pdf_can_be_cited_by_page() -> None:
             store,
             OpenAIEmbedder(settings),
             settings,
-        ).ingest_pdf(research_id, document, "notes.pdf")
+        ).ingest_pdf(research_id, document, "notes.pdf", owner_id=QUARANTINE_USER_ID)
         runner = ResearchRunner(
             graph=runtime.graph,
-            context=production_context(settings, factory, store),
+            context=production_context(
+                settings, factory, store, owner_user_id=QUARANTINE_USER_ID
+            ),
         )
         result = await runner.run(
             "What does the second page say about the bounded graph citation token?",

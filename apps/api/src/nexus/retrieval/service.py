@@ -11,6 +11,8 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from nexus.ai.errors import not_found
+from nexus.identity.scopes import owned_scope
 from nexus.models.source import Source
 from nexus.retrieval.embeddings import Embedder
 from nexus.retrieval.vector_store import EvidenceMatch, EvidenceVectorStore
@@ -35,6 +37,8 @@ class RetrievalService:
         research_id: uuid.UUID,
         query: str,
         top_k: int,
+        *,
+        owner_id: uuid.UUID,
     ) -> list[EvidenceMatch]:
         """Search the accepted evidence for ``research_id``.
 
@@ -42,6 +46,9 @@ class RetrievalService:
         stays missing. Versions are loaded again after Qdrant returns, and a
         digest that was replaced in that window is dropped.
         """
+        found = await owned_scope(self._sessions, owner_id, research_id)
+        if found is None:
+            raise not_found()
         versions = await self._versions(research_id)
         if not versions:
             return []

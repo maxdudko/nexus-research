@@ -1,20 +1,82 @@
 name: CI
 
+# Fast lane (lint, types, unit tests, offline evaluation) runs on every trigger.
+# Full lane (integration tests, images and packaged smoke) runs on PRs to master,
+# pushes to master and release tags; master runs also warm the caches PRs restore.
 on:
   push:
+    branches: [development, master]
   pull_request:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      full:
+        description: Run the full lane
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      full:
+        type: boolean
+        default: true
+      release_artifact:
+        description: Upload the built images as a workflow artifact
+        type: boolean
+        default: false
 
 permissions:
   contents: read
+  pull-requests: read
 
+# A literal prefix: inside workflow_call, github.workflow is the caller's name.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') && github.ref != 'refs/heads/master' }}
 
 jobs:
-  api:
-    name: API
+  changes:
+    name: Changes
     runs-on: ubuntu-latest
+    outputs:
+      api: ${{ steps.force.outputs.all == 'true' || steps.filter.outputs.api == 'true' || steps.filter.outputs.shared == 'true' }}
+      web: ${{ steps.force.outputs.all == 'true' || steps.filter.outputs.web == 'true' || steps.filter.outputs.shared == 'true' }}
+      smoke: ${{ steps.force.outputs.all == 'true' || steps.filter.outputs.api == 'true' || steps.filter.outputs.web == 'true' || steps.filter.outputs.shared == 'true' }}
+      full: ${{ inputs.full == true || github.event_name == 'pull_request' || github.ref == 'refs/heads/master' }}
+    steps:
+      - name: Force all paths
+        id: force
+        run: echo "all=${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') }}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        if: steps.force.outputs.all != 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Filter paths
+        id: filter
+        if: steps.force.outputs.all != 'true'
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          filters: |
+            api:
+              - apps/api/**
+            web:
+              - apps/web/**
+            shared:
+              - .github/**
+              - scripts/**
+              - compose*.yml
+              - docker-compose.yml
+              - .env.release.example
+              - docs/evaluation/baseline.json
+
+  api-checks:
+    name: API checks
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -24,25 +86,102 @@ jobs:
         with:
           python-version: "3.14"
           working-directory: apps/api
+          enable-cache: true
+          cache-dependency-glob: uv.lock
 
-      - name: Start PostgreSQL and Qdrant
-        run: docker compose up -d
+      - name: Restore Ruff and Mypy caches
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            apps/api/.mypy_cache
+            apps/api/.ruff_cache
+          key: api-lint-${{ runner.os }}-${{ hashFiles('apps/api/uv.lock') }}-${{ github.sha }}
+          restore-keys: api-lint-${{ runner.os }}-${{ hashFiles('apps/api/uv.lock') }}-
 
       - name: Install dependencies
-        working-directory: apps/api
         run: uv sync --frozen
 
       - name: Ruff
-        working-directory: apps/api
         run: |
           uv run ruff check .
           uv run ruff format --check .
 
       - name: Mypy
-        working-directory: apps/api
         run: uv run mypy src
 
+      - name: Create local env
+        run: cp .env.example .env
+
+      - name: Pytest (no services)
+        run: uv run pytest -m "not integration and not live"
+
+      - name: Offline evaluation
+        run: |
+          uv run python -m nexus.evaluation --suite offline --output /tmp/nexus-eval-offline.json
+          diff -u ../../docs/evaluation/baseline.json /tmp/nexus-eval-offline.json
+
+  web-checks:
+    name: Web checks
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Node.js 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+  api-integration:
+    name: API integration
+    needs: [changes, api-checks]
+    if: >-
+      !cancelled() && !contains(needs.*.result, 'failure')
+      && needs.changes.outputs.full == 'true' && needs.changes.outputs.api == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Start PostgreSQL and Qdrant
+        run: docker compose up -d --quiet-pull
+        working-directory: .
+
+      - name: Install uv and Python 3.14
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: "3.14"
+          working-directory: apps/api
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
       - name: Wait for PostgreSQL and Qdrant
+        working-directory: .
         run: |
           for _ in $(seq 1 30); do
             if docker compose exec -T postgres pg_isready -h 127.0.0.1 -U nexus -d nexus \
@@ -56,66 +195,37 @@ jobs:
           exit 1
 
       - name: Create local env
-        working-directory: apps/api
-        run: cp .env.example .env
-
-      - name: Pytest
-        working-directory: apps/api
-        run: uv run pytest
-
-      - name: Offline evaluation
-        working-directory: apps/api
         run: |
-          uv run python -m nexus.evaluation --suite offline --output /tmp/nexus-eval-offline.json
-          diff -u ../../docs/evaluation/baseline.json /tmp/nexus-eval-offline.json
+          cp .env.example .env
+          pepper="$(openssl rand -hex 32)"
+          sed -i "s/^NEXUS_SESSION_PEPPER=.*/NEXUS_SESSION_PEPPER=${pepper}/" .env
+
+      - name: Pytest (integration)
+        run: uv run pytest -m "integration and not live"
 
       - name: Alembic upgrade
-        working-directory: apps/api
         run: |
           uv run alembic upgrade head
           uv run alembic upgrade head
 
-  web:
-    name: Web
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Install Node.js 24
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: "24"
-          cache: npm
-          cache-dependency-path: apps/web/package-lock.json
-
-      - name: Install dependencies
-        working-directory: apps/web
-        run: npm ci
-
-      - name: Lint
-        working-directory: apps/web
-        run: npm run lint
-
-      - name: Typecheck
-        working-directory: apps/web
-        run: npm run typecheck
-
-      - name: Test
-        working-directory: apps/web
-        run: npm test
-
-      - name: Build
-        working-directory: apps/web
-        run: npm run build
-
-  release:
+  images-smoke:
     name: Release images and smoke
+    needs: [changes, api-checks, web-checks]
+    if: >-
+      !cancelled() && !contains(needs.*.result, 'failure')
+      && needs.changes.outputs.full == 'true' && needs.changes.outputs.smoke == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
+    env:
+      # PRs write to their own scope so they never evict the master entries they read.
+      CACHE_SCOPE: ${{ github.event_name == 'pull_request' && format('pr-{0}-', github.event.pull_request.number) || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Read release version
+        id: version
+        run: echo "version=$(python3 scripts/check_release_version.py --print)" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
@@ -125,18 +235,22 @@ jobs:
         with:
           context: apps/api
           load: true
-          tags: nexus-api:0.1.0
-          cache-from: type=gha,scope=api
-          cache-to: type=gha,scope=api,mode=max
+          tags: nexus-api:${{ steps.version.outputs.version }}
+          cache-from: |
+            type=gha,scope=${{ env.CACHE_SCOPE }}api
+            type=gha,scope=api
+          cache-to: type=gha,scope=${{ env.CACHE_SCOPE }}api,mode=max
 
       - name: Build Web image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: apps/web
           load: true
-          tags: nexus-web:0.1.0
-          cache-from: type=gha,scope=web
-          cache-to: type=gha,scope=web,mode=max
+          tags: nexus-web:${{ steps.version.outputs.version }}
+          cache-from: |
+            type=gha,scope=${{ env.CACHE_SCOPE }}web
+            type=gha,scope=web
+          cache-to: type=gha,scope=${{ env.CACHE_SCOPE }}web,mode=max
 
       - name: Static release Compose checks
         run: python3 scripts/check_release_compose.py
@@ -154,3 +268,45 @@ jobs:
           path: ${{ runner.temp }}/nexus-smoke
           if-no-files-found: ignore
           retention-days: 7
+
+      - name: Export images
+        if: inputs.release_artifact
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          OUT: ${{ runner.temp }}/nexus-images
+        run: |
+          mkdir -p "$OUT"
+          for app in api web; do
+            docker save "nexus-$app:$VERSION" | gzip > "$OUT/nexus-$app-$VERSION.tar.gz"
+            echo "nexus-$app:$VERSION $(docker image inspect -f '{{.Id}}' "nexus-$app:$VERSION")" >> "$OUT/image-ids.txt"
+          done
+          echo "$GITHUB_SHA" > "$OUT/commit.txt"
+          (cd "$OUT" && sha256sum ./*.tar.gz image-ids.txt commit.txt > SHA256SUMS)
+          cat "$OUT/image-ids.txt" "$OUT/SHA256SUMS"
+
+      - name: Upload images
+        if: inputs.release_artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-images-${{ steps.version.outputs.version }}
+          path: ${{ runner.temp }}/nexus-images
+          compression-level: 0
+          retention-days: 90
+
+  ci-ok:
+    name: ci-ok
+    needs: [changes, api-checks, web-checks, api-integration, images-smoke]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check job results
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "results: $RESULTS"
+          for result in $RESULTS; do
+            case "$result" in
+              success|skipped) ;;
+              *) exit 1 ;;
+            esac
+          done

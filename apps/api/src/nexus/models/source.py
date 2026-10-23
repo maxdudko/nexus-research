@@ -16,6 +16,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     Enum,
+    ForeignKey,
     Index,
     Integer,
     String,
@@ -120,7 +121,15 @@ class Source(Base):
         primary_key=True,
         default=uuid.uuid4,
     )
-    research_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), index=True)
+    research_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey(
+            "research_scopes.research_id",
+            name="fk_sources_research_id",
+            ondelete="RESTRICT",
+        ),
+        index=True,
+    )
     type: Mapped[SourceType] = mapped_column(
         Enum(
             SourceType,

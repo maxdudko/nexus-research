@@ -3,6 +3,7 @@
 import base64
 import json
 import re
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import cast
 from uuid import UUID
@@ -11,8 +12,9 @@ from pydantic import ValidationError
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from nexus.ai.errors import invalid_request, invalid_state
+from nexus.ai.errors import invalid_request, invalid_state, not_found
 from nexus.models.run import SUCCESS_STATUSES, ResearchReportRecord, ResearchRun
+from nexus.models.scope import ResearchScope
 from nexus.schemas.history import (
     RunDetail,
     RunDetailResponse,
@@ -57,6 +59,9 @@ class HistoryConflict(Exception):
     """A terminal write contradicted the stored outcome. The row is unchanged."""
 
 
+SessionGate = Callable[[AsyncSession], Awaitable[bool]]
+
+
 class ResearchHistory:
     """Create, finish, and read domain runs. Checkpoints are not queried."""
 
@@ -69,11 +74,23 @@ class ResearchHistory:
         research_id: UUID,
         question: str,
         now: datetime,
+        *,
+        owner_id: UUID,
     ) -> None:
-        """Insert one running row and commit it before a graph starts."""
+        """Insert one running row when this user still owns the scope."""
         moment = _aware(now)
         async with self._sessions() as session:
             async with session.begin():
+                owned = await session.scalar(
+                    select(ResearchScope.research_id)
+                    .where(
+                        ResearchScope.research_id == research_id,
+                        ResearchScope.owner_user_id == owner_id,
+                    )
+                    .with_for_update()
+                )
+                if owned is None:
+                    raise not_found()
                 session.add(
                     ResearchRun(
                         run_id=run_id,
@@ -97,8 +114,15 @@ class ResearchHistory:
         warnings: list[str],
         usage: GraphUsage,
         now: datetime,
-    ) -> None:
-        """Commit a success status and its report together, or change nothing."""
+        *,
+        session_gate: SessionGate | None = None,
+    ) -> bool:
+        """Commit a success status and its report together, or change nothing.
+
+        When ``session_gate`` is set, it runs inside this transaction before
+        the success write. A false result stores ``interrupted`` and no report.
+        True means the success row was committed.
+        """
         parsed = ResearchReport.model_validate(report)
         if parsed.status not in SUCCESS_STATUSES:
             raise HistoryConflict
@@ -112,9 +136,15 @@ class ResearchHistory:
                 if run.status == parsed.status and await _same_success(
                     session, run_id, parsed
                 ):
-                    return
+                    return True
                 if run.status != "running":
                     raise HistoryConflict
+                if session_gate is not None and not await session_gate(session):
+                    run.status = "interrupted"
+                    run.error_code = "interrupted"
+                    run.finished_at = moment
+                    run.updated_at = moment
+                    return False
                 run.status = parsed.status
                 run.error_code = None
                 run.warnings = stored_warnings
@@ -128,6 +158,7 @@ class ResearchHistory:
                         created_at=moment,
                     )
                 )
+        return True
 
     async def finalize_failure(
         self,
@@ -156,16 +187,26 @@ class ResearchHistory:
         self,
         limit: int,
         cursor: str | None,
+        *,
+        owner_id: UUID,
     ) -> RunListResponse:
-        """Return one keyset page. The report JSON is not selected."""
+        """Return one keyset page for this owner. The report JSON is not selected."""
         if not 1 <= limit <= _LIST_LIMIT:
             raise invalid_request("limit")
         bound = decode_cursor(cursor) if cursor else None
         async with self._sessions() as session:
             async with session.begin():
-                statement = select(ResearchRun).order_by(
-                    ResearchRun.created_at.desc(),
-                    ResearchRun.run_id.desc(),
+                statement = (
+                    select(ResearchRun)
+                    .join(
+                        ResearchScope,
+                        ResearchScope.research_id == ResearchRun.research_id,
+                    )
+                    .where(ResearchScope.owner_user_id == owner_id)
+                    .order_by(
+                        ResearchRun.created_at.desc(),
+                        ResearchRun.run_id.desc(),
+                    )
                 )
                 if bound is not None:
                     created_at, run_id = bound
@@ -187,11 +228,26 @@ class ResearchHistory:
                 items = [_summary(row) for row in visible]
         return RunListResponse(items=items, next_cursor=next_cursor)
 
-    async def get_run(self, run_id: UUID) -> RunDetailResponse | None:
-        """Return one run. A corrupt report is an error, not a partial body."""
+    async def get_run(
+        self,
+        run_id: UUID,
+        *,
+        owner_id: UUID,
+    ) -> RunDetailResponse | None:
+        """Return one owned run. A corrupt report is an error, not a partial body."""
         async with self._sessions() as session:
             async with session.begin():
-                run = await session.get(ResearchRun, run_id)
+                run = await session.scalar(
+                    select(ResearchRun)
+                    .join(
+                        ResearchScope,
+                        ResearchScope.research_id == ResearchRun.research_id,
+                    )
+                    .where(
+                        ResearchRun.run_id == run_id,
+                        ResearchScope.owner_user_id == owner_id,
+                    )
+                )
                 if run is None:
                     return None
                 record = await session.get(ResearchReportRecord, run_id)

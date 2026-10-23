@@ -8,11 +8,14 @@ import pymupdf
 import pytest
 from tests.conftest import make_settings
 from tests.integration.conftest import require_local_qdrant, run_alembic
+from tests.integration.scopes import quarantine_scopes
 
+from nexus.ai.errors import ResearchError
 from nexus.core.config import Settings, get_settings
 from nexus.infrastructure.database import create_db_engine, session_factory
 from nexus.ingestion.service import IngestionService
 from nexus.ingestion.transport import FetchedPage
+from nexus.models.user import QUARANTINE_USER_ID
 from nexus.retrieval.service import RetrievalService
 from nexus.retrieval.vector_store import (
     EvidenceVectorStore,
@@ -97,6 +100,7 @@ async def test_search_is_scoped_and_hides_a_replaced_web_digest(
     embedder = DeterministicEmbedder()
     research_a = uuid.uuid4()
     research_b = uuid.uuid4()
+    await quarantine_scopes(factory, research_a, research_b)
     bodies = {research_a: ORIGINAL, research_b: ORIGINAL}
     current = research_a
 
@@ -117,14 +121,23 @@ async def test_search_is_scoped_and_hides_a_replaced_web_digest(
     search = RetrievalService(factory, store, embedder)
     pdf = _pdf([PAGE_ONE, PAGE_TWO])
     try:
-        await ingestion.ingest_pdf(research_a, pdf, "notes.pdf")
-        await ingestion.ingest_pdf(research_b, pdf, "notes.pdf")
-        await ingestion.ingest_web(research_a, WEB_URL)
+        await ingestion.ingest_pdf(
+            research_a, pdf, "notes.pdf", owner_id=QUARANTINE_USER_ID
+        )
+        await ingestion.ingest_pdf(
+            research_b, pdf, "notes.pdf", owner_id=QUARANTINE_USER_ID
+        )
+        await ingestion.ingest_web(research_a, WEB_URL, owner_id=QUARANTINE_USER_ID)
         current = research_b
-        await ingestion.ingest_web(research_b, WEB_URL)
-        first_a = await search.search(research_a, PAGE_ONE, 5)
-        first_b = await search.search(research_b, PAGE_ONE, 5)
-        empty = await search.search(uuid.uuid4(), PAGE_ONE, 5)
+        await ingestion.ingest_web(research_b, WEB_URL, owner_id=QUARANTINE_USER_ID)
+        first_a = await search.search(
+            research_a, PAGE_ONE, 5, owner_id=QUARANTINE_USER_ID
+        )
+        first_b = await search.search(
+            research_b, PAGE_ONE, 5, owner_id=QUARANTINE_USER_ID
+        )
+        with pytest.raises(ResearchError) as missing:
+            await search.search(uuid.uuid4(), PAGE_ONE, 5, owner_id=QUARANTINE_USER_ID)
 
         pages = {
             match.page_number: match.text for match in first_a if match.url is None
@@ -141,13 +154,17 @@ async def test_search_is_scoped_and_hides_a_replaced_web_digest(
         assert web_a[0].page_number is None
         assert "original article" in web_a[0].text
         assert "original article" in web_b[0].text
-        assert empty == []
+        assert missing.value.code == "not_found"
 
         bodies[research_a] = REPLACEMENT
         current = research_a
-        await ingestion.ingest_web(research_a, WEB_URL)
-        replaced = await search.search(research_a, REPLACEMENT, 5)
-        untouched = await search.search(research_b, ORIGINAL, 5)
+        await ingestion.ingest_web(research_a, WEB_URL, owner_id=QUARANTINE_USER_ID)
+        replaced = await search.search(
+            research_a, REPLACEMENT, 5, owner_id=QUARANTINE_USER_ID
+        )
+        untouched = await search.search(
+            research_b, ORIGINAL, 5, owner_id=QUARANTINE_USER_ID
+        )
         replaced_web = [match for match in replaced if match.url == WEB_URL]
         untouched_web = [match for match in untouched if match.url == WEB_URL]
         assert "replacement article" in replaced_web[0].text

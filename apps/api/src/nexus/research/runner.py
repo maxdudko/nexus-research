@@ -30,6 +30,7 @@ from nexus.ai.errors import (
 from nexus.ai.planner import Planner
 from nexus.ai.synthesis import OpenAIReportSynthesizer
 from nexus.core.config import Settings
+from nexus.identity.store import session_is_active
 from nexus.ingestion.service import IngestionService
 from nexus.observability.context import bind_run
 from nexus.observability.spans import operation
@@ -82,6 +83,11 @@ class ResearchRunner:
         self.graph = graph
         self._context = context
         self._timeout = timeout_seconds
+
+    @property
+    def context(self) -> GraphContext:
+        """Services for this run, including the live session check."""
+        return self._context
 
     async def run(
         self,
@@ -284,8 +290,22 @@ def production_context(
     settings: Settings,
     sessions: async_sessionmaker[AsyncSession],
     store: EvidenceVectorStore,
+    *,
+    owner_user_id: UUID,
+    session_id: UUID | None = None,
 ) -> GraphContext:
     """The services one HTTP run calls. The store is closed by the caller."""
+
+    async def session_active() -> bool:
+        if session_id is None:
+            return True
+        return await session_is_active(
+            sessions,
+            session_id,
+            datetime.now(UTC),
+            idle_seconds=settings.session_idle_seconds,
+        )
+
     embedder = OpenAIEmbedder(settings)
     return GraphContext(
         planner=Planner(settings),
@@ -296,6 +316,8 @@ def production_context(
         synthesizer=OpenAIReportSynthesizer(settings),
         limits=limits_from_settings(settings),
         clock=lambda: datetime.now(UTC),
+        owner_user_id=owner_user_id,
+        session_active=session_active,
     )
 
 

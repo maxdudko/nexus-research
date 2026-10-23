@@ -14,18 +14,43 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
 }));
 
+const scope = vi.hoisted(() => {
+  const ids = [
+    "22222222-2222-4222-8222-222222222222",
+    "33333333-3333-4333-8333-333333333331",
+    "44444444-4444-4444-8444-444444444444",
+    "55555555-5555-4555-8555-555555555555",
+    "66666666-6666-4666-8666-666666666666",
+  ];
+  let index = 0;
+  const next = vi.fn(async () => {
+    const id = ids[index] ?? ids[0];
+    index += 1;
+    return id;
+  });
+  return {
+    reset: () => {
+      index = 0;
+      next.mockClear();
+    },
+    next,
+  };
+});
+
 vi.mock("@/lib/api", () => ({
   uploadPdf: vi.fn(),
   openResearchStream: vi.fn(),
   getRun: vi.fn(),
   listRuns: vi.fn(),
+  createResearchScope: scope.next,
 }));
 
-import { getRun, openResearchStream, uploadPdf } from "@/lib/api";
+import { createResearchScope, getRun, openResearchStream, uploadPdf } from "@/lib/api";
 
 const uploadPdfMock = vi.mocked(uploadPdf);
 const openResearchStreamMock = vi.mocked(openResearchStream);
 const getRunMock = vi.mocked(getRun);
+const createResearchScopeMock = vi.mocked(createResearchScope);
 
 function sseResponse(chunks: string[], hanging = false): Response {
   const encoder = new TextEncoder();
@@ -78,9 +103,27 @@ function detail(status: RunStatus, errorCode: string | null = null): RunDetailRe
   };
 }
 
+async function renderStream(navigate: (href: string) => void = vi.fn()) {
+  let rendered: ReturnType<typeof renderHook<ReturnType<typeof useResearchStream>, unknown>> | undefined;
+  await act(async () => {
+    rendered = renderHook(() => useResearchStream(navigate));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  if (!rendered) throw new Error("hook did not render");
+  return rendered;
+}
+
 async function flush(): Promise<void> {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
+async function flushScope(): Promise<void> {
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
   });
 }
 
@@ -88,11 +131,15 @@ describe("useResearchStream", () => {
   afterEach(() => {
     vi.clearAllMocks();
     vi.useRealTimers();
+    scope.reset();
   });
 
-  it("does not start a stream on mount", () => {
-    renderHook(() => useResearchStream(vi.fn()));
+  it("does not start a stream on mount", async () => {
+    const { result } = await renderStream();
+    expect(createResearchScopeMock).toHaveBeenCalledTimes(1);
+    expect(result.current.state.researchId).toBe("22222222-2222-4222-8222-222222222222");
     expect(openResearchStreamMock).not.toHaveBeenCalled();
+    expect(uploadPdfMock).not.toHaveBeenCalled();
   });
 
   it("uploads the PDF and streams with the same research id", async () => {
@@ -121,7 +168,7 @@ describe("useResearchStream", () => {
       report: null,
     });
     const navigate = vi.fn();
-    const { result } = renderHook(() => useResearchStream(navigate));
+    const { result } = await renderStream(navigate);
     const researchId = result.current.state.researchId;
     uploadPdfMock.mockResolvedValue({
       source_id: "33333333-3333-4333-8333-333333333333",
@@ -139,6 +186,9 @@ describe("useResearchStream", () => {
       result.current.start();
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
+    expect(createResearchScopeMock.mock.invocationCallOrder[0]).toBeLessThan(
+      uploadPdfMock.mock.invocationCallOrder[0],
+    );
     expect(uploadPdfMock).toHaveBeenCalledWith(researchId, file, expect.any(AbortSignal));
     expect(openResearchStreamMock).toHaveBeenCalledWith(
       { question: "How does the proxy stream results?", research_id: researchId },
@@ -153,7 +203,7 @@ describe("useResearchStream", () => {
     openResearchStreamMock.mockResolvedValue(sseResponse([started(), completed("partial")]));
     getRunMock.mockRejectedValue(new ApiError("history_unavailable", "History is unavailable.", 503));
     const navigate = vi.fn();
-    const { result } = renderHook(() => useResearchStream(navigate));
+    const { result } = await renderStream(navigate);
     act(() => {
       result.current.setQuestion("How does the proxy stream results?");
     });
@@ -168,7 +218,7 @@ describe("useResearchStream", () => {
 
   it("treats stop as interrupted and a short stream as disconnected", async () => {
     openResearchStreamMock.mockResolvedValue(sseResponse([started()], true));
-    const { result } = renderHook(() => useResearchStream(vi.fn()));
+    const { result } = await renderStream();
     act(() => {
       result.current.setQuestion("How does the proxy stream results?");
     });
@@ -195,9 +245,10 @@ describe("useResearchStream", () => {
         })}\n\n`,
       ]),
     );
-    act(() => {
+    await act(async () => {
       result.current.retry();
     });
+    await flushScope();
     const nextId = result.current.state.researchId;
     expect(result.current.state.retryNotice).toContain("new run");
     act(() => {
@@ -217,7 +268,7 @@ describe("useResearchStream", () => {
     openResearchStreamMock.mockResolvedValue(sseResponse([started()]));
     getRunMock.mockResolvedValue(detail("running"));
     const navigate = vi.fn();
-    const { result } = renderHook(() => useResearchStream(navigate));
+    const { result } = await renderStream(navigate);
     act(() => {
       result.current.setQuestion("How does the proxy stream results?");
     });
@@ -241,7 +292,7 @@ describe("useResearchStream", () => {
     openResearchStreamMock.mockResolvedValue(sseResponse([started()]));
     getRunMock.mockResolvedValue(detail("partial"));
     const navigate = vi.fn();
-    const { result } = renderHook(() => useResearchStream(navigate));
+    const { result } = await renderStream(navigate);
     act(() => {
       result.current.setQuestion("How does the proxy stream results?");
     });
@@ -273,7 +324,7 @@ describe("useResearchStream", () => {
       ),
     );
     getRunMock.mockResolvedValue(detail("failed", "provider_unavailable"));
-    const { result } = renderHook(() => useResearchStream(vi.fn()));
+    const { result } = await renderStream();
     act(() => {
       result.current.setQuestion("How does the proxy stream results?");
     });
@@ -290,7 +341,7 @@ describe("useResearchStream", () => {
   it("shows a stored interruption after the stream drops", async () => {
     openResearchStreamMock.mockResolvedValue(sseResponse([started()]));
     getRunMock.mockResolvedValue(detail("interrupted", "interrupted"));
-    const { result } = renderHook(() => useResearchStream(vi.fn()));
+    const { result } = await renderStream();
     act(() => {
       result.current.setQuestion("How does the proxy stream results?");
     });
@@ -306,7 +357,7 @@ describe("useResearchStream", () => {
   it("stays disconnected when the follow-up read fails", async () => {
     openResearchStreamMock.mockResolvedValue(sseResponse([started()]));
     getRunMock.mockRejectedValue(new ApiError("history_unavailable", "History is unavailable.", 503));
-    const { result } = renderHook(() => useResearchStream(vi.fn()));
+    const { result } = await renderStream();
     act(() => {
       result.current.setQuestion("How does the proxy stream results?");
     });
@@ -348,7 +399,7 @@ describe("useResearchStream", () => {
       },
       report: null,
     });
-    const { result } = renderHook(() => useResearchStream(vi.fn()));
+    const { result } = await renderStream();
     const firstId = result.current.state.researchId;
     const file = new File(["%PDF-1.4"], "notes.pdf", { type: "application/pdf" });
     act(() => {
@@ -361,9 +412,11 @@ describe("useResearchStream", () => {
     });
     expect(uploadPdfMock).toHaveBeenCalledWith(firstId, file, expect.any(AbortSignal));
 
-    act(() => {
+    const scopesBeforeRetry = createResearchScopeMock.mock.calls.length;
+    await act(async () => {
       result.current.retry();
     });
+    await flushScope();
     const secondId = result.current.state.researchId;
     expect(secondId).not.toBe(firstId);
     expect(result.current.state.indexed).toBe(false);
@@ -373,6 +426,7 @@ describe("useResearchStream", () => {
       result.current.start();
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
+    expect(createResearchScopeMock.mock.calls.length).toBe(scopesBeforeRetry + 1);
     expect(uploadPdfMock).toHaveBeenCalledWith(secondId, file, expect.any(AbortSignal));
     expect(openResearchStreamMock).toHaveBeenLastCalledWith(
       { question: "How does the proxy stream results?", research_id: secondId },
@@ -380,8 +434,11 @@ describe("useResearchStream", () => {
     );
 
     const replacement = new File(["%PDF-1.4"], "replacement.pdf", { type: "application/pdf" });
-    act(() => {
+    await act(async () => {
       result.current.retry();
+    });
+    await flushScope();
+    act(() => {
       result.current.setFile(replacement);
     });
     const thirdId = result.current.state.researchId;
@@ -395,8 +452,11 @@ describe("useResearchStream", () => {
     expect(replacementCall?.[1]).toBe(replacement);
     expect(replacementCall?.[1]).not.toBe(file);
 
-    act(() => {
+    await act(async () => {
       result.current.retry();
+    });
+    await flushScope();
+    act(() => {
       result.current.setFile(null);
     });
     const fourthId = result.current.state.researchId;
@@ -416,7 +476,7 @@ describe("useResearchStream", () => {
   it("shows stalled when no frame arrives for 45 seconds", async () => {
     vi.useFakeTimers();
     openResearchStreamMock.mockResolvedValue(sseResponse([started()], true));
-    const { result } = renderHook(() => useResearchStream(vi.fn()));
+    const { result } = await renderStream();
     act(() => {
       result.current.setQuestion("How does the proxy stream results?");
     });

@@ -19,9 +19,11 @@ from nexus.ai.errors import (
     ResearchError,
     indexing_in_progress,
     ingestion_timeout,
+    not_found,
     payload_too_large,
 )
 from nexus.core.config import Settings
+from nexus.identity.scopes import owned_scope
 from nexus.ingestion.chunking import (
     Chunker,
     TextChunk,
@@ -96,6 +98,11 @@ class IngestionService:
         )
         self._fetch_page = fetch_page
 
+    async def _require_owner(self, owner_id: uuid.UUID, research_id: uuid.UUID) -> None:
+        found = await owned_scope(self._sessions, owner_id, research_id)
+        if found is None:
+            raise not_found()
+
     @property
     def settings(self) -> Settings:
         return self._settings
@@ -105,8 +112,11 @@ class IngestionService:
         research_id: uuid.UUID,
         data: bytes,
         display_name: str | None,
+        *,
+        owner_id: uuid.UUID,
     ) -> IngestionResult:
         """Extract a PDF and index its pages. The file bytes are discarded."""
+        await self._require_owner(owner_id, research_id)
         attempt = _Attempt()
 
         async def prepare() -> IngestionResult:
@@ -131,8 +141,15 @@ class IngestionService:
 
         return await self._deadline(attempt, prepare)
 
-    async def ingest_web(self, research_id: uuid.UUID, url: str) -> IngestionResult:
+    async def ingest_web(
+        self,
+        research_id: uuid.UUID,
+        url: str,
+        *,
+        owner_id: uuid.UUID,
+    ) -> IngestionResult:
         """Fetch one public page and index its article text."""
+        await self._require_owner(owner_id, research_id)
         attempt = _Attempt()
 
         async def prepare() -> IngestionResult:

@@ -44,6 +44,8 @@ _ALLOW = frozenset(
         "operation_count",
         "estimated_usd",
         "unknown_operations",
+        "action",
+        "target_user_id",
     }
 )
 _FORBIDDEN = frozenset(
@@ -63,9 +65,13 @@ _FORBIDDEN = frozenset(
         "vector",
         "secret",
         "body",
+        "password",
+        "token",
+        "pepper",
+        "question",
     }
 )
-_EVENTS = frozenset({"operation", "research.usage"})
+_EVENTS = frozenset({"operation", "research.usage", "identity.audit"})
 _STRING_FIELDS = frozenset(
     {
         "error_code",
@@ -83,6 +89,8 @@ _STRING_FIELDS = frozenset(
         "span_id",
         "run_id",
         "research_id",
+        "action",
+        "target_user_id",
     }
 )
 

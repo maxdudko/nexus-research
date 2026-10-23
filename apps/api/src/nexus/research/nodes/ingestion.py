@@ -8,7 +8,7 @@ from uuid import UUID
 
 from nexus.ai.errors import ResearchError
 from nexus.research.budgets import BudgetLimits, charge_pages, pending_urls
-from nexus.research.nodes.common import stopped
+from nexus.research.nodes.common import before_provider
 from nexus.research.state import ResearchState, UsageSnapshot, copy_usage
 
 if TYPE_CHECKING:
@@ -22,8 +22,9 @@ async def ingest_node(
     runtime: Runtime[GraphContext],
 ) -> dict[str, object]:
     """Index new public URLs for this research scope, up to the page cap."""
-    if stopped(state):
-        return {}
+    gate = await before_provider(state, runtime.context.session_active)
+    if gate is not None:
+        return gate
     limits = runtime.context.limits
     urls = pending_urls(
         state["candidate_urls"],
@@ -42,7 +43,11 @@ async def ingest_node(
     warnings = list(state["warnings"])
     for url in urls:
         try:
-            result = await runtime.context.ingestion.ingest_web(research_id, url)
+            result = await runtime.context.ingestion.ingest_web(
+                research_id,
+                url,
+                owner_id=runtime.context.owner_user_id,
+            )
         except asyncio.CancelledError:
             raise
         except ResearchError:

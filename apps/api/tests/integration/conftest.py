@@ -5,6 +5,11 @@ import os
 import re
 import subprocess
 import sys
+
+os.environ.setdefault(
+    "NEXUS_SESSION_PEPPER",
+    "integration-test-pepper-0123456789abcd",
+)
 from collections.abc import AsyncIterator
 from pathlib import Path
 from urllib.parse import urlsplit

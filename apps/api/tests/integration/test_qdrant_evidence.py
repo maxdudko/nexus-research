@@ -8,6 +8,7 @@ import pytest
 from qdrant_client import models
 from tests.conftest import make_settings
 from tests.integration.conftest import require_local_qdrant, run_alembic
+from tests.integration.scopes import quarantine_scopes
 
 from nexus.ai.errors import ResearchError
 from nexus.core.config import get_settings
@@ -113,6 +114,7 @@ async def test_research_filter_replacement_and_idempotent_upsert(
     engine = create_db_engine(test_database_url)
     factory = session_factory(engine)
     research_id = uuid.uuid4()
+    await quarantine_scopes(factory, research_id)
     other_research = uuid.uuid4()
     first_text = "alpha evidence"
     second_text = "beta evidence"
@@ -285,6 +287,7 @@ async def test_upsert_failure_does_not_mark_the_source_indexed(
     engine = create_db_engine(test_database_url)
     factory = session_factory(engine)
     research_id = uuid.uuid4()
+    await quarantine_scopes(factory, research_id)
     content_hash = _hash("failed attempt")
 
     async def fail_upsert(*args: object, **kwargs: object) -> None:
@@ -340,6 +343,7 @@ async def test_stale_claim_cannot_delete_newer_points(
     engine = create_db_engine(test_database_url)
     factory = session_factory(engine)
     research_id = uuid.uuid4()
+    await quarantine_scopes(factory, research_id)
     first_text = "first attempt"
     second_text = "second attempt"
     first_hash = _hash(first_text)
@@ -459,6 +463,7 @@ async def test_replaced_token_cannot_delete_a_reused_digest(
     engine = create_db_engine(test_database_url)
     factory = session_factory(engine)
     research_id = uuid.uuid4()
+    await quarantine_scopes(factory, research_id)
     text = "same evidence"
     digest = _hash(text)
     try:
@@ -525,6 +530,7 @@ async def test_concurrent_retire_keeps_the_winning_token(
     engine = create_db_engine(test_database_url)
     factory = session_factory(engine)
     research_id = uuid.uuid4()
+    await quarantine_scopes(factory, research_id)
     first_text = "older evidence"
     second_text = "newer evidence"
     first_hash = _hash(first_text)
@@ -650,6 +656,7 @@ async def test_late_upsert_does_not_replace_accepted_points(
     engine = create_db_engine(test_database_url)
     factory = session_factory(engine)
     research_id = uuid.uuid4()
+    await quarantine_scopes(factory, research_id)
     text = "accepted evidence"
     digest = _hash(text)
     try:

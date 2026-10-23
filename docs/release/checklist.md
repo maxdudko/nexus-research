@@ -6,7 +6,7 @@ Rules for filling it in:
 
 - Record only evidence that was actually observed: a CI link, a command and its output, or a filled demo record. Never write expected results into an evidence field.
 - Every item must pass on the **release commit**, the exact SHA that will be tagged. Evidence from an earlier commit is a baseline, not a pass.
-- Tagging and publishing are manual maintainer actions. Nothing in CI tags, pushes or publishes a release.
+- Tagging and publishing are manual maintainer actions. Nothing in CI tags, pushes or publishes a release. Pushing a tag runs the Release workflow. It verifies the tag and keeps the built images as a workflow artifact only.
 
 ## Release record
 
@@ -222,6 +222,8 @@ Persistence after restart
    git tag -a v0.1.0 <release-sha> -m "Nexus Research v0.1.0"
    git push origin v0.1.0
    ```
+
+   Run `python3 scripts/check_release_version.py --tag v0.1.0` before tagging. After the push, wait for the Release workflow to go green. Record its run link and the `SHA256SUMS` from the `release-images-<version>` artifact as release evidence.
 
 3. Create the GitHub release from the tag with the notes below, edited to match the recorded evidence.
 4. Open the Alpha milestone for Phases 8–10 ([roadmap](../roadmap.md#after-the-mvp-alpha-v020)). Do not implement any of it on the release branch.

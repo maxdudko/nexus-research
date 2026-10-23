@@ -1,11 +1,17 @@
 """Thin evidence routes. Extraction and indexing live in the ingestion package."""
 
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Annotated
-from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi import APIRouter, Depends, Request
 
+from nexus.api.ownership import (
+    OwnedEvidence,
+    authorize_pdf,
+    authorize_search,
+    authorize_web,
+)
 from nexus.core.config import Settings
 from nexus.ingestion.pdf import close_upload, filename_display_name, read_bounded
 from nexus.ingestion.service import IngestionResult, IngestionService
@@ -15,59 +21,74 @@ from nexus.retrieval.vector_store import EvidenceVectorStore
 from nexus.schemas.evidence import (
     IngestionResponse,
     SearchMatch,
-    SearchRequest,
     SearchResponse,
-    WebIngestionRequest,
 )
 
 router = APIRouter()
 
 
-async def get_ingestion(request: Request) -> AsyncIterator[IngestionService]:
-    """Build a request-scoped indexer and close its Qdrant client afterwards."""
-    settings: Settings = request.app.state.settings
-    store = EvidenceVectorStore(settings)
-    service = IngestionService(
-        request.app.state.session_factory,
-        store,
-        OpenAIEmbedder(settings),
-        settings,
-    )
-    try:
+async def get_ingestion(
+    request: Request,
+    scope: Annotated[OwnedEvidence, Depends(authorize_pdf)],
+) -> AsyncIterator[IngestionService]:
+    """Open Qdrant only after this PDF belongs to an owned scope."""
+    del scope
+    async with _ingestion(request) as service:
         yield service
-    finally:
-        await store.close()
+
+
+async def get_web_ingestion(
+    request: Request,
+    scope: Annotated[OwnedEvidence, Depends(authorize_web)],
+) -> AsyncIterator[IngestionService]:
+    """Open Qdrant only after this page belongs to an owned scope."""
+    del scope
+    async with _ingestion(request) as service:
+        yield service
 
 
 @router.post("/pdf", response_model=IngestionResponse)
 async def ingest_pdf(
-    research_id: Annotated[UUID, Form()],
-    file: Annotated[UploadFile, File()],
+    scope: Annotated[OwnedEvidence, Depends(authorize_pdf)],
     service: Annotated[IngestionService, Depends(get_ingestion)],
 ) -> IngestionResult:
     """Index a text PDF. The upload is closed before the response returns."""
+    upload = scope.upload
+    if upload is None:
+        raise AssertionError("pdf upload missing")
     try:
-        data = await read_bounded(file, service.settings.pdf_max_bytes)
+        data = await read_bounded(upload, service.settings.pdf_max_bytes)
         return await service.ingest_pdf(
-            research_id,
+            scope.research_id,
             data,
-            filename_display_name(file.filename),
+            filename_display_name(upload.filename),
+            owner_id=scope.user.id,
         )
     finally:
-        await close_upload(file)
+        await close_upload(upload)
 
 
 @router.post("/web", response_model=IngestionResponse)
 async def ingest_web(
-    body: WebIngestionRequest,
-    service: Annotated[IngestionService, Depends(get_ingestion)],
+    scope: Annotated[OwnedEvidence, Depends(authorize_web)],
+    service: Annotated[IngestionService, Depends(get_web_ingestion)],
 ) -> IngestionResult:
     """Index one public HTML page."""
-    return await service.ingest_web(body.research_id, body.url)
+    if scope.web is None:
+        raise AssertionError("web request missing")
+    return await service.ingest_web(
+        scope.research_id,
+        scope.web.url,
+        owner_id=scope.user.id,
+    )
 
 
-async def get_retrieval(request: Request) -> AsyncIterator[RetrievalService]:
-    """Build a request-scoped searcher and close its Qdrant client afterwards."""
+async def get_retrieval(
+    request: Request,
+    scope: Annotated[OwnedEvidence, Depends(authorize_search)],
+) -> AsyncIterator[RetrievalService]:
+    """Open Qdrant only after this query belongs to an owned scope."""
+    del scope
     settings: Settings = request.app.state.settings
     store = EvidenceVectorStore(settings)
     service = RetrievalService(
@@ -83,11 +104,18 @@ async def get_retrieval(request: Request) -> AsyncIterator[RetrievalService]:
 
 @router.post("/search", response_model=SearchResponse)
 async def search_evidence(
-    body: SearchRequest,
+    scope: Annotated[OwnedEvidence, Depends(authorize_search)],
     service: Annotated[RetrievalService, Depends(get_retrieval)],
 ) -> SearchResponse:
     """Return scoped evidence. The score is similarity, not an answer."""
-    matches = await service.search(body.research_id, body.query, body.top_k)
+    if scope.search is None:
+        raise AssertionError("search request missing")
+    matches = await service.search(
+        scope.research_id,
+        scope.search.query,
+        scope.search.top_k,
+        owner_id=scope.user.id,
+    )
     return SearchResponse(
         matches=[
             SearchMatch(
@@ -102,3 +130,19 @@ async def search_evidence(
             for match in matches
         ],
     )
+
+
+@asynccontextmanager
+async def _ingestion(request: Request) -> AsyncIterator[IngestionService]:
+    settings: Settings = request.app.state.settings
+    store = EvidenceVectorStore(settings)
+    service = IngestionService(
+        request.app.state.session_factory,
+        store,
+        OpenAIEmbedder(settings),
+        settings,
+    )
+    try:
+        yield service
+    finally:
+        await store.close()

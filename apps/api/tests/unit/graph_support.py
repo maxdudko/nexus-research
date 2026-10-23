@@ -69,7 +69,13 @@ class FakeIngestion:
         self._results = list(results or [])
         self.calls: list[tuple[UUID, str]] = []
 
-    async def ingest_web(self, research_id: UUID, url: str) -> IngestionResult:
+    async def ingest_web(
+        self,
+        research_id: UUID,
+        url: str,
+        *,
+        owner_id: UUID,
+    ) -> IngestionResult:
         self.calls.append((research_id, url))
         if self._results:
             item = self._results.pop(0)
@@ -107,7 +113,10 @@ class FakeRetrieval:
         research_id: UUID,
         query: str,
         top_k: int,
+        *,
+        owner_id: UUID,
     ) -> list[EvidenceMatch]:
+        del owner_id
         self.calls.append((research_id, query, top_k))
         if isinstance(self._matches, Exception):
             raise self._matches
@@ -229,6 +238,7 @@ def make_context(
     retrieval: FakeRetrieval,
     evaluator: ScriptedEvaluator | StaticEvaluator | None = None,
     synthesizer: ReportSynthesizer | None = None,
+    owner_user_id: UUID | None = None,
 ) -> GraphContext:
     """Services for one offline run. The clock does not advance."""
     return GraphContext(
@@ -240,6 +250,7 @@ def make_context(
         synthesizer=synthesizer or StaticSynthesizer(),
         limits=limits_from_settings(make_settings()),
         clock=lambda: NOW,
+        owner_user_id=owner_user_id or UUID("00000000-0000-4000-8000-0000000000aa"),
     )
 
 

@@ -1,10 +1,11 @@
 """Process configuration loaded once at startup."""
 
+import hmac
 import re
 import sys
 from decimal import Decimal
 from functools import lru_cache
-from typing import Literal, Self
+from typing import Annotated, Literal, Self
 
 from pydantic import (
     AnyHttpUrl,
@@ -16,7 +17,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -72,12 +73,40 @@ class Settings(BaseSettings):
     otel_sample_ratio: float = Field(default=1.0, ge=0, le=1)
     log_format: Literal["json", "text"] = "json"
     tavily_usd_per_search: Decimal | None = Field(default=None, ge=0)
+    session_pepper: SecretStr
+    session_absolute_seconds: int = Field(default=12 * 60 * 60, gt=0, le=24 * 60 * 60)
+    session_idle_seconds: int = Field(default=4 * 60 * 60, gt=0, le=24 * 60 * 60)
+    session_touch_seconds: int = Field(default=5 * 60, gt=0, le=60 * 60)
+    cookie_insecure_loopback: bool = False
+    cookie_secure: bool | None = None
+    trusted_origins: Annotated[list[str], NoDecode] = Field(default_factory=list)
+    login_max_email_failures: int = Field(default=5, ge=1, le=20)
+    login_max_ip_failures: int = Field(default=30, ge=1, le=100)
+    login_failure_window_seconds: int = Field(default=15 * 60, ge=60, le=60 * 60)
 
     @model_validator(mode="after")
     def overlap_fits_in_a_chunk(self) -> Self:
         if self.chunk_overlap_tokens >= self.chunk_tokens:
             raise ValueError("chunk overlap must be smaller than the chunk size")
         return self
+
+    @model_validator(mode="after")
+    def session_pepper_is_independent(self) -> Self:
+        pepper = self.session_pepper.get_secret_value()
+        if len(pepper.encode("utf-8")) < 32:
+            raise ValueError("session pepper must be at least 32 bytes")
+        password = _database_password(self.database_url)
+        if (
+            password is not None
+            and len(password) == len(pepper)
+            and hmac.compare_digest(pepper, password)
+        ):
+            raise ValueError("session pepper must not match the database password")
+        return self
+
+    def secure_cookies(self) -> bool:
+        """Return the resolved Secure flag. Validation always sets it."""
+        return bool(self.cookie_secure)
 
     @field_validator("database_url")
     @classmethod
@@ -91,6 +120,50 @@ class Settings(BaseSettings):
                 "the development database password is not allowed in production"
             )
         return value
+
+    @field_validator("session_pepper", mode="before")
+    @classmethod
+    def session_pepper_present(cls, value: object) -> object:
+        if value is None or value == "":
+            raise ValueError("must not be empty")
+        return value
+
+    @field_validator("trusted_origins", mode="before")
+    @classmethod
+    def split_trusted_origins(cls, value: object) -> object:
+        if value is None or value == "":
+            return []
+        if isinstance(value, str):
+            return [part.strip() for part in value.split(",") if part.strip()]
+        return value
+
+    @field_validator("trusted_origins")
+    @classmethod
+    def trusted_origin_list(cls, value: list[str], info: ValidationInfo) -> list[str]:
+        cleaned: list[str] = []
+        for origin in value:
+            if _ORIGIN.fullmatch(origin) is None:
+                raise ValueError("must be an origin without a path")
+            if origin not in cleaned:
+                cleaned.append(origin)
+        if cleaned:
+            return cleaned
+        if info.data.get("environment") == "production":
+            raise ValueError("trusted origins are required in production")
+        return ["http://127.0.0.1:3000", "http://localhost:3000"]
+
+    @field_validator("cookie_secure")
+    @classmethod
+    def resolve_cookie_secure(cls, value: bool | None, info: ValidationInfo) -> bool:
+        environment = info.data.get("environment")
+        loopback = bool(info.data.get("cookie_insecure_loopback"))
+        resolved = environment == "production" if value is None else value
+        if environment == "production" and not resolved and not loopback:
+            raise ValueError(
+                "production cookies must be Secure unless "
+                "NEXUS_COOKIE_INSECURE_LOOPBACK is true"
+            )
+        return resolved
 
     @field_validator(
         "openai_api_key",
@@ -134,6 +207,17 @@ class Settings(BaseSettings):
         if re.fullmatch(r"[a-z][a-z0-9_]{0,63}", stripped) is None:
             raise ValueError("must be a lowercase identifier")
         return stripped
+
+
+_ORIGIN = re.compile(r"^https?://(?:localhost|\[::1\]|[A-Za-z0-9.-]+)(?::[0-9]{1,5})?$")
+
+
+def _database_password(url: PostgresDsn) -> str | None:
+    for host in url.hosts():
+        password = host.get("password")
+        if isinstance(password, str) and password:
+            return password
+    return None
 
 
 def _format_settings_error(exc: ValidationError) -> str:
