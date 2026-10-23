@@ -266,3 +266,59 @@ async def test_adopt_scope_is_explicit_and_downgrade_stops_for_a_real_owner(
     assert "sources" in names
     assert "users" in names
     assert surviving == QUESTION
+
+
+async def test_identity_downgrade_refuses_while_scopes_exist(
+    test_database_url: str,
+) -> None:
+    await _alembic(test_database_url, "upgrade", "head")
+    research_id = uuid.uuid4()
+    engine = create_db_engine(test_database_url)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "INSERT INTO research_scopes (research_id, owner_user_id) "
+                    "VALUES (:research_id, :owner)"
+                ),
+                {"research_id": research_id, "owner": QUARANTINE_USER_ID},
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO research_runs "
+                    "(run_id, research_id, question, status) "
+                    "VALUES (:run_id, :research_id, :question, 'running')"
+                ),
+                {
+                    "run_id": uuid.uuid4(),
+                    "research_id": research_id,
+                    "question": QUESTION,
+                },
+            )
+    finally:
+        await engine.dispose()
+
+    stamped = await run_alembic(test_database_url, "stamp", "c8e4a1b27d05")
+    assert stamped.returncode == 0, stamped.stderr
+    blocked = await run_alembic(test_database_url, "downgrade", "-1")
+    assert blocked.returncode != 0
+    assert "research_scopes" in blocked.stderr + blocked.stdout
+    engine = create_db_engine(test_database_url)
+    try:
+        async with engine.connect() as connection:
+            version = await connection.scalar(
+                text("SELECT version_num FROM alembic_version")
+            )
+            names = set(
+                await connection.scalars(
+                    text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
+                )
+            )
+            surviving = await connection.scalar(
+                text("SELECT question FROM research_runs")
+            )
+    finally:
+        await engine.dispose()
+    assert version == "c8e4a1b27d05"
+    assert {"users", "auth_sessions", "research_scopes", "research_runs"} <= names
+    assert surviving == QUESTION

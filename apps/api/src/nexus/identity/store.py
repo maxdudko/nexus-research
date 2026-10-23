@@ -218,18 +218,59 @@ async def create_session(
     """Store a session digest. The raw token is not a column."""
     session_id = uuid.uuid4()
     async with factory() as db, db.begin():
-        db.add(
-            AuthSession(
-                id=session_id,
-                user_id=user_id,
-                token_hash=token_hash,
-                created_at=now,
-                last_used_at=now,
-                expires_at=expires_at,
-                revoked_at=None,
-            )
-        )
+        db.add(_session_row(session_id, user_id, token_hash, now, expires_at))
     return session_id
+
+
+async def issue_session(
+    factory: async_sessionmaker[AsyncSession],
+    user_id: uuid.UUID,
+    expected_password_hash: str,
+    token_hash: bytes,
+    now: datetime,
+    expires_at: datetime,
+    *,
+    replacement_password_hash: str | None = None,
+) -> uuid.UUID | None:
+    """Insert a session only while the verified verifier is still current.
+
+    Reset and disablement take this same user-row lock before they revoke
+    sessions. If they commit first, the hash or status no longer matches and
+    nothing is inserted. If this insert commits first, their waiting
+    transaction revokes the new row.
+    """
+    session_id = uuid.uuid4()
+    async with factory() as db, db.begin():
+        user = await db.scalar(select(User).where(User.id == user_id).with_for_update())
+        if (
+            user is None
+            or user.status != "active"
+            or user.password_hash != expected_password_hash
+        ):
+            return None
+        if replacement_password_hash is not None:
+            user.password_hash = replacement_password_hash
+            user.updated_at = now
+        db.add(_session_row(session_id, user_id, token_hash, now, expires_at))
+    return session_id
+
+
+def _session_row(
+    session_id: uuid.UUID,
+    user_id: uuid.UUID,
+    token_hash: bytes,
+    now: datetime,
+    expires_at: datetime,
+) -> AuthSession:
+    return AuthSession(
+        id=session_id,
+        user_id=user_id,
+        token_hash=token_hash,
+        created_at=now,
+        last_used_at=now,
+        expires_at=expires_at,
+        revoked_at=None,
+    )
 
 
 async def get_session_by_hash(
@@ -254,6 +295,53 @@ async def get_session_by_hash(
             auth_session.last_used_at,
             auth_session.revoked_at,
         )
+
+
+async def session_allows_success(
+    db: AsyncSession,
+    session_id: uuid.UUID,
+    now: datetime,
+    *,
+    idle_seconds: int,
+) -> bool:
+    """Return whether this open transaction may commit a successful stream.
+
+    Lock the user before the session row, matching password reset and
+    disablement. A revocation that already committed is visible. One that
+    starts after these locks waits until this transaction finishes.
+    """
+    user_id = await db.scalar(
+        select(AuthSession.user_id).where(AuthSession.id == session_id)
+    )
+    if user_id is None:
+        return False
+    user = await db.scalar(
+        select(User)
+        .where(User.id == user_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if user is None:
+        return False
+    auth_session = await db.scalar(
+        select(AuthSession)
+        .where(AuthSession.id == session_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if auth_session is None:
+        return False
+    return (
+        session_verdict(
+            status=user.status,
+            expires_at=auth_session.expires_at,
+            last_used_at=auth_session.last_used_at,
+            revoked_at=auth_session.revoked_at,
+            now=now,
+            idle_seconds=idle_seconds,
+        )
+        == "ok"
+    )
 
 
 async def session_is_active(

@@ -18,9 +18,9 @@ The upgrade exercise that CI runs starts at schema `b7e2c91a4f10`, the v0.1.0 he
 ## Residual risk
 
 - Limits are process memory on the one API process. A restart clears the counters.
-- The login address bucket sees the web container. The proxy does not forward a client address.
+- The login address bucket sees the socket address of the API connection. Through the Next.js proxy that is the web container, so the cap is instance-wide. The API ignores `X-Forwarded-For` and `Forwarded`. Trusting either header would let a caller choose a fresh bucket.
 - The release stack does not terminate TLS.
-- A revoked stream can finish the provider call already in flight. The next heartbeat, or the next provider node on `/run`, is the cancellation point.
+- A provider call already in flight can finish and spend its cost. A successful stream commit re-reads the locked session and stores `interrupted` with no report when that session is gone. `/run` has no history row and notices revocation at the next provider node. The remaining window is that one locked transaction.
 - Qdrant payloads have no owner field. PostgreSQL rejects a foreign scope before the vector call.
 - These controls are not a public-deployment review.
 
@@ -28,12 +28,12 @@ The upgrade exercise that CI runs starts at schema `b7e2c91a4f10`, the v0.1.0 he
 
 Record the date, the commit, and what you saw. Leave a box open until that step was observed. The paid web-research walk-through is an operator action.
 
-- [ ] Second account can log in.
-- [ ] That account can upload a text PDF.
-- [ ] That account can run web research and reach a terminal status.
-- [ ] Stopping the stream stores the run as `interrupted`.
-- [ ] History after a refresh shows that account's own run.
-- [ ] The other account receives 404 for that run and does not see the question.
-- [ ] Logout ends the session.
+- [x] Second account can log in.
+- [x] That account can upload a text PDF.
+- [x] That account can run web research and reach a terminal status.
+- [x] Stopping the stream stores the run as `interrupted`.
+- [x] History after a refresh shows that account's own run.
+- [x] The other account receives 404 for that run and does not see the question.
+- [x] Logout ends the session.
 
 Mark Phase 8 done in the roadmap only after every box above is filled in from an observed run.

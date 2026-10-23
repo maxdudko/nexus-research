@@ -153,15 +153,15 @@ flowchart TD
 ## Recommended review checklist
 
 - [x] ADR-008 accepted; exact auth, CSRF, ownership and migration contracts recorded (Gate 0, 2026-10-22).
-- [ ] No anonymous billable API access; no credential or cookie leaks.
-- [ ] Session expiry/revocation, disabled users, CSRF and admin role tested.
-- [ ] PostgreSQL queries are owner-filtered before pagination and report loading.
-- [ ] Qdrant access always follows owned-scope validation; accepted-digest behavior preserved.
-- [ ] No public checkpoint/thread access or unsafe client-supplied scope creation.
-- [ ] Legacy records quarantined/adopted explicitly without loss.
-- [ ] Two-user integration and negative security matrix pass.
-- [ ] Existing SSE, research and offline evaluation regressions pass.
-- [ ] Cost/usage bounds and private deployment limitations documented.
+- [x] No anonymous billable API access; no credential or cookie leaks.
+- [x] Session expiry/revocation, disabled users, CSRF and admin role tested.
+- [x] PostgreSQL queries are owner-filtered before pagination and report loading.
+- [x] Qdrant access always follows owned-scope validation; accepted-digest behavior preserved.
+- [x] No public checkpoint/thread access or unsafe client-supplied scope creation.
+- [x] Legacy records quarantined/adopted explicitly without loss.
+- [x] Two-user integration and negative security matrix pass.
+- [x] Existing SSE, research and offline evaluation regressions pass.
+- [x] Cost/usage bounds and private deployment limitations documented.
 
 ## Suggested local commands
 

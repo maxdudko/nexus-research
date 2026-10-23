@@ -17,7 +17,7 @@ from nexus.research.events import (
     ResearchInterrupted,
     ResearchStarted,
 )
-from nexus.research.history import HistoryConflict
+from nexus.research.history import HistoryConflict, SessionGate
 from nexus.research.runner import GraphProgress, ResearchRunner
 from nexus.research.streaming import (
     HEARTBEAT,
@@ -44,7 +44,9 @@ class StreamHistory(Protocol):
         warnings: list[str],
         usage: GraphUsage,
         now: datetime,
-    ) -> None: ...
+        *,
+        session_gate: SessionGate | None = None,
+    ) -> bool: ...
 
     async def finalize_failure(
         self,
@@ -75,6 +77,7 @@ class RunCoordinator:
         cancel_persist_seconds: float,
         clock: Callable[[], datetime],
         session_active: Callable[[], Awaitable[bool]] | None = None,
+        session_gate: SessionGate | None = None,
     ) -> None:
         self._runner = runner
         self._history = history
@@ -85,6 +88,7 @@ class RunCoordinator:
         self._cancel_seconds = cancel_persist_seconds
         self._clock = clock
         self._session_active = session_active or _session_open
+        self._session_gate = session_gate
         self._committed = False
 
     async def events(self) -> AsyncIterator[str]:
@@ -125,14 +129,28 @@ class RunCoordinator:
                     final = item
             if final is None or final.run_id != self._run_id:
                 raise invalid_state()
-            await self._history.finalize_success(
+            # Heartbeats and provider nodes can miss a logout that lands while
+            # the last provider call is in flight. The history transaction
+            # re-reads the locked session and stores interrupted instead.
+            stored = await self._history.finalize_success(
                 self._run_id,
                 final.report,
                 list(final.warnings),
                 final.usage,
                 self._clock(),
+                session_gate=self._session_gate,
             )
             self._committed = True
+            if not stored:
+                yield writer.event(
+                    "research.interrupted",
+                    ResearchInterrupted(
+                        run_id=self._run_id,
+                        code="interrupted",
+                    ),
+                    terminal=True,
+                )
+                return
             yield writer.event(
                 "research.completed",
                 ResearchCompleted(

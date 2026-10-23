@@ -39,6 +39,44 @@ def _limiter(**overrides: object) -> tuple[UsageLimiter, dict[str, datetime]]:
     return UsageLimiter(make_settings(**overrides), clock=read), clock
 
 
+async def test_forwarded_for_does_not_split_the_login_address_bucket(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def missing(factory: object, email: str) -> None:
+        del factory, email
+        return None
+
+    monkeypatch.setattr("nexus.api.v1.auth.get_user_by_email", missing)
+    app = create_app(make_settings(login_max_ip_failures=1))
+    origin = {"origin": "http://127.0.0.1:3000"}
+    async with client_for(app) as client:
+        first = await client.post(
+            "/api/v1/auth/login",
+            json={"email": "ada@example.com", "password": "correct-horse-1"},
+            headers={
+                **origin,
+                "x-forwarded-for": "203.0.113.10",
+                "forwarded": "for=203.0.113.10",
+            },
+        )
+        second = await client.post(
+            "/api/v1/auth/login",
+            json={"email": "bea@example.com", "password": "correct-horse-1"},
+            headers={
+                **origin,
+                "x-forwarded-for": "198.51.100.8",
+                "forwarded": "for=198.51.100.8",
+            },
+        )
+
+    assert first.status_code == 401
+    assert second.status_code == 429
+    hosts = set(app.state.limiter._ip_failures)
+    assert hosts == {"127.0.0.1"}
+    assert "203.0.113.10" not in hosts
+    assert "198.51.100.8" not in hosts
+
+
 async def test_email_and_ip_buckets_share_a_window_and_success_clears_email() -> None:
     limiter, clock = _limiter()
     for _ in range(5):

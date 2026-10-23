@@ -118,7 +118,19 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Drop identity tables. Runs, reports, and sources stay."""
+    """Drop identity tables after scopes are gone. Runs and sources stay.
+
+    The scope revision must already have dropped ``research_scopes``. Doing
+    this first would remove sessions and then fail on the owner foreign key.
+    """
+    connection = op.get_bind()
+    if (
+        connection.execute(
+            sa.text("SELECT to_regclass('public.research_scopes')")
+        ).scalar()
+        is not None
+    ):
+        raise RuntimeError("refusing to drop users while research_scopes still exists")
     op.drop_index(
         "ix_auth_sessions_user_id_expires_at",
         table_name="auth_sessions",

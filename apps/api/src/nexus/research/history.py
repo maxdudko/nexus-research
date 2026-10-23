@@ -3,6 +3,7 @@
 import base64
 import json
 import re
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import cast
 from uuid import UUID
@@ -58,6 +59,9 @@ class HistoryConflict(Exception):
     """A terminal write contradicted the stored outcome. The row is unchanged."""
 
 
+SessionGate = Callable[[AsyncSession], Awaitable[bool]]
+
+
 class ResearchHistory:
     """Create, finish, and read domain runs. Checkpoints are not queried."""
 
@@ -110,8 +114,15 @@ class ResearchHistory:
         warnings: list[str],
         usage: GraphUsage,
         now: datetime,
-    ) -> None:
-        """Commit a success status and its report together, or change nothing."""
+        *,
+        session_gate: SessionGate | None = None,
+    ) -> bool:
+        """Commit a success status and its report together, or change nothing.
+
+        When ``session_gate`` is set, it runs inside this transaction before
+        the success write. A false result stores ``interrupted`` and no report.
+        True means the success row was committed.
+        """
         parsed = ResearchReport.model_validate(report)
         if parsed.status not in SUCCESS_STATUSES:
             raise HistoryConflict
@@ -125,9 +136,15 @@ class ResearchHistory:
                 if run.status == parsed.status and await _same_success(
                     session, run_id, parsed
                 ):
-                    return
+                    return True
                 if run.status != "running":
                     raise HistoryConflict
+                if session_gate is not None and not await session_gate(session):
+                    run.status = "interrupted"
+                    run.error_code = "interrupted"
+                    run.finished_at = moment
+                    run.updated_at = moment
+                    return False
                 run.status = parsed.status
                 run.error_code = None
                 run.warnings = stored_warnings
@@ -141,6 +158,7 @@ class ResearchHistory:
                         created_at=moment,
                     )
                 )
+        return True
 
     async def finalize_failure(
         self,

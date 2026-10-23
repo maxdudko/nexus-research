@@ -2,7 +2,7 @@
 
 import asyncio
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from io import StringIO
 
 import pytest
@@ -13,7 +13,13 @@ from tests.integration.conftest import run_alembic
 
 from nexus.identity.cli import run_cli
 from nexus.identity.errors import IdentityError
-from nexus.identity.store import get_user_by_email, set_password
+from nexus.identity.store import (
+    disable_user,
+    get_user_by_email,
+    issue_session,
+    session_count,
+    set_password,
+)
 from nexus.identity.tokens import token_hash
 from nexus.infrastructure.database import create_db_engine, session_factory
 from nexus.models.user import QUARANTINE_USER_ID, AuthSession, User
@@ -264,5 +270,64 @@ async def test_bootstrap_is_idempotent_and_disable_resets_revoke_sessions(
         assert reset.password_hash != first_hash
         assert reset.status == "disabled"
         assert PASSWORD not in (reset.password_hash or "")
+    finally:
+        await engine.dispose()
+
+
+async def test_issue_session_rejects_a_stale_hash_and_a_disabled_account(
+    test_database_url: str,
+) -> None:
+    await _upgrade(test_database_url)
+    settings = _settings(test_database_url)
+    engine = create_db_engine(test_database_url)
+    factory = session_factory(engine)
+    try:
+        assert (
+            await _cli(
+                ["create-user", "ada@example.com"],
+                stdin=StringIO(PASSWORD + "\n"),
+                stderr=StringIO(),
+                settings=settings,
+            )
+            == 0
+        )
+        account = await get_user_by_email(factory, "ada@example.com")
+        assert account is not None
+        assert account.password_hash is not None
+        old_hash = account.password_hash
+        issued = await issue_session(
+            factory,
+            account.id,
+            old_hash,
+            token_hash("token-one", PEPPER),
+            NOW,
+            NOW + timedelta(hours=12),
+        )
+        assert issued is not None
+        await set_password(factory, account.id, OTHER_PASSWORD, NOW, audit=False)
+        stale = await issue_session(
+            factory,
+            account.id,
+            old_hash,
+            token_hash("token-two", PEPPER),
+            NOW,
+            NOW + timedelta(hours=12),
+        )
+        assert stale is None
+        assert await session_count(factory, account.id) == 1
+        current = await get_user_by_email(factory, "ada@example.com")
+        assert current is not None
+        assert current.password_hash is not None
+        await disable_user(factory, "ada@example.com", NOW)
+        disabled = await issue_session(
+            factory,
+            account.id,
+            current.password_hash,
+            token_hash("token-three", PEPPER),
+            NOW,
+            NOW + timedelta(hours=12),
+        )
+        assert disabled is None
+        assert await session_count(factory, account.id) == 1
     finally:
         await engine.dispose()

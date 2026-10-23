@@ -38,3 +38,16 @@ def token_hash(token: str, pepper: str) -> bytes:
     if len(digest) != _TOKEN_BYTES:
         raise RuntimeError("session digest must be 32 bytes")
     return digest
+
+
+def csrf_token(session_token: str, pepper: str) -> str:
+    """MAC the session cookie. This is not the digest stored for lookup.
+
+    The label keeps the readable CSRF cookie distinct from ``token_hash``.
+    """
+    digest = hmac.new(
+        pepper.encode("utf-8"),
+        b"nexus-csrf-v1\0" + session_token.encode("ascii"),
+        hashlib.sha256,
+    ).digest()
+    return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")

@@ -6,12 +6,12 @@ from io import StringIO
 
 import pytest
 from argon2 import PasswordHasher
-from sqlalchemy import select, update
+from sqlalchemy import select, text, update
 from tests.conftest import client_for, make_settings
 from tests.integration.conftest import run_alembic
 
 from nexus.identity.cli import run_cli
-from nexus.identity.passwords import needs_rehash, verify_password
+from nexus.identity.passwords import hash_password, needs_rehash, verify_password
 from nexus.identity.store import (
     create_session,
     expires_at,
@@ -19,7 +19,7 @@ from nexus.identity.store import (
     get_user_by_email,
     revoke_session,
 )
-from nexus.identity.tokens import new_token, token_hash
+from nexus.identity.tokens import csrf_token, new_token, token_hash
 from nexus.infrastructure.database import create_db_engine, session_factory
 from nexus.main import create_app
 from nexus.models.user import User
@@ -410,3 +410,166 @@ async def test_the_address_bucket_blocks_before_argon2(
     assert allowed.status_code == 200
     assert calls["n"] == 3
     assert int(blocked.headers["retry-after"]) >= 1
+
+
+def _cookie(client: object, name: str) -> str:
+    value = client.cookies.get(name)  # type: ignore[attr-defined]
+    assert isinstance(value, str) and value
+    return value
+
+
+async def test_csrf_rejects_swap_bad_signature_and_replay(
+    test_database_url: str,
+) -> None:
+    await _upgrade(test_database_url)
+    assert (
+        await _cli(
+            test_database_url, ["create-user", "ada@example.com"], PASSWORD + "\n"
+        )
+        == 0
+    )
+    assert (
+        await _cli(test_database_url, ["create-user", "bea@example.com"], OTHER + "\n")
+        == 0
+    )
+    app = create_app(_settings(test_database_url))
+    async with (
+        client_for(app) as ada,
+        client_for(app) as bea,
+        client_for(app) as ada_again,
+        client_for(app) as attacker,
+    ):
+        ada_login = await ada.post(
+            "/api/v1/auth/login",
+            json={"email": "ada@example.com", "password": PASSWORD},
+            headers=ORIGIN,
+        )
+        bea_login = await bea.post(
+            "/api/v1/auth/login",
+            json={"email": "bea@example.com", "password": OTHER},
+            headers=ORIGIN,
+        )
+        again = await ada_again.post(
+            "/api/v1/auth/login",
+            json={"email": "ada@example.com", "password": PASSWORD},
+            headers=ORIGIN,
+        )
+        assert (
+            ada_login.status_code == bea_login.status_code == again.status_code == 200
+        )
+        ada_session = _cookie(ada, "nexus_session")
+        ada_csrf = _cookie(ada, "nexus_csrf")
+        bea_csrf = _cookie(bea, "nexus_csrf")
+        new_session = _cookie(ada_again, "nexus_session")
+        assert ada_csrf == csrf_token(ada_session, PEPPER)
+        assert ada_session != new_session
+        forged = ada_csrf[:-1] + ("A" if ada_csrf[-1] != "A" else "B")
+        swapped = await attacker.post(
+            "/api/v1/auth/logout",
+            headers={
+                **ORIGIN,
+                "x-csrf-token": bea_csrf,
+                "cookie": f"nexus_session={ada_session}; nexus_csrf={bea_csrf}",
+            },
+        )
+        invalid = await attacker.post(
+            "/api/v1/auth/logout",
+            headers={
+                **ORIGIN,
+                "x-csrf-token": forged,
+                "cookie": f"nexus_session={ada_session}; nexus_csrf={forged}",
+            },
+        )
+        replayed = await attacker.post(
+            "/api/v1/auth/logout",
+            headers={
+                **ORIGIN,
+                "x-csrf-token": ada_csrf,
+                "cookie": f"nexus_session={new_session}; nexus_csrf={ada_csrf}",
+            },
+        )
+        ada_me = await ada.get("/api/v1/auth/me")
+        new_me = await ada_again.get("/api/v1/auth/me")
+        bea_me = await bea.get("/api/v1/auth/me")
+
+    assert swapped.status_code == invalid.status_code == replayed.status_code == 403
+    assert ada_me.status_code == new_me.status_code == bea_me.status_code == 200
+
+
+async def _wait_for_ungranted_lock(database_url: str) -> None:
+    engine = create_db_engine(database_url)
+    try:
+        deadline = asyncio.get_running_loop().time() + 10
+        while True:
+            async with engine.connect() as connection:
+                waiting = await connection.scalar(
+                    text("SELECT count(*) FROM pg_locks WHERE NOT granted")
+                )
+            if waiting:
+                return
+            if asyncio.get_running_loop().time() >= deadline:
+                raise AssertionError("login did not wait on the account lock")
+            await asyncio.sleep(0.02)
+    finally:
+        await engine.dispose()
+
+
+async def test_login_does_not_issue_a_session_after_a_concurrent_reset(
+    test_database_url: str,
+) -> None:
+    await _upgrade(test_database_url)
+    assert (
+        await _cli(
+            test_database_url, ["create-user", "ada@example.com"], PASSWORD + "\n"
+        )
+        == 0
+    )
+    app = create_app(_settings(test_database_url))
+    engine = create_db_engine(test_database_url)
+    factory = session_factory(engine)
+    held = asyncio.Event()
+    proceed = asyncio.Event()
+    try:
+        account = await get_user_by_email(factory, "ada@example.com")
+        assert account is not None
+        replacement = hash_password(OTHER)
+
+        async def hold() -> None:
+            async with factory() as db, db.begin():
+                locked = await db.scalar(
+                    select(User).where(User.id == account.id).with_for_update()
+                )
+                assert locked is not None
+                held.set()
+                await proceed.wait()
+                locked.password_hash = replacement
+                locked.updated_at = datetime.now(UTC)
+
+        holder = asyncio.create_task(hold())
+        try:
+            await asyncio.wait_for(held.wait(), timeout=5)
+            async with client_for(app) as client:
+                login_task = asyncio.create_task(
+                    client.post(
+                        "/api/v1/auth/login",
+                        json={"email": "ada@example.com", "password": PASSWORD},
+                        headers=ORIGIN,
+                        timeout=30,
+                    )
+                )
+                await _wait_for_ungranted_lock(test_database_url)
+                proceed.set()
+                response = await asyncio.wait_for(login_task, timeout=30)
+                me = await client.get("/api/v1/auth/me")
+            await holder
+        finally:
+            proceed.set()
+            await holder
+    finally:
+        await engine.dispose()
+
+    assert response.status_code == 401
+    assert response.json() == INVALID
+    assert "set-cookie" not in response.headers
+    assert me.status_code == 401
+    assert me.json() == UNAUTHENTICATED

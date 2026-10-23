@@ -5,10 +5,10 @@ The current private build adds login and owner-scoped research on the single-ope
 ## Authentication and access
 
 - Research, evidence, and history require a session. The operator CLI creates accounts. There is no self-signup and no HTTP admin API.
-- Login allows 5 failures per 15 minutes for one normalized email and 30 for the address the API sees. A full bucket returns 429 before the password hash runs. Through the web proxy that address is the web container, so the address cap is instance-wide.
+- Login allows 5 failures per 15 minutes for one normalized email and 30 for the address on the API socket. A full bucket returns 429 before the password hash runs. The API ignores `X-Forwarded-For` and `Forwarded`. Through the web proxy the socket address is the web container, so the address cap is instance-wide. Trusting a client-supplied forwarding header would let a caller choose a fresh bucket.
 - Plan, discover, run, stream, PDF upload, web ingestion, and search share 10 requests per 60 seconds per user. Minting a scope is a separate 30 per hour. Each user can hold one `/run` and one `/stream`. The process still allows at most `NEXUS_STREAM_MAX_CONCURRENT` streams (default 2, maximum 8).
 - Those counters are process memory. A restart clears them. There is one API process and no TLS in this stack.
-- Logout or a disabled account ends a live stream at the next heartbeat. A provider call already in flight can finish. `/run` notices at the next provider node.
+- Logout, password reset, or a disabled account ends a live stream at the next heartbeat. A provider call already in flight can finish and spend its cost. The successful history write then re-reads the locked session and stores `interrupted` with no report when that session is gone. `/run` has no history row and notices at the next provider node.
 - The release stack binds Web to `127.0.0.1` only. Remote access must go through an SSH tunnel, a VPN, or an independently enforced gate ([Private remote access](deployment.md#private-remote-access)). A public deployment is not supported.
 
 ## Tenant isolation

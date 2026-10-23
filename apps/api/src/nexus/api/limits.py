@@ -143,7 +143,12 @@ class UsageLimiter:
 
 
 def client_host(host: str | None) -> str:
-    """The address FastAPI observed. A missing client shares one bucket."""
+    """The address on the API socket. A missing client shares one bucket.
+
+    ``X-Forwarded-For`` and ``Forwarded`` are not read. The Next.js proxy does
+    not authenticate a caller address, and a client-supplied value would choose
+    a fresh login bucket.
+    """
     if not host:
         return "unknown"
     return host

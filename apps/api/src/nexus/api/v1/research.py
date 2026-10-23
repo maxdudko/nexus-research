@@ -9,6 +9,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from nexus.ai.errors import (
     ResearchError,
@@ -22,6 +23,7 @@ from nexus.api.ownership import OwnedRun, read_question, resolve_run
 from nexus.api.v1.runs import get_history
 from nexus.core.config import Settings
 from nexus.identity.scopes import mint_scope
+from nexus.identity.store import session_allows_success
 from nexus.research.checkpoint import CheckpointRuntime, open_checkpointer
 from nexus.research.coordinator import RunCoordinator
 from nexus.research.discovery import Discovery
@@ -183,6 +185,17 @@ async def stream_research(
             semaphore.release()
         await limiter.release_stream(owned.user.id)
         raise
+    session_id = owned.user.session_id
+    idle_seconds = settings.session_idle_seconds
+
+    async def accept_success(db: AsyncSession) -> bool:
+        return await session_allows_success(
+            db,
+            session_id,
+            datetime.now(UTC),
+            idle_seconds=idle_seconds,
+        )
+
     coordinator = RunCoordinator(
         runner=runner,
         history=history,
@@ -193,6 +206,7 @@ async def stream_research(
         cancel_persist_seconds=settings.stream_cancel_persist_seconds,
         clock=runner.clock,
         session_active=runner.context.session_active,
+        session_gate=accept_success,
     )
 
     async def frames() -> AsyncIterator[str]:

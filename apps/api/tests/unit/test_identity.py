@@ -18,7 +18,7 @@ from nexus.identity.passwords import (
     verify_password,
 )
 from nexus.identity.sessions import session_verdict, should_touch
-from nexus.identity.tokens import new_token, normalize_email, token_hash
+from nexus.identity.tokens import csrf_token, new_token, normalize_email, token_hash
 from nexus.observability.logging import configure_logging, log_event
 
 PEPPER = "test-session-pepper-0123456789abcdef"
@@ -71,6 +71,17 @@ def test_password_length_and_email_equality() -> None:
     with pytest.raises(IdentityError) as same:
         validate_password("ada@example.com", "ada@example.com")
     assert same.value.code == "password_matches_email"
+
+
+def test_csrf_mac_is_bound_to_the_session_token() -> None:
+    token = new_token()
+    other = new_token()
+    mac = csrf_token(token, PEPPER)
+    assert mac != token
+    assert csrf_token(token, PEPPER) == mac
+    assert csrf_token(other, PEPPER) != mac
+    assert csrf_token(token, PEPPER + "x") != mac
+    assert mac.encode() != token_hash(token, PEPPER)
 
 
 def test_session_token_hash_is_not_the_cookie() -> None:

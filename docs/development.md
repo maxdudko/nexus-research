@@ -92,7 +92,7 @@ uv run alembic upgrade head
 uv run python -m nexus.research.checkpoint
 ```
 
-Alembic owns the domain schema (`sources`, `research_runs`, `research_reports`). Running `upgrade head` again leaves the database at the current head. `uv run alembic downgrade base` drops those tables and the version stamp.
+Alembic owns the domain schema (`users`, `auth_sessions`, `research_scopes`, `sources`, `research_runs`, `research_reports`). Head is `e3b7d91c4a20` after `c8e4a1b27d05`. Running `upgrade head` again leaves the database at the current head. `uv run alembic downgrade base` is not a release rollback: scope downgrade aborts once a real owner exists, and the supported recovery is the paired volume restore in `docs/release/operations.md`.
 
 LangGraph checkpoint tables are not managed by Alembic, and a request does not create them. `python -m nexus.research.checkpoint` creates or migrates them and is safe to run more than once. The release stack runs both commands in its one-shot `init` service.
 

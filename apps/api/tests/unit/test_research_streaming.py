@@ -82,8 +82,10 @@ class MemoryHistory:
         warnings: list[str],
         usage: GraphUsage,
         now: datetime,
-    ) -> None:
-        del warnings, usage, now
+        *,
+        session_gate: object = None,
+    ) -> bool:
+        del warnings, usage, now, session_gate
         self.order.append("finalize_success")
         if self.fail_success:
             raise RuntimeError("commit failed")
@@ -92,6 +94,7 @@ class MemoryHistory:
             raise HistoryConflict
         row["status"] = report.status
         row["report"] = report
+        return True
 
     async def finalize_failure(
         self,

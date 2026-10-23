@@ -15,15 +15,14 @@ from nexus.api.limits import LOGIN_LIMIT_MESSAGE, client_host
 from nexus.core.config import Settings
 from nexus.identity.cookies import CSRF_COOKIE, SESSION_COOKIE
 from nexus.identity.errors import IdentityError
-from nexus.identity.passwords import needs_rehash, verify_password
+from nexus.identity.passwords import hash_password, needs_rehash, verify_password
 from nexus.identity.store import (
-    create_session,
     expires_at,
     get_user_by_email,
+    issue_session,
     revoke_session,
-    set_password,
 )
-from nexus.identity.tokens import new_token, normalize_email, token_hash
+from nexus.identity.tokens import csrf_token, new_token, normalize_email, token_hash
 
 router = APIRouter()
 
@@ -141,31 +140,25 @@ async def login(body: LoginRequest, request: Request) -> Response:
     if not verify_password(body.password, password_hash):
         await limiter.record_login_failure(email_key, host)
         raise invalid_credentials()
-    if needs_rehash(password_hash):
-        try:
-            await set_password(
-                factory,
-                account.id,
-                body.password,
-                now,
-                audit=False,
-                revoke=False,
-            )
-        except IdentityError:
-            pass
+    pepper = settings.session_pepper.get_secret_value()
+    replacement = hash_password(body.password) if needs_rehash(password_hash) else None
     session_token = new_token()
-    csrf_token = new_token()
-    await create_session(
+    issued = await issue_session(
         factory,
         account.id,
-        token_hash(session_token, settings.session_pepper.get_secret_value()),
+        password_hash,
+        token_hash(session_token, pepper),
         now,
         expires_at(now, settings.session_absolute_seconds),
+        replacement_password_hash=replacement,
     )
+    if issued is None:
+        raise invalid_credentials()
+    csrf_value = csrf_token(session_token, pepper)
     await limiter.clear_email_failures(email_key)
     payload = IdentityResponse(id=account.id, email=email, role=_role(account.role))
     response = JSONResponse(payload.model_dump(mode="json"))
-    _set_cookies(response, settings, session_token, csrf_token)
+    _set_cookies(response, settings, session_token, csrf_value)
     return response
 
 

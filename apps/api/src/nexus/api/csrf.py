@@ -13,6 +13,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from nexus.core.config import Settings
 from nexus.identity.cookies import CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE
+from nexus.identity.tokens import csrf_token
 
 _UNSAFE = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 _LOGIN_PATH = "/api/v1/auth/login"
@@ -65,11 +66,22 @@ def _rejected(request: Request) -> bool:
 
 
 def _csrf_matches(request: Request) -> bool:
+    """Header and cookie must match, and both must MAC the session cookie."""
     header = request.headers.get(CSRF_HEADER) or ""
     cookie = request.cookies.get(CSRF_COOKIE) or ""
-    if not header or not cookie or len(header) != len(cookie):
+    session = request.cookies.get(SESSION_COOKIE) or ""
+    if not header or not cookie or not session or len(header) != len(cookie):
         return False
-    return hmac.compare_digest(header, cookie)
+    if not hmac.compare_digest(header, cookie):
+        return False
+    settings: Settings = request.app.state.settings
+    try:
+        expected = csrf_token(session, settings.session_pepper.get_secret_value())
+    except UnicodeError:
+        return False
+    if len(expected) != len(cookie):
+        return False
+    return hmac.compare_digest(expected, cookie)
 
 
 def _with_auth_cache(scope: Scope, send: Send) -> Send:
