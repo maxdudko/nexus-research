@@ -140,12 +140,34 @@ def check_template() -> None:
 
 
 def check_missing_password(tmp: Path) -> None:
-    env = tmp / "blank.env"
-    env.write_text(TEMPLATE.read_text(encoding="utf-8"), encoding="utf-8")
+    """A blank password must be the failure, not whichever required value comes first."""
+    env = tmp / "blank-password.env"
+    env.write_text(
+        render_template(
+            {
+                "NEXUS_SESSION_PEPPER": "check0session0pepper0not0db00",
+                **SENTINELS,
+            }
+        ),
+        encoding="utf-8",
+    )
     result = compose_config(env)
     check(
         result.returncode != 0 and "POSTGRES_PASSWORD" in result.stderr,
         "config fails with a POSTGRES_PASSWORD message when the password is blank",
+    )
+
+
+def check_missing_pepper(tmp: Path) -> None:
+    env = tmp / "blank-pepper.env"
+    env.write_text(
+        render_template({"POSTGRES_PASSWORD": TEST_PASSWORD, **SENTINELS}),
+        encoding="utf-8",
+    )
+    result = compose_config(env)
+    check(
+        result.returncode != 0 and "NEXUS_SESSION_PEPPER" in result.stderr,
+        "config fails with a NEXUS_SESSION_PEPPER message when the pepper is blank",
     )
 
 
@@ -282,6 +304,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as directory:
         tmp = Path(directory)
         check_missing_password(tmp)
+        check_missing_pepper(tmp)
         env = tmp / "check.env"
         env.write_text(
             render_template(
