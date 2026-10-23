@@ -70,11 +70,6 @@ export function ResearchForm({
         message={uploadMessage}
         onFile={onFile}
       />
-      {state.researchId === "pending" ? null : (
-        <p className="text-sm text-muted" data-research-id={state.researchId}>
-          Draft {state.researchId}
-        </p>
-      )}
       <div className="flex flex-col gap-3">
         <button
           type="submit"

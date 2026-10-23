@@ -1,22 +1,38 @@
 "use client";
 
-import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useState, type FormEvent } from "react";
 
-import { csrfHeaders } from "@/lib/csrf";
-
-interface Identity {
-  email: string;
-}
+import { fetchIdentity } from "@/lib/identity";
+import { destinationFromNext } from "@/lib/return-path";
 
 export function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const next = searchParams.get("next");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [identity, setIdentity] = useState<Identity | null>(null);
   const [pending, setPending] = useState(false);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchIdentity().then((result) => {
+      if (cancelled) return;
+      if (result.status === "ready") {
+        router.replace(destinationFromNext(next));
+        return;
+      }
+      if (result.status === "unavailable") {
+        setError("The research service is unavailable.");
+      }
+      setReady(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [next, router]);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -33,18 +49,17 @@ export function LoginForm() {
         setError("The email or password is incorrect.");
         return;
       }
-      const me = await fetch("/api/v1/auth/me", { credentials: "same-origin" });
-      if (!me.ok) {
+      const me = await fetchIdentity();
+      if (me.status === "anonymous") {
         setError("The email or password is incorrect.");
         return;
       }
-      const body: unknown = await me.json();
-      if (!isIdentity(body)) {
-        setError("The email or password is incorrect.");
+      if (me.status !== "ready") {
+        setError("The research service is unavailable.");
         return;
       }
-      setIdentity({ email: body.email });
       setPassword("");
+      router.replace(destinationFromNext(next));
     } catch {
       setError("The research service is unavailable.");
     } finally {
@@ -52,34 +67,8 @@ export function LoginForm() {
     }
   }
 
-  async function onLogout() {
-    await fetch("/api/v1/auth/logout", {
-      method: "POST",
-      credentials: "same-origin",
-      headers: csrfHeaders(),
-    });
-    setIdentity(null);
-    router.replace("/login");
-  }
-
-  if (identity) {
-    return (
-      <section className="flex flex-col gap-4">
-        <p className="text-sm text-muted">
-          Signed in as <span className="text-ink">{identity.email}</span>
-        </p>
-        <button
-          type="button"
-          onClick={() => void onLogout()}
-          className="w-fit cursor-pointer rounded border border-line-strong px-4 py-2"
-        >
-          Log out
-        </button>
-        <Link href="/" className="text-sm text-ink underline">
-          Continue to research
-        </Link>
-      </section>
-    );
+  if (!ready) {
+    return <p role="status">Checking session.</p>;
   }
 
   return (
@@ -128,9 +117,4 @@ export function LoginForm() {
       </button>
     </form>
   );
-}
-
-function isIdentity(value: unknown): value is Identity {
-  if (typeof value !== "object" || value === null || !("email" in value)) return false;
-  return typeof value.email === "string" && value.email.length > 0;
 }

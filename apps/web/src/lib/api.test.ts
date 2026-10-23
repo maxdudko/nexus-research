@@ -39,7 +39,9 @@ describe("api client", () => {
       }),
     );
     const page = await listRuns(20, undefined, fetchImpl);
-    expect(fetchImpl).toHaveBeenCalledWith("/api/v1/research/runs?limit=20");
+    expect(fetchImpl).toHaveBeenCalledWith("/api/v1/research/runs?limit=20", {
+      cache: "no-store",
+    });
     expect(page.items[0]?.run_id).toBe(RUN);
     expect(page.items[0]).not.toHaveProperty("report");
   });
@@ -71,7 +73,9 @@ describe("api client", () => {
       }),
     );
     const detail = await getRun(RUN, fetchImpl);
-    expect(fetchImpl).toHaveBeenCalledWith(`/api/v1/research/runs/${RUN}`);
+    expect(fetchImpl).toHaveBeenCalledWith(`/api/v1/research/runs/${RUN}`, {
+      cache: "no-store",
+    });
     expect(detail.report?.status).toBe("partial");
   });
 

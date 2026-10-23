@@ -70,7 +70,9 @@ export async function listRuns(
 ): Promise<RunListResponse> {
   const params = new URLSearchParams({ limit: String(limit) });
   if (cursor) params.set("cursor", cursor);
-  const response = await fetchImpl(`/api/v1/research/runs?${params.toString()}`);
+  const response = await fetchImpl(`/api/v1/research/runs?${params.toString()}`, {
+    cache: "no-store",
+  });
   const body = await readJson(response);
   if (!isRecord(body) || !Array.isArray(body.items) || !body.items.every(isRunSummary)) {
     throw new ApiError("request_failed", "The request could not be completed.", response.status);
@@ -85,7 +87,9 @@ export async function getRun(
   runId: string,
   fetchImpl: FetchLike = fetch,
 ): Promise<RunDetailResponse> {
-  const response = await fetchImpl(`/api/v1/research/runs/${encodeURIComponent(runId)}`);
+  const response = await fetchImpl(`/api/v1/research/runs/${encodeURIComponent(runId)}`, {
+    cache: "no-store",
+  });
   const body = await readJson(response);
   if (!isRecord(body) || !isRunSummary(body.run)) {
     throw new ApiError("request_failed", "The request could not be completed.", response.status);

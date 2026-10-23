@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { ResearchReportView } from "@/components/research/research-report";
 import { getRun } from "@/lib/api";
 import { isApiError, REQUEST_FAILED_MESSAGE } from "@/lib/errors";
+import { loginHref } from "@/lib/return-path";
 import type { GraphUsage, RunDetailResponse, RunStatus } from "@/lib/types";
 
 const STATUS_LABEL: Record<RunStatus, string> = {
@@ -51,7 +52,7 @@ export default function ResearchRunPage() {
       (cause: unknown) => {
         if (cancelled) return;
         if (isApiError(cause) && cause.status === 401) {
-          router.replace("/login");
+          router.replace(loginHref(`/research/${runId}`));
           return;
         }
         setError(isApiError(cause) ? cause.message : REQUEST_FAILED_MESSAGE);
@@ -66,10 +67,10 @@ export default function ResearchRunPage() {
     detail?.run.status === "partial" || detail?.run.status === "insufficient_evidence";
 
   return (
-    <main className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-8">
-      <p className="pr-12">
-        <Link href="/" className="underline">
-          Back to research
+    <div className="flex flex-col gap-6">
+      <p>
+        <Link href="/history" className="underline">
+          Back to history
         </Link>
       </p>
       {error ? (
@@ -110,6 +111,6 @@ export default function ResearchRunPage() {
           )}
         </article>
       ) : null}
-    </main>
+    </div>
   );
 }

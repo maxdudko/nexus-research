@@ -3,7 +3,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import ResearchRunPage from "@/app/research/[runId]/page";
+import ResearchRunPage from "@/app/(app)/research/[runId]/page";
 import { ApiError } from "@/lib/errors";
 import type { RunDetailResponse } from "@/lib/types";
 
@@ -88,7 +88,9 @@ describe("ResearchRunPage", () => {
     );
     render(<ResearchRunPage />);
     await screen.findByText("Loading run.");
-    expect(navigation.replace).toHaveBeenCalledWith("/login");
+    expect(navigation.replace).toHaveBeenCalledWith(
+      "/login?next=%2Fresearch%2F11111111-1111-4111-8111-111111111111",
+    );
     expect(screen.queryByRole("alert")).toBeNull();
   });
 });
