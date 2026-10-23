@@ -51,11 +51,16 @@ async function readJson(response: Response): Promise<unknown> {
   }
 }
 
-export async function createResearchScope(fetchImpl: FetchLike = fetch): Promise<string> {
-  const response = await fetchImpl("/api/v1/research/scopes", {
+export async function createResearchScope(
+  fetchImpl: FetchLike = fetch,
+  signal?: AbortSignal,
+): Promise<string> {
+  const init: RequestInit = {
     method: "POST",
     headers: csrfHeaders(),
-  });
+  };
+  if (signal) init.signal = signal;
+  const response = await fetchImpl("/api/v1/research/scopes", init);
   const body = await readJson(response);
   if (!isRecord(body) || !isString(body.research_id)) {
     throw new ApiError("request_failed", "The request could not be completed.", response.status);

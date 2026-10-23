@@ -7,6 +7,8 @@ export const QUESTION_MAX = 2000;
 
 export type SessionPhase =
   | "idle"
+  | "creating_scope"
+  | "scope_failed"
   | "uploading"
   | "upload_failed"
   | "streaming"
@@ -61,10 +63,23 @@ export type SessionAction =
   | { type: "interrupted"; code: string }
   | { type: "disconnected"; message?: string }
   | { type: "detail_failed"; message: string }
-  | { type: "assign_id"; researchId: string }
-  | { type: "retry"; researchId: string };
+  | { type: "scope_started" }
+  | { type: "scope_minted"; researchId: string }
+  | { type: "scope_failed"; code: string; message: string }
+  | { type: "retry" };
 
-const BUSY: ReadonlySet<SessionPhase> = new Set(["uploading", "streaming", "stalled"]);
+const BUSY: ReadonlySet<SessionPhase> = new Set([
+  "creating_scope",
+  "uploading",
+  "streaming",
+  "stalled",
+]);
+
+const SCOPE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+export function isScopeId(value: string): boolean {
+  return SCOPE_ID.test(value);
+}
 
 const RETRYABLE: ReadonlySet<SessionPhase> = new Set([
   "completed",
@@ -105,13 +120,11 @@ export function questionError(question: string): string | null {
 export function canStart(
   state: Pick<SessionState, "phase" | "question" | "fileSize" | "researchId">,
 ): boolean {
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(state.researchId)) {
-    return false;
-  }
-  if (state.phase !== "idle" && state.phase !== "upload_failed") return false;
   if (questionError(state.question)) return false;
   if (state.fileSize !== null && state.fileSize > PDF_LIMIT_BYTES) return false;
-  return true;
+  if (state.phase === "idle" || state.phase === "scope_failed") return true;
+  if (state.phase === "upload_failed") return isScopeId(state.researchId);
+  return false;
 }
 
 export function canStop(phase: SessionPhase): boolean {
@@ -139,7 +152,7 @@ export function researchSession(state: SessionState, action: SessionAction): Ses
       if (BUSY.has(state.phase)) return state;
       return {
         ...state,
-        phase: state.phase === "upload_failed" ? "idle" : state.phase,
+        phase: phaseAfterFileEdit(state),
         fileName: action.name,
         fileSize: action.size,
         indexed: false,
@@ -149,7 +162,7 @@ export function researchSession(state: SessionState, action: SessionAction): Ses
       if (BUSY.has(state.phase)) return state;
       return {
         ...state,
-        phase: state.phase === "upload_failed" ? "idle" : state.phase,
+        phase: phaseAfterFileEdit(state),
         fileName: null,
         fileSize: null,
         indexed: false,
@@ -166,7 +179,13 @@ export function researchSession(state: SessionState, action: SessionAction): Ses
         errorMessage: "This PDF is larger than 10 MB.",
       };
     case "upload_started":
-      if (state.phase !== "idle" && state.phase !== "upload_failed") return state;
+      if (
+        state.phase !== "idle" &&
+        state.phase !== "upload_failed" &&
+        state.phase !== "creating_scope"
+      ) {
+        return state;
+      }
       return { ...state, phase: "uploading", errorMessage: null, errorCode: null };
     case "upload_succeeded":
       return { ...state, indexed: true, errorMessage: null };
@@ -178,7 +197,12 @@ export function researchSession(state: SessionState, action: SessionAction): Ses
         errorMessage: action.message,
       };
     case "stream_started":
-      if (state.phase !== "idle" && state.phase !== "upload_failed" && state.phase !== "uploading") {
+      if (
+        state.phase !== "idle" &&
+        state.phase !== "upload_failed" &&
+        state.phase !== "uploading" &&
+        state.phase !== "creating_scope"
+      ) {
         return state;
       }
       return {
@@ -253,16 +277,45 @@ export function researchSession(state: SessionState, action: SessionAction): Ses
       };
     case "detail_failed":
       return { ...state, phase: "failed", errorMessage: action.message };
-    case "assign_id":
-      if (state.phase !== "idle" || state.researchId !== "pending") return state;
+    case "scope_started":
+      if (state.phase !== "idle" && state.phase !== "scope_failed") return state;
+      return {
+        ...state,
+        phase: "creating_scope",
+        errorMessage: null,
+        errorCode: null,
+        runId: null,
+        stages: [],
+        startedAt: null,
+        lastFrameAt: null,
+        lastHeartbeatAt: null,
+        retryNotice: null,
+      };
+    case "scope_minted":
+      if (state.phase !== "creating_scope") return state;
       return { ...state, researchId: action.researchId };
+    case "scope_failed":
+      if (state.phase !== "creating_scope") return state;
+      return {
+        ...state,
+        phase: "scope_failed",
+        researchId: "",
+        errorCode: action.code,
+        errorMessage: action.message,
+      };
     case "retry":
       return {
-        ...createSession(action.researchId),
+        ...createSession(""),
         question: state.question,
         fileName: state.fileName,
         fileSize: state.fileSize,
         retryNotice: "This is a new run. The previous run is not resumed.",
       };
   }
+}
+
+function phaseAfterFileEdit(state: SessionState): SessionPhase {
+  if (state.phase === "upload_failed" && isScopeId(state.researchId)) return "upload_failed";
+  if (state.phase === "upload_failed" || state.phase === "scope_failed") return "idle";
+  return state.phase;
 }

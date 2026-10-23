@@ -6,6 +6,8 @@ import type { SessionPhase, SessionState } from "@/lib/research-session";
 
 const STATUS_LABEL: Record<SessionPhase, string> = {
   idle: "Ready",
+  creating_scope: "Preparing the research",
+  scope_failed: "Could not start",
   uploading: "Indexing PDF",
   upload_failed: "Upload failed",
   streaming: "Researching",

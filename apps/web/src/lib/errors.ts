@@ -5,12 +5,14 @@ export const REQUEST_FAILED_MESSAGE = "The request could not be completed.";
 export class ApiError extends Error {
   readonly code: string;
   readonly status: number;
+  readonly retryAfter: number | null;
 
-  constructor(code: string, message: string, status: number) {
+  constructor(code: string, message: string, status: number, retryAfter: number | null = null) {
     super(message);
     this.name = "ApiError";
     this.code = code;
     this.status = status;
+    this.retryAfter = retryAfter;
   }
 }
 
@@ -37,14 +39,36 @@ function isErrorBody(value: unknown): value is ApiErrorBody {
   );
 }
 
+function retryAfterSeconds(response: Response): number | null {
+  const header = response.headers.get("Retry-After");
+  if (!header || !/^\d+$/.test(header)) return null;
+  return Number(header);
+}
+
+function withRetryAfter(message: string, retryAfter: number | null): string {
+  if (retryAfter === null) return message;
+  return `${message} Try again in ${retryAfter} seconds.`;
+}
+
 export async function errorFromResponse(response: Response): Promise<ApiError> {
+  const retryAfter = retryAfterSeconds(response);
   try {
     const body: unknown = await response.json();
     if (isErrorBody(body)) {
-      return new ApiError(body.error.code, body.error.message, response.status);
+      return new ApiError(
+        body.error.code,
+        withRetryAfter(body.error.message, retryAfter),
+        response.status,
+        retryAfter,
+      );
     }
   } catch {
     // The body is not the error envelope.
   }
-  return new ApiError("request_failed", REQUEST_FAILED_MESSAGE, response.status);
+  return new ApiError(
+    "request_failed",
+    withRetryAfter(REQUEST_FAILED_MESSAGE, retryAfter),
+    response.status,
+    retryAfter,
+  );
 }

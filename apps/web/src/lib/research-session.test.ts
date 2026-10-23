@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  canStart,
+  canStop,
   createSession,
   PDF_LIMIT_BYTES,
   researchSession,
   type SessionState,
 } from "@/lib/research-session";
+
+const SCOPE = "22222222-2222-4222-8222-222222222222";
 
 const QUESTION = "How does the proxy stream results?";
 
@@ -81,7 +85,7 @@ describe("researchSession", () => {
     expect(resumed.stages).toHaveLength(1);
   });
 
-  it("refuses an oversized PDF and starts a new id on retry", () => {
+  it("refuses an oversized PDF and clears the scope id on retry", () => {
     let state = researchSession(createSession("draft-1"), {
       type: "edit_question",
       question: QUESTION,
@@ -93,8 +97,8 @@ describe("researchSession", () => {
     });
     expect(state.phase).toBe("upload_failed");
     expect(state.errorMessage).toBe("This PDF is larger than 10 MB.");
-    const retried = researchSession(state, { type: "retry", researchId: "draft-2" });
-    expect(retried.researchId).toBe("draft-2");
+    const retried = researchSession(state, { type: "retry" });
+    expect(retried.researchId).toBe("");
     expect(retried.phase).toBe("idle");
     expect(retried.indexed).toBe(false);
     expect(retried.retryNotice).toBe("This is a new run. The previous run is not resumed.");
@@ -110,11 +114,46 @@ describe("researchSession", () => {
     state = researchSession(state, { type: "upload_started" });
     state = researchSession(state, { type: "upload_succeeded" });
     expect(state.indexed).toBe(true);
-    const retried = researchSession(state, { type: "retry", researchId: "draft-2" });
-    expect(retried.researchId).toBe("draft-2");
+    const retried = researchSession(state, { type: "retry" });
+    expect(retried.researchId).toBe("");
     expect(retried.indexed).toBe(false);
     expect(retried.fileName).toBe("notes.pdf");
     expect(retried.fileSize).toBe(1200);
+  });
+
+  it("lets Start mint a scope, and retries a failed index on the same scope", () => {
+    const ready = researchSession(createSession(""), { type: "edit_question", question: QUESTION });
+    expect(canStart(ready)).toBe(true);
+    expect(canStart({ ...ready, question: "short" })).toBe(false);
+
+    const creating = researchSession(ready, { type: "scope_started" });
+    expect(creating.phase).toBe("creating_scope");
+    expect(canStop(creating.phase)).toBe(true);
+    expect(canStart(creating)).toBe(false);
+    const minted = researchSession(creating, { type: "scope_minted", researchId: SCOPE });
+    expect(minted.researchId).toBe(SCOPE);
+    expect(minted.phase).toBe("creating_scope");
+
+    const scopeFailed = researchSession(creating, {
+      type: "scope_failed",
+      code: "too_many_requests",
+      message: "Too many research runs are in progress.",
+    });
+    expect(scopeFailed.phase).toBe("scope_failed");
+    expect(scopeFailed.researchId).toBe("");
+    expect(canStart(scopeFailed)).toBe(true);
+
+    const indexed = researchSession(
+      { ...ready, researchId: SCOPE, phase: "upload_failed" },
+      { type: "select_file", name: "notes.pdf", size: 1200 },
+    );
+    expect(indexed.phase).toBe("upload_failed");
+    expect(indexed.researchId).toBe(SCOPE);
+    expect(canStart(indexed)).toBe(true);
+    const cleared = researchSession(indexed, { type: "clear_file" });
+    expect(cleared.phase).toBe("upload_failed");
+    expect(cleared.fileName).toBeNull();
+    expect(canStart(cleared)).toBe(true);
   });
 
   it("stays on the detail error instead of navigating as success", () => {
