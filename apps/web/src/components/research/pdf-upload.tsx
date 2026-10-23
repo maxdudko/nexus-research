@@ -1,5 +1,7 @@
 "use client";
 
+import { useRef } from "react";
+
 export function formatBytes(size: number): string {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
@@ -19,7 +21,13 @@ export function PdfUpload({
   message: string | null;
   onFile: (file: File | null) => void;
 }) {
+  const inputRef = useRef<HTMLInputElement>(null);
   const selected = fileName !== null && fileSize !== null;
+
+  function removeFile(): void {
+    if (inputRef.current) inputRef.current.value = "";
+    onFile(null);
+  }
 
   return (
     <div className="flex flex-col gap-2">
@@ -27,10 +35,13 @@ export function PdfUpload({
         PDF evidence
       </label>
       <p id="pdf-hint" className="text-sm text-muted">
-        Optional. Text PDFs up to 10 MB are indexed before the run starts.
+        Optional. Text PDFs up to 10 MB are indexed before the run starts. Scanned or image-only
+        PDFs can fail because they have no extractable text. The original file is not kept for
+        download.
       </p>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <input
+          ref={inputRef}
           id="pdf"
           name="pdf"
           type="file"
@@ -50,6 +61,11 @@ export function PdfUpload({
         >
           {selected ? `${fileName} (${formatBytes(fileSize)})` : "No file chosen"}
         </p>
+        {selected && !disabled ? (
+          <button type="button" onClick={removeFile} className="text-sm text-muted underline">
+            Remove
+          </button>
+        ) : null}
       </div>
       {message ? (
         <p role="alert" className="text-sm text-danger">

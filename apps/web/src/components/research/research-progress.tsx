@@ -6,6 +6,8 @@ import type { SessionPhase, SessionState } from "@/lib/research-session";
 
 const STATUS_LABEL: Record<SessionPhase, string> = {
   idle: "Ready",
+  creating_scope: "Preparing the research",
+  scope_failed: "Could not start",
   uploading: "Indexing PDF",
   upload_failed: "Upload failed",
   streaming: "Researching",
@@ -65,7 +67,7 @@ export function ResearchProgress({ state }: { state: SessionState }) {
           {state.errorMessage}
         </p>
       ) : null}
-      <ol className="flex list-decimal flex-col gap-2 pl-5">
+      <ol aria-live="polite" className="flex list-decimal flex-col gap-2 pl-5">
         {state.stages.map((stage, index) => (
           <li key={`${stage.stage}-${stage.iteration}-${index}`}>
             {stage.message}

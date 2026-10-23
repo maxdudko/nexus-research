@@ -5,13 +5,20 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { useResearchStream } from "@/hooks/use-research-stream";
 import { ApiError } from "@/lib/errors";
+import { PDF_LIMIT_BYTES } from "@/lib/research-session";
 import type { RunDetailResponse, RunStatus } from "@/lib/types";
 
 const RUN = "11111111-1111-4111-8111-111111111111";
 const RESEARCH = "22222222-2222-4222-8222-222222222222";
 
+const navigation = vi.hoisted(() => ({
+  push: vi.fn(),
+  replace: vi.fn(),
+}));
+
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => navigation,
+  usePathname: () => "/research/new",
 }));
 
 const scope = vi.hoisted(() => {
@@ -23,15 +30,17 @@ const scope = vi.hoisted(() => {
     "66666666-6666-4666-8666-666666666666",
   ];
   let index = 0;
-  const next = vi.fn(async () => {
+  async function mint(): Promise<string> {
     const id = ids[index] ?? ids[0];
     index += 1;
     return id;
-  });
+  }
+  const next = vi.fn(mint);
   return {
     reset: () => {
       index = 0;
-      next.mockClear();
+      next.mockReset();
+      next.mockImplementation(mint);
     },
     next,
   };
@@ -120,13 +129,6 @@ async function flush(): Promise<void> {
   });
 }
 
-async function flushScope(): Promise<void> {
-  await act(async () => {
-    await Promise.resolve();
-    await Promise.resolve();
-  });
-}
-
 describe("useResearchStream", () => {
   afterEach(() => {
     vi.clearAllMocks();
@@ -136,10 +138,21 @@ describe("useResearchStream", () => {
 
   it("does not start a stream on mount", async () => {
     const { result } = await renderStream();
-    expect(createResearchScopeMock).toHaveBeenCalledTimes(1);
-    expect(result.current.state.researchId).toBe("22222222-2222-4222-8222-222222222222");
+    expect(createResearchScopeMock).not.toHaveBeenCalled();
+    expect(result.current.state.researchId).toBe("");
+    expect(result.current.state.phase).toBe("idle");
     expect(openResearchStreamMock).not.toHaveBeenCalled();
     expect(uploadPdfMock).not.toHaveBeenCalled();
+
+    act(() => {
+      result.current.setQuestion("short");
+    });
+    act(() => {
+      result.current.start();
+    });
+    expect(createResearchScopeMock).not.toHaveBeenCalled();
+    expect(uploadPdfMock).not.toHaveBeenCalled();
+    expect(openResearchStreamMock).not.toHaveBeenCalled();
   });
 
   it("uploads the PDF and streams with the same research id", async () => {
@@ -169,14 +182,6 @@ describe("useResearchStream", () => {
     });
     const navigate = vi.fn();
     const { result } = await renderStream(navigate);
-    const researchId = result.current.state.researchId;
-    uploadPdfMock.mockResolvedValue({
-      source_id: "33333333-3333-4333-8333-333333333333",
-      research_id: researchId,
-      status: "indexed",
-      chunk_count: 1,
-      deduplicated: false,
-    });
     const file = new File(["%PDF-1.4"], "notes.pdf", { type: "application/pdf" });
     act(() => {
       result.current.setQuestion("How does the proxy stream results?");
@@ -186,15 +191,17 @@ describe("useResearchStream", () => {
       result.current.start();
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
+    expect(createResearchScopeMock).toHaveBeenCalledTimes(1);
     expect(createResearchScopeMock.mock.invocationCallOrder[0]).toBeLessThan(
       uploadPdfMock.mock.invocationCallOrder[0],
     );
-    expect(uploadPdfMock).toHaveBeenCalledWith(researchId, file, expect.any(AbortSignal));
+    expect(uploadPdfMock).toHaveBeenCalledWith(RESEARCH, file, expect.any(AbortSignal));
     expect(openResearchStreamMock).toHaveBeenCalledWith(
-      { question: "How does the proxy stream results?", research_id: researchId },
+      { question: "How does the proxy stream results?", research_id: RESEARCH },
       expect.any(AbortSignal),
     );
     expect(getRunMock).toHaveBeenCalledWith(RUN);
+    expect(navigate).toHaveBeenCalledTimes(1);
     expect(navigate).toHaveBeenCalledWith(`/research/${RUN}`);
     expect(result.current.state.phase).toBe("completed");
   });
@@ -218,7 +225,9 @@ describe("useResearchStream", () => {
 
   it("treats stop as interrupted and a short stream as disconnected", async () => {
     openResearchStreamMock.mockResolvedValue(sseResponse([started()], true));
-    const { result } = await renderStream();
+    getRunMock.mockResolvedValue(detail("interrupted", "interrupted"));
+    const navigate = vi.fn();
+    const { result } = await renderStream(navigate);
     act(() => {
       result.current.setQuestion("How does the proxy stream results?");
     });
@@ -232,6 +241,8 @@ describe("useResearchStream", () => {
     });
     await flush();
     expect(result.current.state.phase).toBe("interrupted");
+    expect(getRunMock).toHaveBeenCalledWith(RUN);
+    expect(navigate).not.toHaveBeenCalled();
 
     openResearchStreamMock.mockResolvedValue(
       sseResponse([
@@ -245,23 +256,27 @@ describe("useResearchStream", () => {
         })}\n\n`,
       ]),
     );
-    await act(async () => {
+    act(() => {
       result.current.retry();
     });
-    await flushScope();
-    const nextId = result.current.state.researchId;
+    expect(result.current.state.researchId).toBe("");
     expect(result.current.state.retryNotice).toContain("new run");
+    expect(createResearchScopeMock).toHaveBeenCalledTimes(1);
     act(() => {
       result.current.start();
     });
     await flush();
     expect(result.current.state.phase).toBe("disconnected");
-    expect(result.current.state.researchId).toBe(nextId);
+    expect(result.current.state.researchId).toBe("33333333-3333-4333-8333-333333333331");
     expect(openResearchStreamMock).toHaveBeenLastCalledWith(
-      { question: "How does the proxy stream results?", research_id: nextId },
+      {
+        question: "How does the proxy stream results?",
+        research_id: "33333333-3333-4333-8333-333333333331",
+      },
       expect.any(AbortSignal),
     );
-    expect(getRunMock).not.toHaveBeenCalled();
+    expect(getRunMock).toHaveBeenCalledTimes(1);
+    expect(navigate).not.toHaveBeenCalled();
   });
 
   it("reads a dropped run once and keeps a stored running row disconnected", async () => {
@@ -400,7 +415,6 @@ describe("useResearchStream", () => {
       report: null,
     });
     const { result } = await renderStream();
-    const firstId = result.current.state.researchId;
     const file = new File(["%PDF-1.4"], "notes.pdf", { type: "application/pdf" });
     act(() => {
       result.current.setQuestion("How does the proxy stream results?");
@@ -410,22 +424,24 @@ describe("useResearchStream", () => {
       result.current.start();
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
+    const firstId = RESEARCH;
     expect(uploadPdfMock).toHaveBeenCalledWith(firstId, file, expect.any(AbortSignal));
 
     const scopesBeforeRetry = createResearchScopeMock.mock.calls.length;
-    await act(async () => {
+    act(() => {
       result.current.retry();
     });
-    await flushScope();
-    const secondId = result.current.state.researchId;
-    expect(secondId).not.toBe(firstId);
+    expect(result.current.state.researchId).toBe("");
+    expect(result.current.state.question).toBe("How does the proxy stream results?");
     expect(result.current.state.indexed).toBe(false);
     expect(result.current.state.fileName).toBe("notes.pdf");
+    expect(createResearchScopeMock).toHaveBeenCalledTimes(scopesBeforeRetry);
     uploadPdfMock.mockClear();
     await act(async () => {
       result.current.start();
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
+    const secondId = "33333333-3333-4333-8333-333333333331";
     expect(createResearchScopeMock.mock.calls.length).toBe(scopesBeforeRetry + 1);
     expect(uploadPdfMock).toHaveBeenCalledWith(secondId, file, expect.any(AbortSignal));
     expect(openResearchStreamMock).toHaveBeenLastCalledWith(
@@ -434,43 +450,334 @@ describe("useResearchStream", () => {
     );
 
     const replacement = new File(["%PDF-1.4"], "replacement.pdf", { type: "application/pdf" });
-    await act(async () => {
+    act(() => {
       result.current.retry();
     });
-    await flushScope();
+    expect(createResearchScopeMock).toHaveBeenCalledTimes(scopesBeforeRetry + 1);
     act(() => {
       result.current.setFile(replacement);
     });
-    const thirdId = result.current.state.researchId;
     uploadPdfMock.mockClear();
     await act(async () => {
       result.current.start();
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
+    const thirdId = "44444444-4444-4444-8444-444444444444";
     const replacementCall = uploadPdfMock.mock.calls.at(-1);
     expect(replacementCall?.[0]).toBe(thirdId);
     expect(replacementCall?.[1]).toBe(replacement);
     expect(replacementCall?.[1]).not.toBe(file);
 
-    await act(async () => {
+    act(() => {
       result.current.retry();
     });
-    await flushScope();
     act(() => {
       result.current.setFile(null);
     });
-    const fourthId = result.current.state.researchId;
     expect(result.current.state.fileName).toBeNull();
     uploadPdfMock.mockClear();
     await act(async () => {
       result.current.start();
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
+    const fourthId = "55555555-5555-4555-8555-555555555555";
     expect(uploadPdfMock).not.toHaveBeenCalled();
     expect(openResearchStreamMock).toHaveBeenLastCalledWith(
       { question: "How does the proxy stream results?", research_id: fourthId },
       expect.any(AbortSignal),
     );
+  });
+
+  it("does not open a stream when indexing fails, and retries that scope", async () => {
+    uploadPdfMock.mockRejectedValueOnce(
+      new ApiError("empty_document", "The document has no extractable text.", 422),
+    );
+    uploadPdfMock.mockResolvedValueOnce({
+      source_id: "33333333-3333-4333-8333-333333333333",
+      research_id: RESEARCH,
+      status: "indexed",
+      chunk_count: 1,
+      deduplicated: false,
+    });
+    openResearchStreamMock.mockResolvedValue(sseResponse([started(), completed("completed")]));
+    getRunMock.mockResolvedValue(detail("completed"));
+    const { result } = await renderStream();
+    const file = new File(["%PDF-1.4"], "notes.pdf", { type: "application/pdf" });
+    act(() => {
+      result.current.setQuestion("How does the proxy stream results?");
+      result.current.setFile(file);
+    });
+    await act(async () => {
+      result.current.start();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(result.current.state.phase).toBe("upload_failed");
+    expect(result.current.state.researchId).toBe(RESEARCH);
+    expect(openResearchStreamMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      result.current.start();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(createResearchScopeMock).toHaveBeenCalledTimes(1);
+    expect(uploadPdfMock).toHaveBeenLastCalledWith(RESEARCH, file, expect.any(AbortSignal));
+    expect(openResearchStreamMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("mints a new scope when the file changes after an upload failure", async () => {
+    uploadPdfMock.mockRejectedValueOnce(
+      new ApiError("empty_document", "The document has no extractable text.", 422),
+    );
+    uploadPdfMock.mockResolvedValueOnce({
+      source_id: "33333333-3333-4333-8333-333333333333",
+      research_id: "33333333-3333-4333-8333-333333333331",
+      status: "indexed",
+      chunk_count: 1,
+      deduplicated: false,
+    });
+    openResearchStreamMock.mockResolvedValue(sseResponse([started(), completed("completed")]));
+    getRunMock.mockResolvedValue(detail("completed"));
+    const { result } = await renderStream();
+    const first = new File(["%PDF-1.4"], "notes.pdf", { type: "application/pdf" });
+    const replacement = new File(["%PDF-1.4"], "replacement.pdf", { type: "application/pdf" });
+    act(() => {
+      result.current.setQuestion("How does the proxy stream results?");
+      result.current.setFile(first);
+    });
+    await act(async () => {
+      result.current.start();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(result.current.state.researchId).toBe(RESEARCH);
+    act(() => {
+      result.current.setFile(replacement);
+    });
+    expect(result.current.state.researchId).toBe("");
+    expect(result.current.state.phase).toBe("idle");
+    await act(async () => {
+      result.current.start();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    const nextId = "33333333-3333-4333-8333-333333333331";
+    expect(createResearchScopeMock).toHaveBeenCalledTimes(2);
+    expect(uploadPdfMock).toHaveBeenLastCalledWith(nextId, replacement, expect.any(AbortSignal));
+    expect(openResearchStreamMock).toHaveBeenCalledTimes(1);
+    expect(openResearchStreamMock).toHaveBeenLastCalledWith(
+      { question: "How does the proxy stream results?", research_id: nextId },
+      expect.any(AbortSignal),
+    );
+  });
+
+  it("mints a new scope when a failed upload is cleared before the next start", async () => {
+    uploadPdfMock.mockRejectedValueOnce(
+      new ApiError("empty_document", "The document has no extractable text.", 422),
+    );
+    openResearchStreamMock.mockResolvedValue(sseResponse([started(), completed("completed")]));
+    getRunMock.mockResolvedValue(detail("completed"));
+    const { result } = await renderStream();
+    act(() => {
+      result.current.setQuestion("How does the proxy stream results?");
+      result.current.setFile(new File(["%PDF-1.4"], "notes.pdf", { type: "application/pdf" }));
+    });
+    await act(async () => {
+      result.current.start();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    act(() => {
+      result.current.setFile(null);
+    });
+    uploadPdfMock.mockClear();
+    await act(async () => {
+      result.current.start();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(createResearchScopeMock).toHaveBeenCalledTimes(2);
+    expect(uploadPdfMock).not.toHaveBeenCalled();
+    expect(openResearchStreamMock).toHaveBeenLastCalledWith(
+      {
+        question: "How does the proxy stream results?",
+        research_id: "33333333-3333-4333-8333-333333333331",
+      },
+      expect.any(AbortSignal),
+    );
+  });
+
+  it("does not reuse a failed upload scope after an oversized replacement", async () => {
+    uploadPdfMock.mockRejectedValueOnce(
+      new ApiError("empty_document", "The document has no extractable text.", 422),
+    );
+    const { result } = await renderStream();
+    act(() => {
+      result.current.setQuestion("How does the proxy stream results?");
+      result.current.setFile(new File(["%PDF-1.4"], "notes.pdf", { type: "application/pdf" }));
+    });
+    await act(async () => {
+      result.current.start();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(result.current.state.researchId).toBe(RESEARCH);
+    act(() => {
+      result.current.setFile(
+        new File([new Uint8Array(PDF_LIMIT_BYTES + 1)], "big.pdf", { type: "application/pdf" }),
+      );
+    });
+    expect(result.current.state.phase).toBe("upload_failed");
+    expect(result.current.state.researchId).toBe("");
+    await act(async () => {
+      result.current.start();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(createResearchScopeMock).toHaveBeenCalledTimes(1);
+    expect(uploadPdfMock).toHaveBeenCalledTimes(1);
+    expect(openResearchStreamMock).not.toHaveBeenCalled();
+  });
+
+  it("shows Retry-After for a scope limit and does not upload or stream", async () => {
+    createResearchScopeMock.mockRejectedValue(
+      new ApiError("too_many_requests", "Too many research runs are in progress.", 429, 30),
+    );
+    const { result } = await renderStream();
+    act(() => {
+      result.current.setQuestion("How does the proxy stream results?");
+    });
+    await act(async () => {
+      result.current.start();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(result.current.state.phase).toBe("scope_failed");
+    expect(result.current.state.errorMessage).toBe(
+      "Too many research runs are in progress. Try again in 30 seconds.",
+    );
+    expect(uploadPdfMock).not.toHaveBeenCalled();
+    expect(openResearchStreamMock).not.toHaveBeenCalled();
+    await flush();
+    expect(createResearchScopeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a stream limit once and does not open another stream", async () => {
+    openResearchStreamMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: {
+            code: "too_many_requests",
+            message: "Too many research runs are in progress.",
+          },
+        }),
+        {
+          status: 429,
+          headers: { "content-type": "application/json", "Retry-After": "12" },
+        },
+      ),
+    );
+    const { result } = await renderStream();
+    act(() => {
+      result.current.setQuestion("How does the proxy stream results?");
+    });
+    await act(async () => {
+      result.current.start();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(result.current.state.phase).toBe("failed");
+    expect(result.current.state.errorMessage).toContain("Try again in 12 seconds.");
+    expect(openResearchStreamMock).toHaveBeenCalledTimes(1);
+    await flush();
+    expect(openResearchStreamMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("mints once when start is called twice in one turn", async () => {
+    openResearchStreamMock.mockResolvedValue(sseResponse([], true));
+    let resolveScope: (id: string) => void = () => undefined;
+    createResearchScopeMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveScope = resolve;
+        }),
+    );
+    const { result } = await renderStream();
+    act(() => {
+      result.current.setQuestion("How does the proxy stream results?");
+    });
+    act(() => {
+      result.current.start();
+      result.current.start();
+    });
+    expect(createResearchScopeMock).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      resolveScope(RESEARCH);
+      await Promise.resolve();
+    });
+    expect(createResearchScopeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not upload or stream when unmounted before the scope resolves", async () => {
+    let resolveScope: (id: string) => void = () => undefined;
+    createResearchScopeMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveScope = resolve;
+        }),
+    );
+    const { result, unmount } = await renderStream();
+    act(() => {
+      result.current.setQuestion("How does the proxy stream results?");
+    });
+    act(() => {
+      result.current.start();
+    });
+    unmount();
+    await act(async () => {
+      resolveScope(RESEARCH);
+      await Promise.resolve();
+    });
+    expect(uploadPdfMock).not.toHaveBeenCalled();
+    expect(openResearchStreamMock).not.toHaveBeenCalled();
+  });
+
+  it("replaces to the allowlisted login path on 401", async () => {
+    createResearchScopeMock.mockRejectedValue(
+      new ApiError("unauthenticated", "Authentication is required.", 401),
+    );
+    const { result } = await renderStream();
+    act(() => {
+      result.current.setQuestion("How does the proxy stream results?");
+    });
+    await act(async () => {
+      result.current.start();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(navigation.replace).toHaveBeenCalledWith("/login?next=%2Fresearch%2Fnew");
+    expect(uploadPdfMock).not.toHaveBeenCalled();
+    expect(openResearchStreamMock).not.toHaveBeenCalled();
+  });
+
+  it("does not navigate when stop interrupts an upload", async () => {
+    uploadPdfMock.mockImplementation(
+      (_researchId: string, _file: File, signal?: AbortSignal) =>
+        new Promise((_resolve, reject) => {
+          signal?.addEventListener("abort", () => {
+            reject(new DOMException("The operation was aborted.", "AbortError"));
+          });
+        }),
+    );
+    const navigate = vi.fn();
+    const { result } = await renderStream(navigate);
+    act(() => {
+      result.current.setQuestion("How does the proxy stream results?");
+      result.current.setFile(new File(["%PDF-1.4"], "notes.pdf", { type: "application/pdf" }));
+    });
+    act(() => {
+      result.current.start();
+    });
+    await flush();
+    expect(result.current.state.phase).toBe("uploading");
+    act(() => {
+      result.current.stop();
+    });
+    await flush();
+    expect(result.current.state.phase).toBe("interrupted");
+    expect(openResearchStreamMock).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
+    expect(getRunMock).not.toHaveBeenCalled();
   });
 
   it("shows stalled when no frame arrives for 45 seconds", async () => {

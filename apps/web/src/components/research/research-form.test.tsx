@@ -47,7 +47,7 @@ describe("research form", () => {
     expect(onFile).toHaveBeenCalledWith(file);
     cleanup();
 
-    renderForm({
+    const oversized = renderForm({
       ...createSession("draft-1"),
       question: QUESTION,
       phase: "upload_failed",
@@ -56,7 +56,11 @@ describe("research form", () => {
       errorMessage: "This PDF is larger than 10 MB.",
     });
     expect(screen.getByText("big.pdf (10.0 MB)")).toBeTruthy();
+    expect(screen.getByText(/no extractable text/)).toBeTruthy();
+    expect(screen.getByText(/not kept for download/)).toBeTruthy();
     expect(startButton().disabled).toBe(true);
+    await userEvent.click(screen.getByRole("button", { name: "Remove" }));
+    expect(oversized.onFile).toHaveBeenCalledWith(null);
   });
 
   it("disables start and offers stop while a stream is open", () => {
@@ -68,8 +72,11 @@ describe("research form", () => {
     });
     expect(startButton().disabled).toBe(true);
     expect(
-      screen.getByRole("button", { name: "Stop this request; research may be interrupted." }),
+      screen.getByRole("button", {
+        name: "Stop this request. Stopping does not pause or resume, it can take a moment, and provider cost may already have been incurred.",
+      }),
     ).toBeTruthy();
+    expect(screen.getByText(/Closing the tab stops the request/)).toBeTruthy();
   });
 
   it("lists arrived stages and the stalled state without a percent", () => {
@@ -93,5 +100,9 @@ describe("research form", () => {
     expect(screen.getByText("No update for 45 seconds. The request is still open.")).toBeTruthy();
     expect(screen.getByText("Status:").textContent).toContain("Stalled");
     expect(document.body.textContent).not.toContain("%");
+    const stages = screen.getByRole("list");
+    expect(stages.getAttribute("aria-live")).toBe("polite");
+    expect(screen.getByText(/Last heartbeat/).closest("[aria-live]")).toBeNull();
+    expect(screen.getByText(/Elapsed/).closest("[aria-live]")).toBeNull();
   });
 });

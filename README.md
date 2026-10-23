@@ -4,7 +4,7 @@
 
 Nexus Research answers a research question with a bounded LangGraph workflow. It plans the question, searches the web with Tavily, indexes fetched pages and an optional text PDF into Qdrant, retrieves scoped evidence, and writes a structured report whose citations point at the retrieved passages. A Next.js UI streams progress over server-sent events and keeps a run history.
 
-> **No authentication.** Anyone who can reach the UI can start billable OpenAI and Tavily calls and read every saved run. `research_id` scopes evidence; it is not an access token or tenant isolation. The release stack publishes only Web, on `127.0.0.1`. Do not expose it publicly. For remote access, see [Private remote access](docs/release/deployment.md#private-remote-access).
+> **Invited accounts.** Research, evidence, and history require a session created by the operator. One account cannot read another account's runs. The release stack still publishes only Web, on `127.0.0.1`. Do not expose it publicly. For remote access, see [Private remote access](docs/release/deployment.md#private-remote-access). Known limits — including request-scoped runs, unscanned PDFs, and citations that do not prove a sentence — are in [Limitations](docs/release/limitations.md).
 
 ## Status
 
@@ -16,7 +16,7 @@ Nexus Research answers a research question with a bounded LangGraph workflow. It
 - **Discovery.** Bounded Tavily search through model tool calls, returning only sources that were actually retrieved.
 - **Evidence.** Text PDFs (up to 10 MiB and 100 pages) and public HTML pages are chunked, embedded with `text-embedding-3-small` and stored in Qdrant, filtered by `research_id`. Private, loopback and metadata URLs are refused.
 - **Research run.** A LangGraph workflow (planning, discovery, ingestion, retrieval, evaluation, synthesis) with caps on iterations, searches, model calls, pages, passages and wall-clock time. Outcomes are `completed`, `partial`, `insufficient_evidence`, `failed` or `interrupted`. PostgreSQL stores checkpoints and the domain history.
-- **Web UI.** Ask a question, optionally attach a text PDF, watch stage progress and heartbeats over SSE, stop a run, open saved reports and history, and follow `https` citations or read `PDF · page N` labels. Light and dark themes.
+- **Web UI.** Sign in, ask a question, optionally attach a text PDF, watch stage progress and heartbeats over SSE, stop a run, and later open that account's reports and history. Follow `https` citations or read `PDF · page N` labels. The original PDF is not kept. Light and dark themes.
 - **Reliability.** JSON logs with an allowlist, optional OpenTelemetry tracing (off by default), partial cost estimates in logs, a failure matrix, and an offline evaluation suite locked to a committed baseline.
 - **Release packaging.** Non-root API and Web images built from lockfiles, a private full-stack `compose.release.yml` with one-shot schema initialization, static Compose checks and a packaged smoke script.
 

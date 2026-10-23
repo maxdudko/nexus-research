@@ -70,11 +70,6 @@ export function ResearchForm({
         message={uploadMessage}
         onFile={onFile}
       />
-      {state.researchId === "pending" ? null : (
-        <p className="text-sm text-muted" data-research-id={state.researchId}>
-          Draft {state.researchId}
-        </p>
-      )}
       <div className="flex flex-col gap-3">
         <button
           type="submit"
@@ -84,13 +79,20 @@ export function ResearchForm({
           Start research
         </button>
         {busy ? (
-          <button
-            type="button"
-            onClick={onStop}
-            className="rounded border border-line-strong px-4 py-2 cursor-pointer"
-          >
-            Stop this request; research may be interrupted.
-          </button>
+          <div className="flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={onStop}
+              className="rounded border border-line-strong px-4 py-2 cursor-pointer"
+            >
+              Stop this request. Stopping does not pause or resume, it can take a moment, and
+              provider cost may already have been incurred.
+            </button>
+            <p className="text-sm text-muted">
+              Closing the tab stops the request. This page cannot warn you before the browser
+              closes it.
+            </p>
+          </div>
         ) : null}
         {canRetry(state.phase) ? (
           <button type="button" onClick={onRetry} className="rounded border border-line px-4 py-2 cursor-pointer">

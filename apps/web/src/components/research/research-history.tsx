@@ -1,26 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
+import { RunSummaryItem } from "@/components/research/run-summary";
 import { listRuns } from "@/lib/api";
 import { isApiError, REQUEST_FAILED_MESSAGE } from "@/lib/errors";
-import type { RunStatus, RunSummary } from "@/lib/types";
-
-const STATUS_LABEL: Record<RunStatus, string> = {
-  running: "Running",
-  completed: "Completed",
-  partial: "Partial",
-  insufficient_evidence: "Insufficient evidence",
-  failed: "Failed",
-  interrupted: "Interrupted",
-};
-
-function formatTime(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
-}
+import { loginHref } from "@/lib/return-path";
+import type { RunSummary } from "@/lib/types";
 
 function dedupe(items: RunSummary[]): RunSummary[] {
   const seen = new Set<string>();
@@ -33,27 +21,51 @@ function dedupe(items: RunSummary[]): RunSummary[] {
   return unique;
 }
 
-export function ResearchHistory({ refreshKey = 0 }: { refreshKey?: string | number }) {
+function failureText(cause: unknown): string {
+  return isApiError(cause) ? cause.message : REQUEST_FAILED_MESSAGE;
+}
+
+export function ResearchHistory({
+  limit = 20,
+  variant = "history",
+}: {
+  limit?: number;
+  variant?: "history" | "recent";
+}) {
+  const router = useRouter();
+  const pathname = usePathname();
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingOlder, setLoadingOlder] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [pageError, setPageError] = useState<string | null>(null);
+  const [olderError, setOlderError] = useState<string | null>(null);
+  const [redirecting, setRedirecting] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const generation = useRef(0);
 
   useEffect(() => {
     const current = generation.current + 1;
     generation.current = current;
     let cancelled = false;
-    listRuns(20)
+    listRuns(limit)
       .then((page) => {
         if (cancelled || current !== generation.current) return;
         setRuns(dedupe(page.items));
         setCursor(page.next_cursor);
+        setPageError(null);
+        setOlderError(null);
       })
       .catch((cause: unknown) => {
         if (cancelled || current !== generation.current) return;
-        setError(isApiError(cause) ? cause.message : REQUEST_FAILED_MESSAGE);
+        if (isApiError(cause) && cause.status === 401) {
+          setRedirecting(true);
+          router.replace(loginHref(pathname));
+          return;
+        }
+        setPageError(failureText(cause));
+        setOlderError(null);
+        setCursor(null);
       })
       .finally(() => {
         if (!cancelled && current === generation.current) setLoading(false);
@@ -61,59 +73,98 @@ export function ResearchHistory({ refreshKey = 0 }: { refreshKey?: string | numb
     return () => {
       cancelled = true;
     };
-  }, [refreshKey]);
+  }, [attempt, limit, pathname, router]);
 
   async function loadOlder(): Promise<void> {
-    if (!cursor || loadingOlder) return;
+    if (!cursor || loadingOlder || variant !== "history") return;
     const current = generation.current;
     setLoadingOlder(true);
-    setError(null);
+    setOlderError(null);
     try {
-      const page = await listRuns(20, cursor);
+      const page = await listRuns(limit, cursor);
       if (current !== generation.current) return;
       setRuns((items) => dedupe([...items, ...page.items]));
       setCursor(page.next_cursor);
+      setOlderError(null);
     } catch (cause: unknown) {
       if (current !== generation.current) return;
-      setError(isApiError(cause) ? cause.message : REQUEST_FAILED_MESSAGE);
+      if (isApiError(cause) && cause.status === 401) {
+        setRedirecting(true);
+        router.replace(loginHref(pathname));
+        return;
+      }
+      setOlderError(failureText(cause));
     } finally {
       if (current === generation.current) setLoadingOlder(false);
     }
   }
 
+  function retryPage() {
+    setLoading(true);
+    setPageError(null);
+    setOlderError(null);
+    setCursor(null);
+    setAttempt((current) => current + 1);
+  }
+
+  if (redirecting) {
+    return <p role="status">Sign-in is required.</p>;
+  }
+
+  const heading = variant === "recent" ? "Recent research" : "Research runs";
+  const headingId = variant === "recent" ? "recent-heading" : "history-heading";
+
   return (
-    <section aria-labelledby="recent-heading" className="flex flex-col gap-3">
-      <h2 id="recent-heading" className="text-lg font-semibold">
-        Recent runs
+    <section aria-labelledby={headingId} className="flex flex-col gap-3">
+      <h2 id={headingId} className="text-lg font-semibold">
+        {heading}
       </h2>
-      {loading ? <p>Loading recent runs.</p> : null}
-      {error ? (
+      {loading ? <p>{variant === "recent" ? "Loading recent runs." : "Loading history."}</p> : null}
+      {pageError ? (
         <p role="alert" className="text-sm text-danger">
-          {error}
+          {pageError}
         </p>
       ) : null}
-      {!loading && !error && runs.length === 0 ? <p>No research runs yet.</p> : null}
-      <ul className="flex flex-col gap-3">
-        {runs.map((run) => {
-          const prominent = run.status === "partial" || run.status === "insufficient_evidence";
-          return (
-            <li key={run.run_id} className="rounded border border-line bg-surface p-3">
-              <Link href={`/research/${run.run_id}`} className="line-clamp-2 break-words font-medium underline">
-                {run.question}
-              </Link>
-              <p className="mt-1 text-sm text-muted">
-                <span className={prominent ? "font-semibold" : undefined}>{STATUS_LABEL[run.status]}</span>
-                {" · "}
-                {formatTime(run.created_at)}
-              </p>
-            </li>
-          );
-        })}
-      </ul>
-      {cursor ? (
+      {pageError ? (
         <button
           type="button"
-          className={`rounded border border-line-strong px-4 py-2 ${loadingOlder ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+          className="w-fit cursor-pointer rounded border border-line-strong px-4 py-2"
+          onClick={retryPage}
+        >
+          Try again
+        </button>
+      ) : null}
+      {olderError ? (
+        <p role="alert" className="text-sm text-danger">
+          {olderError}
+        </p>
+      ) : null}
+      {olderError ? (
+        <button
+          type="button"
+          className="w-fit cursor-pointer rounded border border-line-strong px-4 py-2"
+          onClick={() => {
+            void loadOlder();
+          }}
+        >
+          Try again
+        </button>
+      ) : null}
+      {!loading && !pageError && runs.length === 0 ? <p>No research runs yet.</p> : null}
+      <ul className="flex flex-col gap-3">
+        {runs.map((run) => (
+          <RunSummaryItem key={run.run_id} run={run} />
+        ))}
+      </ul>
+      {variant === "recent" && cursor ? (
+        <Link href="/history" className="underline">
+          View history
+        </Link>
+      ) : null}
+      {variant === "history" && cursor && !pageError ? (
+        <button
+          type="button"
+          className={`w-fit rounded border border-line-strong px-4 py-2 ${loadingOlder ? "cursor-not-allowed" : "cursor-pointer"}`}
           disabled={loadingOlder}
           onClick={() => {
             void loadOlder();
