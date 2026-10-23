@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useContext, useEffect, useRef, useState, useSyncExternalStore, type MouseEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 import { ThemeToggle } from "@/components/theme-toggle/theme-toggle";
 import { ResearchActivityContext } from "@/components/research/research-activity";
@@ -45,10 +46,13 @@ export function AppHeader({
   const busy = activity?.busy ?? false;
   const [openPath, setOpenPath] = useState<string | null>(null);
   const open = openPath === pathname;
-  const [pendingHref, setPendingHref] = useState<string | null>(null);
+  const [pending, setPending] = useState<{ kind: "navigate"; href: string } | { kind: "logout" } | null>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const logoutRef = useRef<HTMLButtonElement>(null);
   const firstLinkRef = useRef<HTMLAnchorElement>(null);
   const stayRef = useRef<HTMLButtonElement>(null);
+  const leaveRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
@@ -57,7 +61,7 @@ export function AppHeader({
   }, [open, wide]);
 
   useEffect(() => {
-    if (!open || wide) return;
+    if (!open || wide || pending) return;
     function onKeyDown(event: KeyboardEvent) {
       if (event.key !== "Escape") return;
       setOpenPath(null);
@@ -65,12 +69,55 @@ export function AppHeader({
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [open, wide]);
+  }, [open, pending, wide]);
 
   useEffect(() => {
-    if (!pendingHref) return;
+    if (!pending) {
+      returnFocus.current?.focus();
+      return;
+    }
+    const dialog = dialogRef.current;
+    const inerted: HTMLElement[] = [];
+    for (const child of document.body.children) {
+      if (!(child instanceof HTMLElement)) continue;
+      if (dialog !== null && (child === dialog || child.contains(dialog))) continue;
+      if (child.hasAttribute("inert")) continue;
+      child.setAttribute("inert", "");
+      inerted.push(child);
+    }
     stayRef.current?.focus();
-  }, [pendingHref]);
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        setPending(null);
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const nodes = [stayRef.current, leaveRef.current].filter(
+        (node): node is HTMLButtonElement => node !== null,
+      );
+      if (nodes.length === 0) return;
+      const first = nodes[0];
+      const last = nodes[nodes.length - 1];
+      const active = document.activeElement;
+      const inside = nodes.includes(active as HTMLButtonElement);
+      if (event.shiftKey && (active === first || !inside)) {
+        event.preventDefault();
+        last.focus();
+        return;
+      }
+      if (!event.shiftKey && (active === last || !inside)) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown, true);
+      for (const node of inerted) node.removeAttribute("inert");
+    };
+  }, [pending]);
 
   function guard(event: MouseEvent<HTMLAnchorElement>, href: string) {
     if (!busy || href === pathname) {
@@ -79,23 +126,38 @@ export function AppHeader({
     }
     event.preventDefault();
     returnFocus.current = event.currentTarget;
-    setPendingHref(href);
+    setPending({ kind: "navigate", href });
+  }
+
+  function requestLogout() {
+    if (!busy) {
+      onLogout();
+      return;
+    }
+    returnFocus.current = logoutRef.current;
+    setPending({ kind: "logout" });
   }
 
   function stay() {
-    setPendingHref(null);
-    returnFocus.current?.focus();
+    setPending(null);
   }
 
   function leave() {
-    if (!pendingHref) return;
-    const href = pendingHref;
-    setPendingHref(null);
+    if (!pending) return;
+    const action = pending;
+    setPending(null);
     setOpenPath(null);
-    router.push(href);
+    activity?.stop();
+    if (action.kind === "logout") {
+      onLogout();
+      return;
+    }
+    router.push(action.href);
   }
 
   const showNav = wide || open;
+
+  const logoutCopy = pending?.kind === "logout";
 
   return (
     <header className="flex flex-col gap-4">
@@ -120,9 +182,10 @@ export function AppHeader({
             Signed in as <span className="text-ink">{email}</span>
           </p>
           <button
+            ref={logoutRef}
             type="button"
             className="cursor-pointer rounded border border-line-strong px-4 py-2"
-            onClick={onLogout}
+            onClick={requestLogout}
           >
             Log out
           </button>
@@ -130,7 +193,11 @@ export function AppHeader({
         </div>
       </div>
       {showNav ? (
-        <nav id="app-nav" aria-label="Primary" className={wide ? "flex flex-row gap-4" : "flex flex-col gap-2"}>
+        <nav
+          id="app-nav"
+          aria-label="Primary"
+          className={wide ? "flex flex-row gap-4" : "flex flex-col gap-2"}
+        >
           {NAV.map((item, index) => (
             <Link
               key={item.href}
@@ -150,22 +217,41 @@ export function AppHeader({
           {logoutError}
         </p>
       ) : null}
-      {pendingHref ? (
-        <div role="dialog" aria-labelledby="leave-title" className="flex flex-col gap-3 rounded border border-line bg-surface p-4">
-          <h2 id="leave-title" className="text-lg font-semibold">
-            Leave this research?
-          </h2>
-          <p>Leaving stops this request. It does not keep running in the background.</p>
-          <div className="flex flex-wrap gap-3">
-            <button ref={stayRef} type="button" className="cursor-pointer rounded border border-line-strong px-4 py-2" onClick={stay}>
-              Stay
-            </button>
-            <button type="button" className="cursor-pointer rounded bg-primary px-4 py-2 text-on-primary" onClick={leave}>
-              Leave
-            </button>
-          </div>
-        </div>
-      ) : null}
+      {pending
+        ? createPortal(
+            <div
+              ref={dialogRef}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="leave-title"
+              aria-describedby="leave-body"
+              className="flex flex-col gap-3 rounded border border-line bg-surface p-4"
+            >
+              <h2 id="leave-title" className="text-lg font-semibold">
+                {logoutCopy ? "Log out?" : "Leave this research?"}
+              </h2>
+              <p id="leave-body">
+                {logoutCopy
+                  ? "Logging out stops this request. It does not keep running in the background."
+                  : "Leaving stops this request. It does not keep running in the background."}
+              </p>
+              <div className="flex flex-wrap gap-3">
+                <button ref={stayRef} type="button" className="cursor-pointer rounded border border-line-strong px-4 py-2" onClick={stay}>
+                  Stay
+                </button>
+                <button
+                  ref={leaveRef}
+                  type="button"
+                  className="cursor-pointer rounded bg-primary px-4 py-2 text-on-primary"
+                  onClick={leave}
+                >
+                  {logoutCopy ? "Log out" : "Leave"}
+                </button>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </header>
   );
 }

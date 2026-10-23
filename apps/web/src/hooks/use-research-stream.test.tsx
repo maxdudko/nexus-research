@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { useResearchStream } from "@/hooks/use-research-stream";
 import { ApiError } from "@/lib/errors";
+import { PDF_LIMIT_BYTES } from "@/lib/research-session";
 import type { RunDetailResponse, RunStatus } from "@/lib/types";
 
 const RUN = "11111111-1111-4111-8111-111111111111";
@@ -521,6 +522,114 @@ describe("useResearchStream", () => {
     expect(createResearchScopeMock).toHaveBeenCalledTimes(1);
     expect(uploadPdfMock).toHaveBeenLastCalledWith(RESEARCH, file, expect.any(AbortSignal));
     expect(openResearchStreamMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("mints a new scope when the file changes after an upload failure", async () => {
+    uploadPdfMock.mockRejectedValueOnce(
+      new ApiError("empty_document", "The document has no extractable text.", 422),
+    );
+    uploadPdfMock.mockResolvedValueOnce({
+      source_id: "33333333-3333-4333-8333-333333333333",
+      research_id: "33333333-3333-4333-8333-333333333331",
+      status: "indexed",
+      chunk_count: 1,
+      deduplicated: false,
+    });
+    openResearchStreamMock.mockResolvedValue(sseResponse([started(), completed("completed")]));
+    getRunMock.mockResolvedValue(detail("completed"));
+    const { result } = await renderStream();
+    const first = new File(["%PDF-1.4"], "notes.pdf", { type: "application/pdf" });
+    const replacement = new File(["%PDF-1.4"], "replacement.pdf", { type: "application/pdf" });
+    act(() => {
+      result.current.setQuestion("How does the proxy stream results?");
+      result.current.setFile(first);
+    });
+    await act(async () => {
+      result.current.start();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(result.current.state.researchId).toBe(RESEARCH);
+    act(() => {
+      result.current.setFile(replacement);
+    });
+    expect(result.current.state.researchId).toBe("");
+    expect(result.current.state.phase).toBe("idle");
+    await act(async () => {
+      result.current.start();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    const nextId = "33333333-3333-4333-8333-333333333331";
+    expect(createResearchScopeMock).toHaveBeenCalledTimes(2);
+    expect(uploadPdfMock).toHaveBeenLastCalledWith(nextId, replacement, expect.any(AbortSignal));
+    expect(openResearchStreamMock).toHaveBeenCalledTimes(1);
+    expect(openResearchStreamMock).toHaveBeenLastCalledWith(
+      { question: "How does the proxy stream results?", research_id: nextId },
+      expect.any(AbortSignal),
+    );
+  });
+
+  it("mints a new scope when a failed upload is cleared before the next start", async () => {
+    uploadPdfMock.mockRejectedValueOnce(
+      new ApiError("empty_document", "The document has no extractable text.", 422),
+    );
+    openResearchStreamMock.mockResolvedValue(sseResponse([started(), completed("completed")]));
+    getRunMock.mockResolvedValue(detail("completed"));
+    const { result } = await renderStream();
+    act(() => {
+      result.current.setQuestion("How does the proxy stream results?");
+      result.current.setFile(new File(["%PDF-1.4"], "notes.pdf", { type: "application/pdf" }));
+    });
+    await act(async () => {
+      result.current.start();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    act(() => {
+      result.current.setFile(null);
+    });
+    uploadPdfMock.mockClear();
+    await act(async () => {
+      result.current.start();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(createResearchScopeMock).toHaveBeenCalledTimes(2);
+    expect(uploadPdfMock).not.toHaveBeenCalled();
+    expect(openResearchStreamMock).toHaveBeenLastCalledWith(
+      {
+        question: "How does the proxy stream results?",
+        research_id: "33333333-3333-4333-8333-333333333331",
+      },
+      expect.any(AbortSignal),
+    );
+  });
+
+  it("does not reuse a failed upload scope after an oversized replacement", async () => {
+    uploadPdfMock.mockRejectedValueOnce(
+      new ApiError("empty_document", "The document has no extractable text.", 422),
+    );
+    const { result } = await renderStream();
+    act(() => {
+      result.current.setQuestion("How does the proxy stream results?");
+      result.current.setFile(new File(["%PDF-1.4"], "notes.pdf", { type: "application/pdf" }));
+    });
+    await act(async () => {
+      result.current.start();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(result.current.state.researchId).toBe(RESEARCH);
+    act(() => {
+      result.current.setFile(
+        new File([new Uint8Array(PDF_LIMIT_BYTES + 1)], "big.pdf", { type: "application/pdf" }),
+      );
+    });
+    expect(result.current.state.phase).toBe("upload_failed");
+    expect(result.current.state.researchId).toBe("");
+    await act(async () => {
+      result.current.start();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(createResearchScopeMock).toHaveBeenCalledTimes(1);
+    expect(uploadPdfMock).toHaveBeenCalledTimes(1);
+    expect(openResearchStreamMock).not.toHaveBeenCalled();
   });
 
   it("shows Retry-After for a scope limit and does not upload or stream", async () => {

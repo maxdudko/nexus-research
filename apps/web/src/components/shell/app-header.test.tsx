@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useContext, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -33,10 +33,18 @@ function setWide(matches: boolean) {
   });
 }
 
+const stopResearch = vi.fn();
+
 function Arm() {
   const activity = useContext(ResearchActivityContext);
   return (
-    <button type="button" onClick={() => activity?.setBusy(true)}>
+    <button
+      type="button"
+      onClick={() => {
+        activity?.setBusy(true);
+        activity?.registerStop(stopResearch);
+      }}
+    >
       Arm
     </button>
   );
@@ -54,6 +62,7 @@ function renderHeader() {
 afterEach(() => {
   cleanup();
   navigation.push.mockReset();
+  stopResearch.mockReset();
   navigation.pathname = "/research/new";
   document.documentElement.classList.remove("dark");
   localStorage.clear();
@@ -100,12 +109,68 @@ describe("app header", () => {
       "Leaving stops this request. It does not keep running in the background.",
     );
     expect(navigation.push).not.toHaveBeenCalled();
+    expect(stopResearch).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Stay" }));
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(document.activeElement).toBe(screen.getByRole("link", { name: "History" }));
+    expect(stopResearch).not.toHaveBeenCalled();
     await user.click(screen.getByRole("link", { name: "History" }));
     await user.click(screen.getByRole("button", { name: "Leave" }));
+    expect(stopResearch).toHaveBeenCalledTimes(1);
     expect(navigation.push).toHaveBeenCalledWith("/history");
+  });
+
+  it("keeps keyboard focus inside the leave dialog until Escape", async () => {
+    setWide(true);
+    const user = userEvent.setup();
+    renderHeader();
+    const outside = screen.getByRole("button", { name: "Arm" });
+    await user.click(outside);
+    await user.click(screen.getByRole("link", { name: "History" }));
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.getAttribute("aria-modal")).toBe("true");
+    expect(dialog.getAttribute("aria-labelledby")).toBe("leave-title");
+    expect(dialog.getAttribute("aria-describedby")).toBe("leave-body");
+    expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Stay" }));
+    expect(outside.closest("[inert]")).not.toBeNull();
+    await user.tab();
+    expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Leave" }));
+    await user.tab();
+    expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Stay" }));
+    await user.keyboard("{Shift>}{Tab}{/Shift}");
+    expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Leave" }));
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole("link", { name: "History" }));
+    expect(navigation.push).not.toHaveBeenCalled();
+  });
+
+  it("asks before logout while research is active", async () => {
+    setWide(true);
+    const onLogout = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <ResearchActivityProvider>
+        <AppHeader email="ada@example.com" logoutError={null} onLogout={onLogout} />
+        <Arm />
+      </ResearchActivityProvider>,
+    );
+    await user.click(screen.getByRole("button", { name: "Arm" }));
+    await user.click(screen.getByRole("button", { name: "Log out" }));
+    expect(onLogout).not.toHaveBeenCalled();
+    expect(stopResearch).not.toHaveBeenCalled();
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.textContent).toContain(
+      "Logging out stops this request. It does not keep running in the background.",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Stay" }));
+    expect(onLogout).not.toHaveBeenCalled();
+    expect(stopResearch).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Log out" }));
+    await user.click(screen.getByRole("button", { name: "Log out" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Log out" }));
+    expect(stopResearch).toHaveBeenCalledTimes(1);
+    expect(onLogout).toHaveBeenCalledTimes(1);
   });
 
   it("remounts page content when the signed-in user changes", () => {

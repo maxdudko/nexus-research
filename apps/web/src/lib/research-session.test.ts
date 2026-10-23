@@ -96,6 +96,8 @@ describe("researchSession", () => {
       size: PDF_LIMIT_BYTES + 1,
     });
     expect(state.phase).toBe("upload_failed");
+    expect(state.researchId).toBe("");
+    expect(canStart(state)).toBe(false);
     expect(state.errorMessage).toBe("This PDF is larger than 10 MB.");
     const retried = researchSession(state, { type: "retry" });
     expect(retried.researchId).toBe("");
@@ -143,17 +145,37 @@ describe("researchSession", () => {
     expect(scopeFailed.researchId).toBe("");
     expect(canStart(scopeFailed)).toBe(true);
 
-    const indexed = researchSession(
-      { ...ready, researchId: SCOPE, phase: "upload_failed" },
-      { type: "select_file", name: "notes.pdf", size: 1200 },
-    );
-    expect(indexed.phase).toBe("upload_failed");
-    expect(indexed.researchId).toBe(SCOPE);
-    expect(canStart(indexed)).toBe(true);
-    const cleared = researchSession(indexed, { type: "clear_file" });
-    expect(cleared.phase).toBe("upload_failed");
+    const failedUpload = { ...ready, researchId: SCOPE, phase: "upload_failed" as const };
+    expect(canStart(failedUpload)).toBe(true);
+    const changed = researchSession(failedUpload, {
+      type: "select_file",
+      name: "replacement.pdf",
+      size: 1200,
+    });
+    expect(changed.phase).toBe("idle");
+    expect(changed.researchId).toBe("");
+    expect(changed.fileName).toBe("replacement.pdf");
+    expect(canStart(changed)).toBe(true);
+    const cleared = researchSession(failedUpload, { type: "clear_file" });
+    expect(cleared.phase).toBe("idle");
+    expect(cleared.researchId).toBe("");
     expect(cleared.fileName).toBeNull();
-    expect(canStart(cleared)).toBe(true);
+    const edited = researchSession(failedUpload, {
+      type: "edit_question",
+      question: "How does the same PDF stay on this scope?",
+    });
+    expect(edited.phase).toBe("upload_failed");
+    expect(edited.researchId).toBe(SCOPE);
+    expect(canStart(edited)).toBe(true);
+    const oversized = researchSession(failedUpload, {
+      type: "file_too_large",
+      name: "big.pdf",
+      size: PDF_LIMIT_BYTES + 1,
+    });
+    expect(oversized.phase).toBe("upload_failed");
+    expect(oversized.researchId).toBe("");
+    expect(oversized.fileName).toBe("big.pdf");
+    expect(canStart(oversized)).toBe(false);
   });
 
   it("stays on the detail error instead of navigating as success", () => {

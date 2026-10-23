@@ -151,8 +151,7 @@ export function researchSession(state: SessionState, action: SessionAction): Ses
     case "select_file":
       if (BUSY.has(state.phase)) return state;
       return {
-        ...state,
-        phase: phaseAfterFileEdit(state),
+        ...abandonFailedUpload(state),
         fileName: action.name,
         fileSize: action.size,
         indexed: false,
@@ -161,8 +160,7 @@ export function researchSession(state: SessionState, action: SessionAction): Ses
     case "clear_file":
       if (BUSY.has(state.phase)) return state;
       return {
-        ...state,
-        phase: phaseAfterFileEdit(state),
+        ...abandonFailedUpload(state),
         fileName: null,
         fileSize: null,
         indexed: false,
@@ -171,8 +169,9 @@ export function researchSession(state: SessionState, action: SessionAction): Ses
     case "file_too_large":
       if (BUSY.has(state.phase)) return state;
       return {
-        ...state,
+        ...abandonFailedUpload(state),
         phase: "upload_failed",
+        researchId: "",
         fileName: action.name,
         fileSize: action.size,
         indexed: false,
@@ -314,8 +313,10 @@ export function researchSession(state: SessionState, action: SessionAction): Ses
   }
 }
 
-function phaseAfterFileEdit(state: SessionState): SessionPhase {
-  if (state.phase === "upload_failed" && isScopeId(state.researchId)) return "upload_failed";
-  if (state.phase === "upload_failed" || state.phase === "scope_failed") return "idle";
-  return state.phase;
+function abandonFailedUpload(state: SessionState): SessionState {
+  if (state.phase === "upload_failed") {
+    return { ...state, phase: "idle", researchId: "" };
+  }
+  if (state.phase === "scope_failed") return { ...state, phase: "idle" };
+  return state;
 }

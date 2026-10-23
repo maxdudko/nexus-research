@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useState } from "react";
+import { useContext, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SessionBoundary } from "@/components/auth/session-boundary";
-import { ResearchActivityProvider } from "@/components/research/research-activity";
+import { ResearchActivityContext, ResearchActivityProvider } from "@/components/research/research-activity";
 import { AuthenticatedFrame } from "@/components/shell/app-header";
 
 const navigation = vi.hoisted(() => ({
@@ -52,6 +52,7 @@ afterEach(() => {
   navigation.pathname = "/";
   vi.unstubAllGlobals();
   localStorage.clear();
+  document.cookie = "nexus_csrf=; Max-Age=0";
 });
 
 describe("session boundary", () => {
@@ -155,6 +156,76 @@ describe("session boundary", () => {
     expect(screen.queryByText(/logged out/i)).toBeNull();
   });
 
+  it("confirms logout during active research and still revokes the session", async () => {
+    setWide(true);
+    document.cookie = "nexus_csrf=test-token";
+    const stop = vi.fn();
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      void init;
+      if (url === "/api/v1/auth/logout") return new Response("{}", { status: 200 });
+      return Response.json(ADA);
+    });
+    vi.stubGlobal("fetch", fetchImpl);
+    const user = userEvent.setup();
+    render(
+      <ResearchActivityProvider>
+        <SessionBoundary>
+          <ArmResearch onStop={stop} />
+        </SessionBoundary>
+      </ResearchActivityProvider>,
+    );
+    await user.click(await screen.findByRole("button", { name: "Arm research" }));
+    await user.click(screen.getByRole("button", { name: "Log out" }));
+    expect(stop).not.toHaveBeenCalled();
+    expect(fetchImpl.mock.calls.some((call) => call[0] === "/api/v1/auth/logout")).toBe(false);
+    expect(navigation.replace).not.toHaveBeenCalled();
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Log out" }));
+    await waitFor(() => {
+      expect(navigation.replace).toHaveBeenCalledWith("/login");
+    });
+    expect(stop).toHaveBeenCalledTimes(1);
+    const logoutCall = fetchImpl.mock.calls.find((call) => call[0] === "/api/v1/auth/logout");
+    expect(logoutCall?.[1]).toMatchObject({
+      method: "POST",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { "x-csrf-token": "test-token" },
+    });
+  });
+
+  it("stops research and keeps the session when confirmed logout fails", async () => {
+    setWide(true);
+    document.cookie = "nexus_csrf=test-token";
+    const stop = vi.fn();
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      void init;
+      if (url === "/api/v1/auth/logout") return new Response("{}", { status: 500 });
+      return Response.json(ADA);
+    });
+    vi.stubGlobal("fetch", fetchImpl);
+    const user = userEvent.setup();
+    render(
+      <ResearchActivityProvider>
+        <SessionBoundary>
+          <ArmResearch onStop={stop} />
+        </SessionBoundary>
+      </ResearchActivityProvider>,
+    );
+    await user.click(await screen.findByRole("button", { name: "Arm research" }));
+    await user.click(screen.getByRole("button", { name: "Log out" }));
+    expect(stop).not.toHaveBeenCalled();
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Log out" }));
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect((await screen.findByRole("alert")).textContent).toBe("Log out did not finish. Try again.");
+    expect(screen.getByText("ada@example.com")).toBeTruthy();
+    expect(navigation.replace).not.toHaveBeenCalled();
+    const logoutCall = fetchImpl.mock.calls.find((call) => call[0] === "/api/v1/auth/logout");
+    expect(logoutCall?.[1]).toMatchObject({
+      method: "POST",
+      headers: { "x-csrf-token": "test-token" },
+    });
+  });
+
   it("leaves for login after a successful logout", async () => {
     setWide(true);
     vi.stubGlobal(
@@ -175,6 +246,21 @@ describe("session boundary", () => {
     });
   });
 });
+
+function ArmResearch({ onStop = () => {} }: { onStop?: () => void }) {
+  const activity = useContext(ResearchActivityContext);
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        activity?.setBusy(true);
+        activity?.registerStop(onStop);
+      }}
+    >
+      Arm research
+    </button>
+  );
+}
 
 function Note() {
   const [note, setNote] = useState("empty");

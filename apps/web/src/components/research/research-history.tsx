@@ -38,7 +38,8 @@ export function ResearchHistory({
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingOlder, setLoadingOlder] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [pageError, setPageError] = useState<string | null>(null);
+  const [olderError, setOlderError] = useState<string | null>(null);
   const [redirecting, setRedirecting] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const generation = useRef(0);
@@ -52,6 +53,8 @@ export function ResearchHistory({
         if (cancelled || current !== generation.current) return;
         setRuns(dedupe(page.items));
         setCursor(page.next_cursor);
+        setPageError(null);
+        setOlderError(null);
       })
       .catch((cause: unknown) => {
         if (cancelled || current !== generation.current) return;
@@ -60,7 +63,9 @@ export function ResearchHistory({
           router.replace(loginHref(pathname));
           return;
         }
-        setError(failureText(cause));
+        setPageError(failureText(cause));
+        setOlderError(null);
+        setCursor(null);
       })
       .finally(() => {
         if (!cancelled && current === generation.current) setLoading(false);
@@ -74,12 +79,13 @@ export function ResearchHistory({
     if (!cursor || loadingOlder || variant !== "history") return;
     const current = generation.current;
     setLoadingOlder(true);
-    setError(null);
+    setOlderError(null);
     try {
       const page = await listRuns(limit, cursor);
       if (current !== generation.current) return;
       setRuns((items) => dedupe([...items, ...page.items]));
       setCursor(page.next_cursor);
+      setOlderError(null);
     } catch (cause: unknown) {
       if (current !== generation.current) return;
       if (isApiError(cause) && cause.status === 401) {
@@ -87,20 +93,18 @@ export function ResearchHistory({
         router.replace(loginHref(pathname));
         return;
       }
-      setError(failureText(cause));
+      setOlderError(failureText(cause));
     } finally {
       if (current === generation.current) setLoadingOlder(false);
     }
   }
 
-  function retry() {
-    if (runs.length === 0) {
-      setLoading(true);
-      setError(null);
-      setAttempt((current) => current + 1);
-      return;
-    }
-    void loadOlder();
+  function retryPage() {
+    setLoading(true);
+    setPageError(null);
+    setOlderError(null);
+    setCursor(null);
+    setAttempt((current) => current + 1);
   }
 
   if (redirecting) {
@@ -116,21 +120,37 @@ export function ResearchHistory({
         {heading}
       </h2>
       {loading ? <p>{variant === "recent" ? "Loading recent runs." : "Loading history."}</p> : null}
-      {error ? (
+      {pageError ? (
         <p role="alert" className="text-sm text-danger">
-          {error}
+          {pageError}
         </p>
       ) : null}
-      {error ? (
+      {pageError ? (
         <button
           type="button"
           className="w-fit cursor-pointer rounded border border-line-strong px-4 py-2"
-          onClick={retry}
+          onClick={retryPage}
         >
           Try again
         </button>
       ) : null}
-      {!loading && !error && runs.length === 0 ? <p>No research runs yet.</p> : null}
+      {olderError ? (
+        <p role="alert" className="text-sm text-danger">
+          {olderError}
+        </p>
+      ) : null}
+      {olderError ? (
+        <button
+          type="button"
+          className="w-fit cursor-pointer rounded border border-line-strong px-4 py-2"
+          onClick={() => {
+            void loadOlder();
+          }}
+        >
+          Try again
+        </button>
+      ) : null}
+      {!loading && !pageError && runs.length === 0 ? <p>No research runs yet.</p> : null}
       <ul className="flex flex-col gap-3">
         {runs.map((run) => (
           <RunSummaryItem key={run.run_id} run={run} />
@@ -141,7 +161,7 @@ export function ResearchHistory({
           View history
         </Link>
       ) : null}
-      {variant === "history" && cursor ? (
+      {variant === "history" && cursor && !pageError ? (
         <button
           type="button"
           className={`w-fit rounded border border-line-strong px-4 py-2 ${loadingOlder ? "cursor-not-allowed" : "cursor-pointer"}`}

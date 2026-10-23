@@ -78,6 +78,32 @@ describe("ResearchHistory", () => {
     expect(screen.getByRole("link", { name: first.question })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Older runs" })).toBeTruthy();
     expect(screen.queryByText("No research runs yet.")).toBeNull();
+
+    const older = run("44444444-4444-4444-8444-444444444444", "How does the older page append?");
+    listRunsMock.mockResolvedValueOnce({ items: [older], next_cursor: null });
+    await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByRole("link", { name: older.question })).toBeTruthy();
+    expect(listRunsMock).toHaveBeenLastCalledWith(20, "cursor-1");
+    expect(listRunsMock.mock.calls.filter((call) => call.length === 1)).toHaveLength(1);
+  });
+
+  it("retries the first page when a refresh fails after rows are loaded", async () => {
+    const first = run("11111111-1111-4111-8111-111111111111", "How does the first page stream?");
+    const refreshed = run("55555555-5555-4555-8555-555555555555", "How does the refreshed page read?");
+    listRunsMock
+      .mockResolvedValueOnce({ items: [first], next_cursor: "cursor-1" })
+      .mockRejectedValueOnce(new ApiError("history_unavailable", "The research service is unavailable.", 503))
+      .mockResolvedValueOnce({ items: [refreshed], next_cursor: null });
+    const { rerender } = render(<ResearchHistory limit={20} />);
+    expect(await screen.findByRole("link", { name: first.question })).toBeTruthy();
+    rerender(<ResearchHistory limit={5} />);
+    expect((await screen.findByRole("alert")).textContent).toBe("The research service is unavailable.");
+    expect(screen.getByRole("link", { name: first.question })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Older runs" })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByRole("link", { name: refreshed.question })).toBeTruthy();
+    expect(listRunsMock).toHaveBeenLastCalledWith(5);
+    expect(listRunsMock).not.toHaveBeenCalledWith(5, "cursor-1");
   });
 
   it("labels a stored running row as last recorded", async () => {
