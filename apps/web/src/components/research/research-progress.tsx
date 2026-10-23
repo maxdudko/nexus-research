@@ -67,7 +67,7 @@ export function ResearchProgress({ state }: { state: SessionState }) {
           {state.errorMessage}
         </p>
       ) : null}
-      <ol className="flex list-decimal flex-col gap-2 pl-5">
+      <ol aria-live="polite" className="flex list-decimal flex-col gap-2 pl-5">
         {state.stages.map((stage, index) => (
           <li key={`${stage.stage}-${stage.iteration}-${index}`}>
             {stage.message}

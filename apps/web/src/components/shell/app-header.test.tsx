@@ -2,11 +2,11 @@
 
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useContext } from "react";
+import { useContext, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ResearchActivityContext, ResearchActivityProvider } from "@/components/research/research-activity";
-import { AppHeader } from "@/components/shell/app-header";
+import { AppHeader, AuthenticatedFrame } from "@/components/shell/app-header";
 import { THEME_STORAGE_KEY } from "@/lib/theme";
 
 const navigation = vi.hoisted(() => ({
@@ -106,6 +106,30 @@ describe("app header", () => {
     await user.click(screen.getByRole("link", { name: "History" }));
     await user.click(screen.getByRole("button", { name: "Leave" }));
     expect(navigation.push).toHaveBeenCalledWith("/history");
+  });
+
+  it("remounts page content when the signed-in user changes", () => {
+    setWide(true);
+    let mounts = 0;
+    function Marker() {
+      const [mark] = useState(() => {
+        mounts += 1;
+        return mounts;
+      });
+      return <p>Mount {mark}</p>;
+    }
+    const frame = (userId: string) => (
+      <ResearchActivityProvider>
+        <AuthenticatedFrame email="ada@example.com" userId={userId} onLogout={() => {}} logoutError={null}>
+          <Marker />
+        </AuthenticatedFrame>
+      </ResearchActivityProvider>
+    );
+    const { rerender } = render(frame("user-a"));
+    expect(screen.getByText("Mount 1")).toBeTruthy();
+    rerender(frame("user-b"));
+    expect(screen.getByText("Mount 2")).toBeTruthy();
+    expect(screen.queryByText("Mount 1")).toBeNull();
   });
 
   it("stores the theme chosen from the header", async () => {

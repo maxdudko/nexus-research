@@ -50,6 +50,8 @@ describe("dashboard", () => {
     listRunsMock.mockResolvedValueOnce({ items: [], next_cursor: null });
     render(<DashboardPage />);
     expect(screen.getByRole("link", { name: "New research" }).getAttribute("href")).toBe("/research/new");
+    expect(screen.getByText(/not proof the report is correct/)).toBeTruthy();
+    expect(screen.getByText(/only while it is open/)).toBeTruthy();
     expect(await screen.findByText("No research runs yet.")).toBeTruthy();
     expect(screen.queryByRole("link", { name: "View history" })).toBeNull();
     expect(listRunsMock).toHaveBeenCalledWith(5);

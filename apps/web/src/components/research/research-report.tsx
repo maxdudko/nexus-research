@@ -16,11 +16,19 @@ export function ResearchReportView({ report }: { report: ResearchReport }) {
 
   return (
     <section aria-labelledby="report-title" className="flex flex-col gap-4">
-      <p className={prominent ? "font-semibold" : undefined}>Status: {STATUS_LABEL[report.status]}</p>
+      {prominent ? (
+        <p role="status" className="font-semibold">
+          Status: {STATUS_LABEL[report.status]}
+        </p>
+      ) : null}
       <h2 id="report-title" className="break-words text-lg font-semibold">
         {report.title}
       </h2>
       <p className="break-words">{report.summary}</p>
+      <p className="break-words">
+        A citation identifies a source retrieved for this run. It does not prove the report is
+        correct.
+      </p>
       {sections.map((section, index) => {
         const citations = Array.isArray(section.citations) ? section.citations : [];
         return (

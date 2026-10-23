@@ -100,5 +100,9 @@ describe("research form", () => {
     expect(screen.getByText("No update for 45 seconds. The request is still open.")).toBeTruthy();
     expect(screen.getByText("Status:").textContent).toContain("Stalled");
     expect(document.body.textContent).not.toContain("%");
+    const stages = screen.getByRole("list");
+    expect(stages.getAttribute("aria-live")).toBe("polite");
+    expect(screen.getByText(/Last heartbeat/).closest("[aria-live]")).toBeNull();
+    expect(screen.getByText(/Elapsed/).closest("[aria-live]")).toBeNull();
   });
 });

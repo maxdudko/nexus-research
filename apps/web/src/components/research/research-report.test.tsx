@@ -47,6 +47,8 @@ describe("ResearchReportView", () => {
     expect(link.getAttribute("href")).toBe("https://example.com/paper");
     expect(link.getAttribute("rel")).toBe("noopener noreferrer");
     expect(link.getAttribute("target")).toBe("_blank");
+    expect(screen.getByText("https://example.com/paper")).toBeTruthy();
+    expect(screen.getByText(/does not prove the report is correct/)).toBeTruthy();
     unmount();
 
     render(
@@ -91,6 +93,20 @@ describe("ResearchReportView", () => {
     ).toBeTruthy();
     expect(screen.getByText("Unknown source (E9)")).toBeTruthy();
     expect(screen.queryByRole("link")).toBeNull();
+  });
+
+  it("links a safe URL and keeps a page number as text", () => {
+    render(
+      <ResearchReportView
+        report={report({
+          sources: [source({ url: "https://example.com/paper", page_number: 4 })],
+        })}
+      />,
+    );
+    const link = screen.getByRole("link", { name: "E1" });
+    expect(link.getAttribute("href")).toBe("https://example.com/paper");
+    expect(screen.getByText("PDF · page 4")).toBeTruthy();
+    expect(document.body.textContent).not.toContain("not stored");
   });
 
   it("renders report text without executing markup", () => {

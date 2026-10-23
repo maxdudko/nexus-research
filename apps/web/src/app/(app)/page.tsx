@@ -8,7 +8,8 @@ export default function DashboardPage() {
       <div className="flex flex-col gap-3">
         <h1 className="text-2xl font-semibold">Dashboard</h1>
         <p className="text-sm text-muted">
-          Ask a question and come back here for the report.
+          Nexus answers a question from public web pages and an optional text PDF. The request runs
+          only while it is open. A citation is a retrieved source, not proof the report is correct.
         </p>
         <Link
           href="/research/new"

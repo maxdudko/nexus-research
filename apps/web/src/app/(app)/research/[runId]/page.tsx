@@ -8,7 +8,7 @@ import { ResearchReportView } from "@/components/research/research-report";
 import { getRun } from "@/lib/api";
 import { isApiError, REQUEST_FAILED_MESSAGE } from "@/lib/errors";
 import { loginHref } from "@/lib/return-path";
-import type { GraphUsage, RunDetailResponse, RunStatus } from "@/lib/types";
+import type { GraphUsage, RunDetail, RunDetailResponse, RunStatus } from "@/lib/types";
 
 const STATUS_LABEL: Record<RunStatus, string> = {
   running: "Running",
@@ -35,10 +35,20 @@ function usageText(usage: GraphUsage): string {
   ].join(" · ");
 }
 
-export default function ResearchRunPage() {
-  const params = useParams<{ runId: string }>();
+function timestampLine(run: RunDetail): string {
+  const parts = [`Created ${formatTime(run.created_at)}`, `Updated ${formatTime(run.updated_at)}`];
+  if (run.finished_at) parts.push(`Finished ${formatTime(run.finished_at)}`);
+  return parts.join(" · ");
+}
+
+function absentReport(status: RunStatus): string {
+  if (status === "failed") return "This run failed. No report is stored.";
+  if (status === "interrupted") return "This run was interrupted. No report is stored.";
+  return "No report is stored for this run.";
+}
+
+function RunDetailView({ runId }: { runId: string }) {
   const router = useRouter();
-  const runId = typeof params.runId === "string" ? params.runId : "";
   const [detail, setDetail] = useState<RunDetailResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -66,51 +76,65 @@ export default function ResearchRunPage() {
   const prominent =
     detail?.run.status === "partial" || detail?.run.status === "insufficient_evidence";
 
+  if (error) {
+    return (
+      <p role="alert" className="text-sm text-danger">
+        {error}
+      </p>
+    );
+  }
+  if (!detail) {
+    return <p role="status">Loading run.</p>;
+  }
+
+  return (
+    <article className="flex flex-col gap-4">
+      <h1 className="break-words text-2xl font-semibold">{detail.run.question}</h1>
+      <p className={prominent ? "font-semibold" : undefined}>Status: {STATUS_LABEL[detail.run.status]}</p>
+      <p>{timestampLine(detail.run)}</p>
+      {detail.run.status === "running" ? (
+        <p>
+          {`Last known state: running; execution is not confirmed. Updated ${formatTime(detail.run.updated_at)}.`}
+        </p>
+      ) : null}
+      {detail.run.error_code ? <p>Error code: {detail.run.error_code}</p> : null}
+      {detail.run.warnings.length > 0 ? (
+        <section className="flex flex-col gap-2">
+          <h2 className="text-lg font-semibold">Warnings</h2>
+          <ul className="flex list-disc flex-col gap-1 pl-5">
+            {detail.run.warnings.map((warning) => (
+              <li key={warning} className="break-words">
+                {warning}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+      {detail.run.usage ? <p>{usageText(detail.run.usage)}</p> : null}
+      {detail.report ? (
+        <ResearchReportView report={detail.report} />
+      ) : (
+        <p>{absentReport(detail.run.status)}</p>
+      )}
+    </article>
+  );
+}
+
+export default function ResearchRunPage() {
+  const params = useParams<{ runId: string }>();
+  const runId = typeof params.runId === "string" ? params.runId : "";
+
   return (
     <div className="flex flex-col gap-6">
-      <p>
+      <p className="flex flex-wrap gap-x-4 gap-y-1">
         <Link href="/history" className="underline">
           Back to history
         </Link>
+        <Link href="/" className="underline">
+          Dashboard
+        </Link>
       </p>
-      {error ? (
-        <p role="alert" className="text-sm text-danger">
-          {error}
-        </p>
-      ) : null}
-      {!detail && !error ? <p>Loading run.</p> : null}
-      {detail ? (
-        <article className="flex flex-col gap-4">
-          <h1 className="break-words text-2xl font-semibold">{detail.run.question}</h1>
-          <p className={prominent ? "font-semibold" : undefined}>
-            Status: {STATUS_LABEL[detail.run.status]}
-          </p>
-          {detail.run.status === "running" ? (
-            <p>
-              {`Last known state: running; execution is not confirmed. Updated ${formatTime(detail.run.updated_at)}.`}
-            </p>
-          ) : null}
-          {detail.run.error_code ? <p>Error code: {detail.run.error_code}</p> : null}
-          {detail.run.warnings.length > 0 ? (
-            <section className="flex flex-col gap-2">
-              <h2 className="text-lg font-semibold">Warnings</h2>
-              <ul className="flex list-disc flex-col gap-1 pl-5">
-                {detail.run.warnings.map((warning) => (
-                  <li key={warning} className="break-words">
-                    {warning}
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ) : null}
-          {detail.run.usage ? <p>{usageText(detail.run.usage)}</p> : null}
-          {detail.report ? (
-            <ResearchReportView report={detail.report} />
-          ) : (
-            <p>No report is stored for this run.</p>
-          )}
-        </article>
-      ) : null}
+      <RunDetailView key={runId} runId={runId} />
     </div>
   );
 }

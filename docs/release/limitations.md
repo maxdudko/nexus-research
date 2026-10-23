@@ -22,7 +22,7 @@ The current private build adds login and owner-scoped research on the single-ope
 
 - A research run executes only while its HTTP request is open. There is no worker, queue, scheduler or background job.
 - Closing the tab, pressing Stop, a proxy timeout, an API restart or a crash ends the run. Nothing resumes it. LangGraph checkpoints are stored but never used to continue a thread.
-- A run cut off before its status write completes stays `running` permanently ([Stale `running` rows](operations.md#stale-running-rows)). There is no cleanup tool.
+- A run cut off before its status write completes stays `running` permanently ([Stale `running` rows](operations.md#stale-running-rows)). There is no cleanup tool. The report page shows that row as the last recorded state. It does not mean the request is still running.
 - Each user can have one active stream. Across users, at most `NEXUS_STREAM_MAX_CONCURRENT` (default 2, maximum 8) streams run at once per API process; more get 429.
 - A run is bounded by default to 2 iterations, 6 searches, 13 logical model calls, 5 fetched pages, 12 passages and 180 seconds. Hitting a cap produces `partial` or `insufficient_evidence`, not a longer run.
 - Checkpoint rows are never deleted.
@@ -31,7 +31,7 @@ The current private build adds login and owner-scoped research on the single-ope
 
 - Only text PDFs are read. There is no OCR; scanned pages yield no text, and a fully scanned PDF is rejected.
 - Encrypted or unreadable PDFs are rejected. The default caps are 10 MiB and 100 pages.
-- The original PDF bytes are not stored. A PDF citation is a `PDF · page N` label, not a link to the file. Rebuilding lost PDF evidence requires uploading the file again.
+- The original PDF bytes are not stored. A PDF citation is a `PDF · page N` label, not a link to the file. The report page does not offer the original PDF for download. Rebuilding lost PDF evidence requires uploading the file again.
 - There is no keyword index and no reranker; retrieval is vector similarity only. A similarity score is not a probability that a passage is true.
 - In the release stack, `NEXUS_RAG_COLLECTION` and the chunking settings are not configurable; they stay at `nexus_evidence_v1` and 800/120 tokens.
 
