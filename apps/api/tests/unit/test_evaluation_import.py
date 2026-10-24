@@ -7,6 +7,8 @@ from io import StringIO
 from pathlib import Path
 from uuid import uuid4
 
+import pytest
+from pydantic import ValidationError
 from tests.conftest import make_settings
 
 from nexus.admin.errors import (
@@ -22,6 +24,7 @@ from nexus.admin.errors import (
 from nexus.admin.evaluation_import import committed_baseline_path, run_cli
 from nexus.admin.normalization import prepare_import
 from nexus.admin.provenance import dataset_sha256, normalize_code_revision
+from nexus.admin.schemas import GroundingJudgeResultPayload
 from nexus.evaluation.datasets import default_fixture_dir, load_dataset
 from nexus.evaluation.runner import dump_report, run_offline
 from nexus.evaluation.schemas import SCORER_VERSION, OfflineReport
@@ -127,6 +130,121 @@ def test_changed_offline_artifact_is_rejected(tmp_path: Path) -> None:
     stderr = StringIO()
     assert run_cli(["--artifact", str(changed)], stderr=stderr) == 1
     assert stderr.getvalue().strip() == OFFLINE_MISMATCH
+
+
+def _judge(**overrides: object) -> dict[str, object]:
+    values: dict[str, object] = {
+        "structural_valid": True,
+        "expect_structurally_valid": True,
+        "gold_label": "supported",
+        "error_code": None,
+        "excerpt_count": 1,
+        "predicted_label": "supported",
+        "outcome": "ok",
+        "model": "gpt-4o-mini",
+        "prompt_version": "grounding-judge-2",
+    }
+    values.update(overrides)
+    return values
+
+
+def test_live_judge_rows_accept_the_three_consistent_shapes() -> None:
+    GroundingJudgeResultPayload.model_validate(_judge())
+    GroundingJudgeResultPayload.model_validate(
+        _judge(
+            structural_valid=False,
+            predicted_label=None,
+            outcome="skipped",
+            model=None,
+            prompt_version=None,
+            error_code="foreign_research",
+        )
+    )
+    GroundingJudgeResultPayload.model_validate(
+        _judge(
+            predicted_label=None,
+            outcome="error",
+            model=None,
+            prompt_version=None,
+            error_code="invalid_model_output",
+        )
+    )
+    GroundingJudgeResultPayload.model_validate(
+        _judge(
+            predicted_label=None,
+            outcome="error",
+            error_code="unknown_citation",
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"predicted_label": None},
+        {"error_code": "provider_unavailable"},
+        {"model": None},
+        {"prompt_version": None},
+        {"structural_valid": False},
+        {
+            "structural_valid": True,
+            "outcome": "skipped",
+            "predicted_label": None,
+            "model": None,
+            "prompt_version": None,
+            "error_code": "foreign_research",
+        },
+        {
+            "structural_valid": False,
+            "outcome": "skipped",
+            "predicted_label": "supported",
+            "model": None,
+            "prompt_version": None,
+            "error_code": "foreign_research",
+        },
+        {
+            "structural_valid": False,
+            "outcome": "skipped",
+            "predicted_label": None,
+            "model": "gpt-4o-mini",
+            "prompt_version": None,
+            "error_code": "foreign_research",
+        },
+        {
+            "structural_valid": False,
+            "outcome": "skipped",
+            "predicted_label": None,
+            "model": None,
+            "prompt_version": None,
+            "error_code": None,
+        },
+        {
+            "predicted_label": "supported",
+            "outcome": "error",
+            "error_code": "unknown_citation",
+        },
+        {
+            "predicted_label": None,
+            "outcome": "error",
+            "model": "gpt-4o-mini",
+            "prompt_version": None,
+            "error_code": "unknown_citation",
+        },
+        {
+            "structural_valid": False,
+            "predicted_label": None,
+            "outcome": "error",
+            "model": None,
+            "prompt_version": None,
+            "error_code": "unknown_citation",
+        },
+    ],
+)
+def test_contradictory_live_judge_metadata_is_rejected(
+    overrides: dict[str, object],
+) -> None:
+    with pytest.raises(ValidationError):
+        GroundingJudgeResultPayload.model_validate(_judge(**overrides))
 
 
 def test_forged_live_calibration_is_rejected(tmp_path: Path) -> None:

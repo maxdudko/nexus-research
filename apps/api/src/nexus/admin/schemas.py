@@ -117,6 +117,36 @@ class GroundingJudgeResultPayload(GroundingStructureResultPayload):
     model: str | None = Field(default=None, min_length=1, max_length=128)
     prompt_version: str | None = Field(default=None, min_length=1, max_length=64)
 
+    @model_validator(mode="after")
+    def consistent(self) -> Self:
+        pair = (self.model is None) == (self.prompt_version is None)
+        if self.outcome == "ok":
+            valid = (
+                self.structural_valid
+                and self.predicted_label is not None
+                and self.model is not None
+                and self.prompt_version is not None
+                and self.error_code is None
+            )
+        elif self.outcome == "skipped":
+            valid = (
+                not self.structural_valid
+                and self.predicted_label is None
+                and self.model is None
+                and self.prompt_version is None
+                and self.error_code is not None
+            )
+        else:
+            valid = (
+                self.structural_valid
+                and self.predicted_label is None
+                and self.error_code is not None
+                and pair
+            )
+        if not valid:
+            raise ValueError("judge outcome")
+        return self
+
 
 class RetrievalSummary(BaseModel):
     """Macro-average stored beside the run."""

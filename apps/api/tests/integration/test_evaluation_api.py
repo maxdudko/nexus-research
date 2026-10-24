@@ -343,6 +343,8 @@ async def test_evaluation_api_is_private_and_comparable(
             assert blocked_pair["comparable"] is False
             assert blocked_pair["reasons"] == ["dataset_mismatch"]
             assert blocked_pair["deltas"] is None
+            assert blocked_pair["left"]["retrieval"]["recall_at_k"] == "0.100000"
+            assert blocked_pair["right"]["retrieval"]["recall_at_k"] == "0.100000"
             assert "0.300000" not in incompatible.text
             absent = await client.get(
                 "/api/v1/admin/evaluations/compare",

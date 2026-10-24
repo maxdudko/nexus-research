@@ -50,6 +50,7 @@ The current private build adds login and owner-scoped research on the single-ope
 ## Cost telemetry
 
 - Cost appears in the `research.usage` log event. The admin usage response does not read that log or `UsageBuffer`. It sums logical graph counts and leaves `cost_estimate` null, `coverage` `unavailable`, and `pricing_version` null, including when `llm_calls` is positive. That is unknown, not `$0`.
+- Inside a diagnostics window of at most 90 days, that usage aggregate still loads each `usage` object into the API process. `GraphUsage` rejects extra fields and non-integers; those runs are counted as missing and are not returned. The window is the Alpha bound. The scan does not remove the cap, and a positive `llm_calls` stays an unknown cost.
 - Amounts are estimates from a fixed price table (pricing version `2026-10-19`: `gpt-4o-mini` $0.15 / $0.60 per 1M input / output tokens, `text-embedding-3-small` $0.02 per 1M tokens). They are not an invoice and do not follow later price changes.
 - Coverage is usually `partial`: OpenAI SDK retries (`NEXUS_AI_MAX_RETRIES`, default 1) are not visible, and missing token usage is left unknown rather than counted as zero. Tavily cost is unavailable unless `NEXUS_TAVILY_USD_PER_SEARCH` is set.
 - A model not in the price table is not priced.

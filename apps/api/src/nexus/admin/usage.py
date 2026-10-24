@@ -45,7 +45,12 @@ async def usage_summary(
     start: datetime | None,
     end: datetime | None,
 ) -> UsageSummary:
-    """Sum valid usage objects. Invalid JSON is counted and not returned."""
+    """Validate each usage object inside the 90-day window.
+
+    SQL cannot apply ``GraphUsage`` (``extra=forbid``) without a second
+    schema. Invalid objects are counted and not returned. The window is the
+    Alpha bound. This scan does not produce a cost.
+    """
     opened, closed = resolve_window(now, start, end)
     async with factory() as session:
         rows = (

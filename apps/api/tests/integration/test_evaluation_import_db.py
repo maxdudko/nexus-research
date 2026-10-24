@@ -168,6 +168,36 @@ async def test_rejected_imports_write_nothing(
     assert count == 0
 
 
+async def test_contradictory_live_case_is_rejected_without_a_row(
+    test_database_url: str,
+    tmp_path: Path,
+) -> None:
+    await _upgrade(test_database_url)
+    body = json.loads(LIVE.read_text(encoding="utf-8"))
+    body["grounding"][0]["error_code"] = "provider_unavailable"
+    forged = tmp_path / "contradictory.json"
+    forged.write_text(json.dumps(body), encoding="utf-8")
+    code, _, stderr = await _run(
+        ["--artifact", str(forged)],
+        _settings(test_database_url),
+    )
+    assert code == 1
+    assert stderr.strip() == LIVE_MISMATCH
+    engine = create_db_engine(test_database_url)
+    try:
+        async with engine.connect() as connection:
+            runs = await connection.scalar(
+                select(func.count()).select_from(EvaluationRun)
+            )
+            cases = await connection.scalar(
+                select(func.count()).select_from(EvaluationCaseResult)
+            )
+    finally:
+        await engine.dispose()
+    assert runs == 0
+    assert cases == 0
+
+
 async def test_concurrent_imports_leave_one_run(test_database_url: str) -> None:
     await _upgrade(test_database_url)
     settings = _settings(test_database_url)

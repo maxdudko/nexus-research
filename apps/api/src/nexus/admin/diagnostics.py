@@ -9,7 +9,7 @@ from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
-from sqlalchemy import ColumnElement, Row, func, select
+from sqlalchemy import ColumnElement, Row, and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from nexus.admin.schemas import EvaluationListItem
@@ -200,13 +200,27 @@ async def diagnostics_summary(
                 ResearchRun.started_at.is_(None),
             )
         )
-        clocks = (
+        known = and_(
+            ResearchRun.started_at.is_not(None),
+            ResearchRun.finished_at.is_not(None),
+            ResearchRun.finished_at >= ResearchRun.started_at,
+        )
+        unknown = or_(
+            ResearchRun.started_at.is_(None),
+            ResearchRun.finished_at.is_(None),
+            ResearchRun.finished_at < ResearchRun.started_at,
+        )
+        elapsed = ResearchRun.finished_at - ResearchRun.started_at
+        duration_row = (
             await session.execute(
-                select(ResearchRun.started_at, ResearchRun.finished_at).where(
-                    _window(opened, closed)
-                )
+                select(
+                    func.count().filter(known),
+                    func.count().filter(unknown),
+                    func.sum(elapsed).filter(known),
+                    func.max(elapsed).filter(known),
+                ).where(_window(opened, closed))
             )
-        ).all()
+        ).one()
     try:
         return DiagnosticsSummary(
             window_start=opened,
@@ -215,7 +229,7 @@ async def diagnostics_summary(
             stale_running=int(stale or 0),
             running_without_start=int(missing_start or 0),
             errors=_errors(error_rows),
-            duration=_duration(clocks),
+            duration=_duration_summary(duration_row),
         )
     except ValidationError:
         raise DiagnosticsUnreadable from None
@@ -357,30 +371,33 @@ def _errors(rows: Sequence[Row[tuple[str | None, int]]]) -> list[ErrorCount]:
     return errors
 
 
-def _duration(
-    rows: Sequence[Row[tuple[datetime | None, datetime | None]]],
+def _duration_summary(
+    row: Row[tuple[int, int, datetime | None, datetime | None]],
 ) -> DurationSummary:
-    known: list[Decimal] = []
-    unknown = 0
-    for started_at, finished_at in rows:
-        text = duration_seconds(started_at, finished_at)
-        if text is None:
-            unknown += 1
-        else:
-            known.append(Decimal(text))
-    if not known:
+    known_count = int(row[0] or 0)
+    unknown_count = int(row[1] or 0)
+    if known_count == 0:
         return DurationSummary(
             known_count=0,
-            unknown_count=unknown,
+            unknown_count=unknown_count,
             total_seconds=None,
             max_seconds=None,
         )
     return DurationSummary(
-        known_count=len(known),
-        unknown_count=unknown,
-        total_seconds=format(sum(known, Decimal(0)).quantize(_MILLI), "f"),
-        max_seconds=format(max(known).quantize(_MILLI), "f"),
+        known_count=known_count,
+        unknown_count=unknown_count,
+        total_seconds=_interval_seconds(row[2]),
+        max_seconds=_interval_seconds(row[3]),
     )
+
+
+def _interval_seconds(value: object) -> str | None:
+    if not isinstance(value, timedelta):
+        return None
+    seconds = Decimal(value.days * 86_400 + value.seconds) + (
+        Decimal(value.microseconds) / Decimal(1_000_000)
+    )
+    return format(seconds.quantize(_MILLI), "f")
 
 
 def _utc(value: datetime) -> datetime:
