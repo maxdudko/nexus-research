@@ -7,6 +7,9 @@ export function isAllowlistedPath(value: string): boolean {
     value === "/" ||
     value === "/history" ||
     value === "/research/new" ||
+    value === "/admin" ||
+    value === "/admin/diagnostics" ||
+    value === "/admin/usage" ||
     value === "/admin/evaluations" ||
     value === "/admin/evaluations/compare" ||
     RUN_PATH.test(value) ||

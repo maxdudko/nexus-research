@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { listEvaluationCases, listEvaluations } from "@/lib/admin-api";
+import { getUsage, listEvaluationCases, listEvaluations } from "@/lib/admin-api";
+import { ApiError } from "@/lib/errors";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 
@@ -79,5 +80,45 @@ describe("admin api", () => {
     const page = await listEvaluationCases(ID, 20, undefined, fetchImpl);
     expect(JSON.stringify(page)).not.toContain("SENTINEL_RATIONALE");
     expect(page.items[0]?.result.recall_at_k).toBe("1.000000");
+  });
+
+  it("keeps usage cost unknown and drops a planted note", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      Response.json({
+        window_start: "2026-10-17T12:00:00+00:00",
+        window_end: "2026-10-24T12:00:00+00:00",
+        runs_with_usage: 1,
+        runs_without_usage: 1,
+        counters: {
+          iterations: 2,
+          search_calls: 1,
+          llm_calls: 4,
+          pages_indexed: 3,
+          pages_failed: 1,
+        },
+        cost_estimate: null,
+        coverage: "unavailable",
+        pricing_version: null,
+        note: "CANARY_USAGE_TOKENS",
+      }),
+    );
+    const summary = await getUsage(undefined, undefined, fetchImpl);
+    expect(fetchImpl).toHaveBeenCalledWith("/api/v1/admin/usage", { cache: "no-store" });
+    expect(summary.cost_estimate).toBeNull();
+    expect(summary.counters.llm_calls).toBe(4);
+    expect(JSON.stringify(summary)).not.toContain("CANARY_USAGE_TOKENS");
+    const priced = vi.fn().mockResolvedValue(
+      Response.json({
+        window_start: "2026-10-17T12:00:00+00:00",
+        window_end: "2026-10-24T12:00:00+00:00",
+        runs_with_usage: 1,
+        runs_without_usage: 0,
+        counters: { iterations: 0, search_calls: 0, llm_calls: 1, pages_indexed: 0, pages_failed: 0 },
+        cost_estimate: 0,
+        coverage: "unavailable",
+        pricing_version: null,
+      }),
+    );
+    await expect(getUsage(undefined, undefined, priced)).rejects.toThrow(ApiError);
   });
 });

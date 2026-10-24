@@ -506,3 +506,213 @@ export async function compareEvaluations(
     deltas,
   };
 }
+
+const SECONDS = /^\d+\.\d{3}$/;
+const ERROR_CODE = /^[a-z0-9_]{1,64}$/;
+const STATUSES = [
+  "running",
+  "completed",
+  "partial",
+  "insufficient_evidence",
+  "failed",
+  "interrupted",
+] as const;
+
+export type StatusCounts = {
+  running: number;
+  completed: number;
+  partial: number;
+  insufficient_evidence: number;
+  failed: number;
+  interrupted: number;
+  recorded_success: number;
+  recorded_failure: number;
+  recorded_running: number;
+};
+
+export type DiagnosticsSummary = {
+  window_start: string;
+  window_end: string;
+  statuses: StatusCounts;
+  stale_running: number;
+  running_without_start: number;
+  errors: { error_code: string; count: number }[];
+  duration: {
+    known_count: number;
+    unknown_count: number;
+    total_seconds: string | null;
+    max_seconds: string | null;
+  };
+};
+
+export type DiagnosticRun = {
+  run_id: string;
+  status: (typeof STATUSES)[number];
+  error_code: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  duration: string | null;
+};
+
+export type UsageSummary = {
+  window_start: string;
+  window_end: string;
+  runs_with_usage: number;
+  runs_without_usage: number;
+  counters: {
+    iterations: number;
+    search_calls: number;
+    llm_calls: number;
+    pages_indexed: number;
+    pages_failed: number;
+  };
+  cost_estimate: null;
+  coverage: "unavailable";
+  pricing_version: null;
+};
+
+function counted(value: unknown, status: number): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) throw bad(status);
+  return value;
+}
+
+function instant(value: unknown, status: number): string {
+  if (typeof value !== "string" || Number.isNaN(Date.parse(value))) throw bad(status);
+  return value;
+}
+
+function seconds(value: unknown, status: number): string | null {
+  if (value === null) return null;
+  if (typeof value !== "string" || !SECONDS.test(value)) throw bad(status);
+  return value;
+}
+
+function parseDiagnostics(value: unknown, status: number): DiagnosticsSummary {
+  if (!isRecord(value) || !isRecord(value.statuses) || !isRecord(value.duration)) throw bad(status);
+  if (!Array.isArray(value.errors)) throw bad(status);
+  const statuses = {
+    running: counted(value.statuses.running, status),
+    completed: counted(value.statuses.completed, status),
+    partial: counted(value.statuses.partial, status),
+    insufficient_evidence: counted(value.statuses.insufficient_evidence, status),
+    failed: counted(value.statuses.failed, status),
+    interrupted: counted(value.statuses.interrupted, status),
+    recorded_success: counted(value.statuses.recorded_success, status),
+    recorded_failure: counted(value.statuses.recorded_failure, status),
+    recorded_running: counted(value.statuses.recorded_running, status),
+  };
+  const errors = value.errors.map((item) => {
+    if (!isRecord(item) || typeof item.error_code !== "string" || !ERROR_CODE.test(item.error_code)) {
+      throw bad(status);
+    }
+    return { error_code: item.error_code, count: counted(item.count, status) };
+  });
+  return {
+    window_start: instant(value.window_start, status),
+    window_end: instant(value.window_end, status),
+    statuses,
+    stale_running: counted(value.stale_running, status),
+    running_without_start: counted(value.running_without_start, status),
+    errors,
+    duration: {
+      known_count: counted(value.duration.known_count, status),
+      unknown_count: counted(value.duration.unknown_count, status),
+      total_seconds: seconds(value.duration.total_seconds, status),
+      max_seconds: seconds(value.duration.max_seconds, status),
+    },
+  };
+}
+
+function parseRun(value: unknown, status: number): DiagnosticRun {
+  if (!isRecord(value) || typeof value.run_id !== "string" || !UUID.test(value.run_id)) throw bad(status);
+  if (typeof value.status !== "string" || !STATUSES.includes(value.status as (typeof STATUSES)[number])) {
+    throw bad(status);
+  }
+  if (value.error_code !== null && (typeof value.error_code !== "string" || !ERROR_CODE.test(value.error_code))) {
+    throw bad(status);
+  }
+  return {
+    run_id: value.run_id,
+    status: value.status as (typeof STATUSES)[number],
+    error_code: value.error_code,
+    created_at: instant(value.created_at, status),
+    started_at: value.started_at === null ? null : instant(value.started_at, status),
+    finished_at: value.finished_at === null ? null : instant(value.finished_at, status),
+    duration: seconds(value.duration, status),
+  };
+}
+
+function parseUsage(value: unknown, status: number): UsageSummary {
+  if (!isRecord(value) || !isRecord(value.counters)) throw bad(status);
+  if (value.cost_estimate !== null || value.pricing_version !== null || value.coverage !== "unavailable") {
+    throw bad(status);
+  }
+  return {
+    window_start: instant(value.window_start, status),
+    window_end: instant(value.window_end, status),
+    runs_with_usage: counted(value.runs_with_usage, status),
+    runs_without_usage: counted(value.runs_without_usage, status),
+    counters: {
+      iterations: counted(value.counters.iterations, status),
+      search_calls: counted(value.counters.search_calls, status),
+      llm_calls: counted(value.counters.llm_calls, status),
+      pages_indexed: counted(value.counters.pages_indexed, status),
+      pages_failed: counted(value.counters.pages_failed, status),
+    },
+    cost_estimate: null,
+    coverage: "unavailable",
+    pricing_version: null,
+  };
+}
+
+export async function getOverview(
+  fetchImpl: FetchLike = fetch,
+): Promise<{ diagnostics: DiagnosticsSummary; latest_evaluation: EvaluationListItem | null }> {
+  const response = await fetchImpl("/api/v1/admin/overview", { cache: "no-store" });
+  const body = await readJson(response);
+  if (!isRecord(body)) throw bad(response.status);
+  if (body.latest_evaluation !== null && !isRecord(body.latest_evaluation)) throw bad(response.status);
+  return {
+    diagnostics: parseDiagnostics(body.diagnostics, response.status),
+    latest_evaluation: body.latest_evaluation === null ? null : parseItem(body.latest_evaluation, response.status),
+  };
+}
+
+export async function getDiagnostics(
+  from?: string,
+  to?: string,
+  fetchImpl: FetchLike = fetch,
+): Promise<DiagnosticsSummary> {
+  const response = await fetchImpl(query("/api/v1/admin/diagnostics", { from, to }), { cache: "no-store" });
+  return parseDiagnostics(await readJson(response), response.status);
+}
+
+export async function listDiagnosticRuns(
+  from?: string,
+  to?: string,
+  limit = 20,
+  cursor?: string,
+  fetchImpl: FetchLike = fetch,
+): Promise<{ items: DiagnosticRun[]; next_cursor: string | null }> {
+  const response = await fetchImpl(
+    query("/api/v1/admin/diagnostics/runs", { from, to, limit: String(limit), cursor }),
+    { cache: "no-store" },
+  );
+  const body = await readJson(response);
+  if (!isRecord(body) || !Array.isArray(body.items)) throw bad(response.status);
+  if (body.next_cursor !== null && typeof body.next_cursor !== "string") throw bad(response.status);
+  return {
+    items: body.items.map((item) => parseRun(item, response.status)),
+    next_cursor: body.next_cursor,
+  };
+}
+
+export async function getUsage(
+  from?: string,
+  to?: string,
+  fetchImpl: FetchLike = fetch,
+): Promise<UsageSummary> {
+  const response = await fetchImpl(query("/api/v1/admin/usage", { from, to }), { cache: "no-store" });
+  return parseUsage(await readJson(response), response.status);
+}

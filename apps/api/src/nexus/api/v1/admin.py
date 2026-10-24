@@ -1,5 +1,6 @@
-"""Read-only evaluation history. Diagnostics and usage are not on this router."""
+"""Read-only admin history, diagnostics, and usage."""
 
+from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
@@ -7,6 +8,14 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from nexus.admin.comparison import compare_runs, view_from_detail
+from nexus.admin.diagnostics import (
+    DiagnosticRunPage,
+    DiagnosticsSummary,
+    DiagnosticsUnreadable,
+    OverviewResponse,
+    diagnostics_summary,
+    list_diagnostic_runs,
+)
 from nexus.admin.evaluation_store import (
     EvaluationUnreadable,
     get_evaluation,
@@ -19,6 +28,7 @@ from nexus.admin.schemas import (
     EvaluationDetail,
     EvaluationListResponse,
 )
+from nexus.admin.usage import UsageSummary, usage_summary
 from nexus.ai.errors import ResearchError, invalid_request
 from nexus.api.deps import CurrentUser, require_admin
 
@@ -36,6 +46,26 @@ def _unreadable() -> ResearchError:
         500,
         "The evaluation could not be read.",
     )
+
+
+def _diagnostics_unreadable() -> ResearchError:
+    return ResearchError(
+        "diagnostics_unreadable",
+        500,
+        "The diagnostics could not be read.",
+    )
+
+
+def _instant(value: str | None, field: str) -> datetime | None:
+    if value is None:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        raise invalid_request(field) from None
+    if parsed.tzinfo is None:
+        raise invalid_request(field)
+    return parsed
 
 
 def _factory(request: Request) -> async_sessionmaker[AsyncSession]:
@@ -164,3 +194,83 @@ async def list_admin_evaluation_cases(
     if page is None:
         raise _not_found()
     return page
+
+
+@router.get("/overview", response_model=OverviewResponse)
+async def admin_overview(
+    current: Annotated[CurrentUser, Depends(require_admin)],
+    request: Request,
+) -> OverviewResponse:
+    """Return the default diagnostics window and the newest evaluation."""
+    del current
+    factory = _factory(request)
+    try:
+        summary = await diagnostics_summary(factory, datetime.now(UTC), None, None)
+        page = await list_evaluations(factory, 1, None)
+    except DiagnosticsUnreadable:
+        raise _diagnostics_unreadable() from None
+    except EvaluationUnreadable:
+        raise _unreadable() from None
+    latest = page.items[0] if page.items else None
+    return OverviewResponse(diagnostics=summary, latest_evaluation=latest)
+
+
+@router.get("/diagnostics", response_model=DiagnosticsSummary)
+async def admin_diagnostics(
+    current: Annotated[CurrentUser, Depends(require_admin)],
+    request: Request,
+    window_from: Annotated[str | None, Query(alias="from")] = None,
+    window_to: Annotated[str | None, Query(alias="to")] = None,
+) -> DiagnosticsSummary:
+    """Return status, error, and duration aggregates for one window."""
+    del current
+    try:
+        return await diagnostics_summary(
+            _factory(request),
+            datetime.now(UTC),
+            _instant(window_from, "from"),
+            _instant(window_to, "to"),
+        )
+    except DiagnosticsUnreadable:
+        raise _diagnostics_unreadable() from None
+
+
+@router.get("/diagnostics/runs", response_model=DiagnosticRunPage)
+async def admin_diagnostic_runs(
+    current: Annotated[CurrentUser, Depends(require_admin)],
+    request: Request,
+    window_from: Annotated[str | None, Query(alias="from")] = None,
+    window_to: Annotated[str | None, Query(alias="to")] = None,
+    limit: Annotated[str | None, Query()] = None,
+    cursor: Annotated[str | None, Query()] = None,
+) -> DiagnosticRunPage:
+    """Return a technical run page. Questions and reports are not selected."""
+    del current
+    try:
+        return await list_diagnostic_runs(
+            _factory(request),
+            datetime.now(UTC),
+            _instant(window_from, "from"),
+            _instant(window_to, "to"),
+            _limit(limit),
+            cursor,
+        )
+    except DiagnosticsUnreadable:
+        raise _diagnostics_unreadable() from None
+
+
+@router.get("/usage", response_model=UsageSummary)
+async def admin_usage(
+    current: Annotated[CurrentUser, Depends(require_admin)],
+    request: Request,
+    window_from: Annotated[str | None, Query(alias="from")] = None,
+    window_to: Annotated[str | None, Query(alias="to")] = None,
+) -> UsageSummary:
+    """Return logical graph counts. Cost stays unknown."""
+    del current
+    return await usage_summary(
+        _factory(request),
+        datetime.now(UTC),
+        _instant(window_from, "from"),
+        _instant(window_to, "to"),
+    )

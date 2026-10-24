@@ -61,3 +61,15 @@ The same corpus adds `g13-explicit-deny` (`unsupported`), `g14-missing-day` (`in
 The hard gate is the offline command plus a byte comparison with [`baseline.json`](baseline.json). A schema error, a citation-provenance mismatch, or a grounding-structure mismatch exits 1. A change to the frozen scores also fails the comparison, because those scores are part of the committed artifact. That lock is a fixture regression check. It is not a claim about live retrieval quality.
 
 Informational output stays out of CI: the live judge, the live embedding search, and estimated cost. Run the judge only with `NEXUS_RUN_LIVE_AI=1` and an API key. The live embedding search is the skipped test above. It is not the frozen baseline. [`failure-matrix.md`](failure-matrix.md) lists the failure-injection outcomes and their limits.
+
+## Operator import
+
+The offline byte comparison above stays the CI oracle. Import does not replace it and does not run the suite. From `apps/api`, store an artifact that the operator has already checked:
+
+```bash
+uv run python -m nexus.admin.evaluation_import \
+  --artifact ../../docs/evaluation/baseline.json \
+  --committed-baseline
+```
+
+`--committed-baseline` is only for an offline artifact whose bytes match [`baseline.json`](baseline.json). A live artifact uses the same command without that flag, for example `--artifact ../../docs/evaluation/outputs/nexus-eval-live.json`. The command does not call the judge. Stdout is the stored id. `executed_at` stays null, so the admin UI keeps the execution time unknown. Reimporting the same bytes is a no-op. A second import with different metadata for those bytes is refused.

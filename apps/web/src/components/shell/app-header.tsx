@@ -18,7 +18,7 @@ const NAV = [
 
 function navigation(role: string) {
   if (role !== "admin") return NAV;
-  return [...NAV, { href: "/admin/evaluations", label: "Admin" }];
+  return [...NAV, { href: "/admin", label: "Admin" }];
 }
 
 function subscribeWide(onChange: () => void): () => void {

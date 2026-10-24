@@ -102,7 +102,7 @@ describe("app header", () => {
     renderHeader("admin");
     expect(screen.queryByRole("link", { name: "Admin" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Menu" }));
-    expect(screen.getByRole("link", { name: "Admin" }).getAttribute("href")).toBe("/admin/evaluations");
+    expect(screen.getByRole("link", { name: "Admin" }).getAttribute("href")).toBe("/admin");
   });
 
   it("shows links and no menu on a wide layout", () => {

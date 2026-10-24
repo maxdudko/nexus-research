@@ -90,9 +90,9 @@ The two volumes describe one evidence state. Retrieval reads the accepted digest
 
 Original PDF bytes are not stored anywhere. Lost PDF evidence can be rebuilt only by uploading the file again.
 
-Cold-copy both volumes before an upgrade that adds ownership. `init` only runs `alembic upgrade head`. That head is two revisions: `c8e4a1b27d05` (accounts, sessions, and the quarantine user) and then `e3b7d91c4a20` (one scope per existing research id, with foreign keys). Pre-Alpha research ids become scopes owned by the non-loginable quarantine user `00000000-0000-4000-8000-000000000001`. They stay unreadable through the API until an operator adopts a reviewed id.
+Cold-copy both volumes before an upgrade that adds ownership. `init` only runs `alembic upgrade head`. Identity and scope are `c8e4a1b27d05` and `e3b7d91c4a20`. Evaluation history is the later revision `f6c1a8d04e27`, which creates `evaluation_runs` and `evaluation_case_results` only. Pre-Alpha research ids become scopes owned by the non-loginable quarantine user `00000000-0000-4000-8000-000000000001`. They stay unreadable through the API until an operator adopts a reviewed id.
 
-Each revision is its own transaction. A failure inside one rolls that revision back and leaves Qdrant and checkpoint bytes unchanged. A database left at `c8e4a1b27d05` has accounts but no scope foreign keys; the repair is another `upgrade head`, which only adds scopes. Do not start the previous image against either revision. Its Alembic scripts do not contain them, and `init` never downgrades.
+Each revision is its own transaction. A failure inside one rolls that revision back and leaves Qdrant and checkpoint bytes unchanged. A database left at `c8e4a1b27d05` has accounts but no scope foreign keys; the repair is another `upgrade head`, which adds scopes and then the evaluation tables. It does not rewrite research rows. Do not start the previous image against `c8e4a1b27d05` or `e3b7d91c4a20`. Its Alembic scripts do not contain them, and `init` never downgrades.
 
 Operator sequence after the new stack is healthy:
 
@@ -171,7 +171,7 @@ The supported recovery after a real owner exists, or after invited users have wr
 - `v0.1.0` is the first release. There is no earlier release stack to roll back to.
 - For later releases, rolling back the images alone (checking out the previous tag, setting the previous `NEXUS_VERSION`, `up -d --build`) works only when the database schema is still compatible with the older code. `init` runs `alembic upgrade head` for whatever code it was built from; it never downgrades.
 - If an upgrade ran a migration that the old code cannot use, the only supported rollback is to restore the backup taken before the upgrade, which discards everything written since.
-- Running `alembic downgrade` by hand is not a supported release procedure. Checkpoint tables and Qdrant are not covered by Alembic. Downgrade order, if someone runs it anyway, is `e3b7d91c4a20` and then `c8e4a1b27d05`. The scope revision aborts while any owner is not the quarantine user and does not delete runs, reports, or sources. The identity revision then drops `auth_sessions` and `users`, and it aborts if `research_scopes` still exists. After a real owner exists, use the paired volume restore instead.
+- Running `alembic downgrade` by hand is not a supported release procedure. Checkpoint tables and Qdrant are not covered by Alembic. Downgrade of `f6c1a8d04e27` drops `evaluation_case_results`, then `ix_evaluation_runs_imported_at_id`, then `evaluation_runs`. Research, identity, Qdrant, and checkpoints stay. The older order, if someone continues, is `e3b7d91c4a20` and then `c8e4a1b27d05`. The scope revision aborts while any owner is not the quarantine user and does not delete runs, reports, or sources. The identity revision then drops `auth_sessions` and `users`, and it aborts if `research_scopes` still exists. After a real owner exists, use the paired volume restore instead. That cold restore remains the release rollback.
 - There is no rollback guarantee for data written by a newer version.
 
 ## Stale `running` rows
