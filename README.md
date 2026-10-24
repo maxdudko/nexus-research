@@ -84,6 +84,17 @@ diff -u ../../docs/evaluation/baseline.json /tmp/nexus-eval-offline.json
 
 The scores (Recall@5, Precision@5, MRR@5) are computed over frozen fixture rank lists. They check citation provenance, grounding structure and metric arithmetic. They do not measure live OpenAI embedding or Qdrant retrieval quality, and a valid citation is not proof of entailment. The optional live judge is manual and informational. See [`docs/evaluation/methodology.md`](docs/evaluation/methodology.md) and [`docs/evaluation/failure-matrix.md`](docs/evaluation/failure-matrix.md).
 
+An admin session opens Overview, Evaluations, Diagnostics, and Usage under `/admin`. Those pages are read-only. They do not start research, open another account's report, or show a dollar amount. Usage cost stays unknown. To store an artifact the operator has already checked:
+
+```bash
+cd apps/api
+uv run python -m nexus.admin.evaluation_import \
+  --artifact ../../docs/evaluation/baseline.json \
+  --committed-baseline
+```
+
+That import does not change the offline byte gate, and this checkout does not tag `v0.2.0`.
+
 ## Documentation
 
 | Document | Contents |

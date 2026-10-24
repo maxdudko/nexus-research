@@ -1,13 +1,19 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 
 import { AuthenticatedFrame } from "@/components/shell/app-header";
 import { ResearchActivityProvider } from "@/components/research/research-activity";
 import { fetchIdentity, type Identity } from "@/lib/identity";
 import { csrfHeaders } from "@/lib/csrf";
 import { loginHref } from "@/lib/return-path";
+
+export const SessionIdentity = createContext<Identity | null>(null);
+
+export function useSessionIdentity(): Identity | null {
+  return useContext(SessionIdentity);
+}
 
 type Phase =
   | { status: "loading" }
@@ -92,16 +98,19 @@ export function SessionBoundary({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthenticatedFrame
-      email={phase.identity.email}
-      userId={phase.identity.id}
-      logoutError={logoutError}
-      onLogout={() => {
-        void logout();
-      }}
-    >
-      {children}
-    </AuthenticatedFrame>
+    <SessionIdentity.Provider value={phase.identity}>
+      <AuthenticatedFrame
+        email={phase.identity.email}
+        role={phase.identity.role}
+        userId={phase.identity.id}
+        logoutError={logoutError}
+        onLogout={() => {
+          void logout();
+        }}
+      >
+        {children}
+      </AuthenticatedFrame>
+    </SessionIdentity.Provider>
   );
 }
 

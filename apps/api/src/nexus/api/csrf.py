@@ -17,7 +17,7 @@ from nexus.identity.tokens import csrf_token
 
 _UNSAFE = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 _LOGIN_PATH = "/api/v1/auth/login"
-_AUTH_PREFIX = "/api/v1/auth"
+_NO_STORE_PREFIXES = ("/api/v1/auth", "/api/v1/admin")
 
 
 class SessionCsrfMiddleware:
@@ -86,7 +86,7 @@ def _csrf_matches(request: Request) -> bool:
 
 def _with_auth_cache(scope: Scope, send: Send) -> Send:
     path = scope.get("path")
-    if not isinstance(path, str) or not path.startswith(_AUTH_PREFIX):
+    if not isinstance(path, str) or not path.startswith(_NO_STORE_PREFIXES):
 
         async def forward(message: Message) -> None:
             await send(message)

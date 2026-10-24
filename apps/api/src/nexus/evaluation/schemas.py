@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 DATASET_VERSION = "2026-10-19.2"
 REPORT_VERSION = "1"
+SCORER_VERSION: Literal["1"] = "1"
 K = 5
 EXCERPT_CHARS = 500
 PROMPT_VERSION = "grounding-judge-2"

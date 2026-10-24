@@ -4,7 +4,7 @@ The current private build adds login and owner-scoped research on the single-ope
 
 ## Authentication and access
 
-- Research, evidence, and history require a session. The operator CLI creates accounts. There is no self-signup and no HTTP admin API.
+- Research, evidence, and history require a session. The operator CLI creates accounts. There is no self-signup. An admin can read evaluation history, diagnostics, and usage at `GET /api/v1/admin`. Those responses are aggregates and allowlisted fields. They do not return another account's question, report, or source name, and they do not start a run. The pages do not make this build a public host, and they do not tag `v0.2.0`.
 - Login allows 5 failures per 15 minutes for one normalized email and 30 for the address on the API socket. A full bucket returns 429 before the password hash runs. The API ignores `X-Forwarded-For` and `Forwarded`. Through the web proxy the socket address is the web container, so the address cap is instance-wide. Trusting a client-supplied forwarding header would let a caller choose a fresh bucket.
 - Plan, discover, run, stream, PDF upload, web ingestion, and search share 10 requests per 60 seconds per user. Minting a scope is a separate 30 per hour. Each user can hold one `/run` and one `/stream`. The process still allows at most `NEXUS_STREAM_MAX_CONCURRENT` streams (default 2, maximum 8).
 - Those counters are process memory. A restart clears them. There is one API process and no TLS in this stack.
@@ -44,11 +44,13 @@ The current private build adds login and owner-scoped research on the single-ope
 
 - The CI gate is the offline suite: frozen fixture rank lists and authored citation and grounding cases, compared byte for byte with [`baseline.json`](../evaluation/baseline.json). Its Recall@5, Precision@5 and MRR@5 describe those fixtures. They are not measurements of live `text-embedding-3-small` or Qdrant retrieval quality, and not a quality threshold for production.
 - The optional live judge and the live embedding test are manual, informational and not compared with the baseline. Their labels are estimates on a small authored set. Saved outputs such as `docs/evaluation/outputs/nexus-eval-live.json` are examples, not release metrics.
+- An imported evaluation stores `executed_at` as null. The admin UI says the execution time is unknown. The import clock is not the time the suite ran.
 - No benchmark of report accuracy, latency or cost on real questions is part of this release. See [`methodology.md`](../evaluation/methodology.md).
 
 ## Cost telemetry
 
-- Cost appears only in the `research.usage` log event, not in the UI or the API response.
+- Cost appears in the `research.usage` log event. The admin usage response does not read that log or `UsageBuffer`. It sums logical graph counts and leaves `cost_estimate` null, `coverage` `unavailable`, and `pricing_version` null, including when `llm_calls` is positive. That is unknown, not `$0`.
+- Inside a diagnostics window of at most 90 days, that usage aggregate still loads each `usage` object into the API process. `GraphUsage` rejects extra fields and non-integers; those runs are counted as missing and are not returned. The window is the Alpha bound. The scan does not remove the cap, and a positive `llm_calls` stays an unknown cost.
 - Amounts are estimates from a fixed price table (pricing version `2026-10-19`: `gpt-4o-mini` $0.15 / $0.60 per 1M input / output tokens, `text-embedding-3-small` $0.02 per 1M tokens). They are not an invoice and do not follow later price changes.
 - Coverage is usually `partial`: OpenAI SDK retries (`NEXUS_AI_MAX_RETRIES`, default 1) are not visible, and missing token usage is left unknown rather than counted as zero. Tavily cost is unavailable unless `NEXUS_TAVILY_USD_PER_SEARCH` is set.
 - A model not in the price table is not priced.

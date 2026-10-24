@@ -279,6 +279,7 @@ describe("authenticated frame", () => {
       <ResearchActivityProvider>
         <AuthenticatedFrame
           email={identity.email}
+          role={identity.role}
           userId={identity.id}
           logoutError={null}
           onLogout={() => {}}

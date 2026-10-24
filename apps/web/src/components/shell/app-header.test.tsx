@@ -50,10 +50,10 @@ function Arm() {
   );
 }
 
-function renderHeader() {
+function renderHeader(role = "user") {
   return render(
     <ResearchActivityProvider>
-      <AppHeader email="ada@example.com" logoutError={null} onLogout={() => {}} />
+      <AppHeader email="ada@example.com" role={role} logoutError={null} onLogout={() => {}} />
       <Arm />
     </ResearchActivityProvider>,
   );
@@ -90,6 +90,19 @@ describe("app header", () => {
     await user.click(screen.getByRole("button", { name: "Menu" }));
     await user.click(screen.getByRole("link", { name: "History" }));
     expect(screen.queryByRole("link", { name: "Dashboard" })).toBeNull();
+  });
+
+  it("shows Admin only for an administrator, including inside the narrow menu", async () => {
+    setWide(false);
+    const user = userEvent.setup();
+    renderHeader("user");
+    await user.click(screen.getByRole("button", { name: "Menu" }));
+    expect(screen.queryByRole("link", { name: "Admin" })).toBeNull();
+    cleanup();
+    renderHeader("admin");
+    expect(screen.queryByRole("link", { name: "Admin" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Menu" }));
+    expect(screen.getByRole("link", { name: "Admin" }).getAttribute("href")).toBe("/admin");
   });
 
   it("shows links and no menu on a wide layout", () => {
@@ -151,7 +164,7 @@ describe("app header", () => {
     const user = userEvent.setup();
     render(
       <ResearchActivityProvider>
-        <AppHeader email="ada@example.com" logoutError={null} onLogout={onLogout} />
+        <AppHeader email="ada@example.com" role="user" logoutError={null} onLogout={onLogout} />
         <Arm />
       </ResearchActivityProvider>,
     );
@@ -185,7 +198,7 @@ describe("app header", () => {
     }
     const frame = (userId: string) => (
       <ResearchActivityProvider>
-        <AuthenticatedFrame email="ada@example.com" userId={userId} onLogout={() => {}} logoutError={null}>
+        <AuthenticatedFrame email="ada@example.com" role="user" userId={userId} onLogout={() => {}} logoutError={null}>
           <Marker />
         </AuthenticatedFrame>
       </ResearchActivityProvider>

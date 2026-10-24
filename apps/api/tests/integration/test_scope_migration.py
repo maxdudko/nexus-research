@@ -232,6 +232,12 @@ async def test_adopt_scope_is_explicit_and_downgrade_stops_for_a_real_owner(
             await adopt_scope(factory, held, QUARANTINE_USER_ID, datetime.now(UTC))
         assert exc_info.value.code == "quarantine"
 
+        removed = await run_alembic(
+            test_database_url,
+            "downgrade",
+            "e3b7d91c4a20",
+        )
+        assert removed.returncode == 0, removed.stderr
         blocked = await run_alembic(test_database_url, "downgrade", "-1")
         assert blocked.returncode != 0
         assert "real owner" in blocked.stderr
