@@ -1,7 +1,17 @@
 const RUN_PATH = /^\/research\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const EVALUATION_PATH =
+  /^\/admin\/evaluations\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 export function isAllowlistedPath(value: string): boolean {
-  return value === "/" || value === "/history" || value === "/research/new" || RUN_PATH.test(value);
+  return (
+    value === "/" ||
+    value === "/history" ||
+    value === "/research/new" ||
+    value === "/admin/evaluations" ||
+    value === "/admin/evaluations/compare" ||
+    RUN_PATH.test(value) ||
+    EVALUATION_PATH.test(value)
+  );
 }
 
 export function loginHref(pathname: string): string {

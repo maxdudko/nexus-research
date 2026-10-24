@@ -37,6 +37,19 @@ def _metric(value: str | None) -> str | None:
     return value
 
 
+def _signed_metric(value: str | None) -> str | None:
+    if value is None:
+        return None
+    try:
+        parsed = Decimal(value)
+    except ArithmeticError, ValueError:
+        raise ValueError("metric") from None
+    quantized = parsed.quantize(Decimal("0.000001"))
+    if parsed != quantized:
+        raise ValueError("metric")
+    return format(quantized, "f")
+
+
 def _code(value: str | None) -> str | None:
     if value is None:
         return None
@@ -319,4 +332,235 @@ class EvaluationRunInsert(BaseModel):
             seen.add(key)
             if type(case.result) is not _RESULT_TYPES[(self.suite, case.category)]:
                 raise ValueError("case result")
+        return self
+
+
+def case_matches(suite: SuiteName, case: StoredCase) -> bool:
+    """True when the result object is the one allowed for that suite and category."""
+    return type(case.result) is _RESULT_TYPES[(suite, case.category)]
+
+
+class RetrievalDeltas(BaseModel):
+    """Signed retrieval differences. A null metric stays null."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    recall_at_k: str | None
+    precision_at_k: str | None
+    mrr_at_k: str | None
+    defined_cases: int
+    undefined_cases: int
+
+    @field_validator("recall_at_k", "precision_at_k", "mrr_at_k")
+    @classmethod
+    def metrics(cls, value: str | None) -> str | None:
+        return _signed_metric(value)
+
+
+class CitationDeltas(BaseModel):
+    """Signed citation-count differences."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    cases: int
+    valid: int
+    invalid: int
+
+
+class GroundingDeltas(BaseModel):
+    """Signed grounding-count differences."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    cases: int
+    structurally_valid: int
+    structurally_invalid: int
+
+
+class JudgeCountDeltas(BaseModel):
+    """Signed judge-count differences. These counts may be negative."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    attempted: int
+    succeeded: int
+    failed: int
+    skipped: int
+    disagreed: int
+
+
+class ComparisonDeltas(BaseModel):
+    """Right minus left. Offline runs leave the judge fields empty."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    retrieval: RetrievalDeltas
+    citations: CitationDeltas
+    grounding: GroundingDeltas
+    agreement: str | None = None
+    counts: JudgeCountDeltas | None = None
+    matrix: dict[str, dict[str, int]] | None = None
+
+    @field_validator("agreement")
+    @classmethod
+    def agreement_metric(cls, value: str | None) -> str | None:
+        return _signed_metric(value)
+
+
+class EvaluationListItem(BaseModel):
+    """One history row. Cases and the confusion matrix are not included."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    suite: SuiteName
+    outcome: OutcomeName
+    imported_at: datetime
+    executed_at: None = None
+    dataset_version: str = Field(pattern=_DATASET_VERSION.pattern)
+    dataset_sha256: str = Field(pattern=_SHA256.pattern)
+    report_version: Literal["1"]
+    scorer_version: Literal["1"]
+    k: int = Field(ge=1, le=100)
+    code_revision: str | None = Field(default=None, pattern=_REVISION.pattern)
+    code_revision_source: RevisionSource | None = None
+    provenance_level: ProvenanceName
+    is_committed_baseline: bool
+    model: str | None = Field(default=None, min_length=1, max_length=128)
+    prompt_version: str | None = Field(default=None, min_length=1, max_length=64)
+    temperature: str | None = None
+    pricing_version: str | None = Field(default=None, min_length=1, max_length=64)
+    retrieval: RetrievalSummary
+    citations: CitationSummary
+    grounding: GroundingSummary
+    counts: JudgeRunCounts | None = None
+    agreement: str | None = None
+    compared: int | None = Field(default=None, ge=0)
+    agreements: int | None = Field(default=None, ge=0)
+
+    @field_validator("agreement")
+    @classmethod
+    def agreement_metric(cls, value: str | None) -> str | None:
+        return _metric(value)
+
+    @field_validator("temperature")
+    @classmethod
+    def temperature_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if re.fullmatch(r"\d+\.\d{3}", value) is None:
+            raise ValueError("temperature")
+        return value
+
+    @field_validator("imported_at")
+    @classmethod
+    def aware(cls, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            raise ValueError("timestamp")
+        return value
+
+    @model_validator(mode="after")
+    def headlines(self) -> Self:
+        live = self.suite == "live"
+        live_fields = (
+            self.model is not None
+            and self.prompt_version is not None
+            and self.temperature is not None
+            and self.pricing_version is not None
+            and self.counts is not None
+            and self.compared is not None
+            and self.agreements is not None
+        )
+        offline_empty = (
+            self.model is None
+            and self.prompt_version is None
+            and self.temperature is None
+            and self.pricing_version is None
+            and self.counts is None
+            and self.agreement is None
+            and self.compared is None
+            and self.agreements is None
+        )
+        if live != live_fields or (not live and not offline_empty):
+            raise ValueError("headlines")
+        if (self.code_revision is None) != (self.code_revision_source is None):
+            raise ValueError("code revision")
+        return self
+
+
+class EvaluationDetail(EvaluationListItem):
+    """Provenance, summary, config, and live calibration."""
+
+    config: OfflineConfig | LiveConfig
+    calibration: CalibrationReport | None = None
+
+    @model_validator(mode="after")
+    def shape(self) -> Self:
+        live = self.suite == "live"
+        if live:
+            if self.calibration is None or type(self.config) is not LiveConfig:
+                raise ValueError("live detail")
+            if (
+                self.calibration.compared != self.compared
+                or self.calibration.agreements != self.agreements
+                or self.calibration.agreement != self.agreement
+            ):
+                raise ValueError("calibration")
+        elif self.calibration is not None or type(self.config) is not OfflineConfig:
+            raise ValueError("offline detail")
+        return self
+
+
+class EvaluationListResponse(BaseModel):
+    """One keyset page of evaluation history."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[EvaluationListItem]
+    next_cursor: str | None
+
+
+class EvaluationCasePage(BaseModel):
+    """One keyset page of sanitized cases."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[StoredCase]
+    next_cursor: str | None
+
+
+ReasonCode = Literal[
+    "suite_mismatch",
+    "dataset_mismatch",
+    "report_version_mismatch",
+    "scorer_mismatch",
+    "k_mismatch",
+    "judge_config_mismatch",
+]
+WarningCode = Literal["execution_time_unknown", "code_revision_unknown"]
+PricingReason = Literal["pricing_unavailable", "pricing_version_mismatch"]
+
+
+class ComparisonResponse(BaseModel):
+    """Compatibility, stored headlines, and deltas only when the pair matches."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    comparable: bool
+    reasons: list[ReasonCode]
+    warnings: list[WarningCode]
+    cost_comparable: bool
+    pricing_reason: PricingReason | None
+    left: EvaluationDetail
+    right: EvaluationDetail
+    deltas: ComparisonDeltas | None
+
+    @model_validator(mode="after")
+    def contract(self) -> Self:
+        if self.comparable == (self.deltas is None):
+            raise ValueError("deltas")
+        if self.comparable == bool(self.reasons):
+            raise ValueError("reasons")
+        if self.cost_comparable == (self.pricing_reason is not None):
+            raise ValueError("pricing")
         return self

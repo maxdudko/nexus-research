@@ -16,6 +16,11 @@ const NAV = [
   { href: "/history", label: "History" },
 ] as const;
 
+function navigation(role: string) {
+  if (role !== "admin") return NAV;
+  return [...NAV, { href: "/admin/evaluations", label: "Admin" }];
+}
+
 function subscribeWide(onChange: () => void): () => void {
   const media = window.matchMedia(WIDE_QUERY);
   media.addEventListener("change", onChange);
@@ -32,10 +37,12 @@ function useWideLayout(): boolean {
 
 export function AppHeader({
   email,
+  role,
   onLogout,
   logoutError,
 }: {
   email: string;
+  role: string;
   onLogout: () => void;
   logoutError: string | null;
 }) {
@@ -198,7 +205,7 @@ export function AppHeader({
           aria-label="Primary"
           className={wide ? "flex flex-row gap-4" : "flex flex-col gap-2"}
         >
-          {NAV.map((item, index) => (
+          {navigation(role).map((item, index) => (
             <Link
               key={item.href}
               ref={index === 0 && !wide ? firstLinkRef : undefined}
@@ -258,12 +265,14 @@ export function AppHeader({
 
 export function AuthenticatedFrame({
   email,
+  role,
   userId,
   onLogout,
   logoutError,
   children,
 }: {
   email: string;
+  role: string;
   userId: string;
   onLogout: () => void;
   logoutError: string | null;
@@ -271,7 +280,7 @@ export function AuthenticatedFrame({
 }) {
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-4 py-8">
-      <AppHeader email={email} onLogout={onLogout} logoutError={logoutError} />
+      <AppHeader email={email} role={role} onLogout={onLogout} logoutError={logoutError} />
       <main key={userId}>{children}</main>
     </div>
   );
