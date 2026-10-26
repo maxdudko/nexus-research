@@ -3,6 +3,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 
+import { Button } from "@/components/ui/button";
 import { fetchIdentity } from "@/lib/identity";
 import { destinationFromNext } from "@/lib/return-path";
 
@@ -84,7 +85,7 @@ export function LoginForm() {
           autoComplete="username"
           value={email}
           onChange={(event) => setEmail(event.target.value)}
-          className="w-full rounded border border-line bg-surface p-3 text-base text-ink"
+          className="field"
           required
         />
       </div>
@@ -99,7 +100,7 @@ export function LoginForm() {
           autoComplete="current-password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
-          className="w-full rounded border border-line bg-surface p-3 text-base text-ink"
+          className="field"
           required
         />
       </div>
@@ -108,13 +109,9 @@ export function LoginForm() {
           {error}
         </p>
       ) : null}
-      <button
-        type="submit"
-        disabled={pending}
-        className="w-fit cursor-pointer rounded bg-primary px-4 py-2 text-on-primary"
-      >
+      <Button type="submit" variant="primary" disabled={pending}>
         Log in
-      </button>
+      </Button>
     </form>
   );
 }

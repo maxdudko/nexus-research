@@ -4,6 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 
 import { AuthenticatedFrame } from "@/components/shell/app-header";
+import { Button } from "@/components/ui/button";
 import { ResearchActivityProvider } from "@/components/research/research-activity";
 import { fetchIdentity, type Identity } from "@/lib/identity";
 import { csrfHeaders } from "@/lib/csrf";
@@ -65,7 +66,7 @@ export function SessionBoundary({ children }: { children: ReactNode }) {
 
   if (phase.status === "loading") {
     return (
-      <main className="mx-auto w-full max-w-2xl px-4 py-8">
+      <main className="mx-auto w-full max-w-5xl px-4 py-8">
         <p role="status">Checking session.</p>
       </main>
     );
@@ -73,7 +74,7 @@ export function SessionBoundary({ children }: { children: ReactNode }) {
 
   if (phase.status === "anonymous") {
     return (
-      <main className="mx-auto w-full max-w-2xl px-4 py-8">
+      <main className="mx-auto w-full max-w-5xl px-4 py-8">
         <p role="status">Sign-in is required.</p>
       </main>
     );
@@ -81,18 +82,17 @@ export function SessionBoundary({ children }: { children: ReactNode }) {
 
   if (phase.status === "unavailable") {
     return (
-      <main className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-4 py-8">
+      <main className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 py-8">
         <p role="alert">The research service is unavailable.</p>
-        <button
-          type="button"
-          className="w-fit cursor-pointer rounded border border-line-strong px-4 py-2"
+        <Button
+          variant="secondary"
           onClick={() => {
             setPhase({ status: "loading" });
             setAttempt((current) => current + 1);
           }}
         >
           Try again
-        </button>
+        </Button>
       </main>
     );
   }

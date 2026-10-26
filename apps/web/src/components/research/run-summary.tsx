@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { StatusChip, statusTone } from "@/components/ui/status-chip";
 import type { RunStatus, RunSummary } from "@/lib/types";
 
 const STATUS_LABEL: Record<Exclude<RunStatus, "running">, string> = {
@@ -22,19 +23,17 @@ export function runStatusLabel(status: RunStatus): string {
 }
 
 export function RunSummaryItem({ run }: { run: RunSummary }) {
-  const prominent = run.status === "partial" || run.status === "insufficient_evidence";
   return (
-    <li className="rounded border border-line bg-surface p-3">
+    <li className="surface flex flex-col gap-2 p-4">
       <Link
         href={`/research/${run.run_id}`}
-        className="line-clamp-2 break-words font-medium underline"
+        className="text-link line-clamp-2 break-words font-medium"
       >
         {run.question}
       </Link>
-      <p className="mt-1 text-sm text-muted">
-        <span className={prominent ? "font-semibold" : undefined}>{runStatusLabel(run.status)}</span>
-        {" · "}
-        {formatTime(run.created_at)}
+      <p className="flex flex-wrap items-center gap-2 text-sm text-muted">
+        <StatusChip tone={statusTone(run.status)}>{runStatusLabel(run.status)}</StatusChip>
+        <span>{" · "}{formatTime(run.created_at)}</span>
       </p>
     </li>
   );

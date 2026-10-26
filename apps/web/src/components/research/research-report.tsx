@@ -1,4 +1,5 @@
 import { CitationLink } from "@/components/research/citation-link";
+import { StatusChip, statusTone } from "@/components/ui/status-chip";
 import { sourceMap } from "@/lib/report";
 import type { ReportStatus, ResearchReport } from "@/lib/types";
 
@@ -15,13 +16,13 @@ export function ResearchReportView({ report }: { report: ResearchReport }) {
   const prominent = report.status === "partial" || report.status === "insufficient_evidence";
 
   return (
-    <section aria-labelledby="report-title" className="flex flex-col gap-4">
+    <section aria-labelledby="report-title" className="flex flex-col gap-5 leading-relaxed">
       {prominent ? (
-        <p role="status" className="font-semibold">
-          Status: {STATUS_LABEL[report.status]}
-        </p>
+        <StatusChip tone={statusTone(report.status)} role="status">
+          {`Status: ${STATUS_LABEL[report.status]}`}
+        </StatusChip>
       ) : null}
-      <h2 id="report-title" className="break-words text-lg font-semibold">
+      <h2 id="report-title" className="break-words text-xl font-semibold tracking-tight">
         {report.title}
       </h2>
       <p className="break-words">{report.summary}</p>
@@ -33,7 +34,7 @@ export function ResearchReportView({ report }: { report: ResearchReport }) {
         const citations = Array.isArray(section.citations) ? section.citations : [];
         return (
           <section key={`${section.heading}-${index}`} className="flex flex-col gap-2">
-            <h3 className="break-words font-semibold">{section.heading}</h3>
+            <h3 className="break-words text-lg font-semibold">{section.heading}</h3>
             <p className="break-words">{section.content}</p>
             {citations.length > 0 ? (
               <ul aria-label={`Sources for ${section.heading}`} className="flex list-disc flex-col gap-1 pl-5">
@@ -48,7 +49,7 @@ export function ResearchReportView({ report }: { report: ResearchReport }) {
         );
       })}
       {limitations.length > 0 ? (
-        <section className="flex flex-col gap-2">
+        <section className="surface flex flex-col gap-2 p-4">
           <h3 className="font-semibold">Limitations</h3>
           <ul className="flex list-disc flex-col gap-1 pl-5">
             {limitations.map((item, index) => (

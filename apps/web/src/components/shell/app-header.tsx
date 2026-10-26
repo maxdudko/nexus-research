@@ -5,8 +5,10 @@ import { usePathname, useRouter } from "next/navigation";
 import { useContext, useEffect, useRef, useState, useSyncExternalStore, type MouseEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
+import { AdminNav } from "@/components/admin/admin-nav";
 import { ThemeToggle } from "@/components/theme-toggle/theme-toggle";
 import { ResearchActivityContext } from "@/components/research/research-activity";
+import { Button } from "@/components/ui/button";
 
 const WIDE_QUERY = "(min-width: 768px)";
 
@@ -163,97 +165,106 @@ export function AppHeader({
   }
 
   const showNav = wide || open;
-
   const logoutCopy = pending?.kind === "logout";
+  const items = navigation(role);
 
   return (
-    <header className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <Link href="/" className="text-lg font-semibold" onClick={(event) => guard(event, "/")}>
+    <header
+      className={
+        wide
+          ? "fixed inset-y-0 left-0 z-30 flex w-60 flex-col overflow-y-auto border-r border-line bg-surface"
+          : "sticky top-0 z-20 border-b border-line bg-surface"
+      }
+    >
+      <div className="flex items-center justify-between gap-3 px-4 py-4">
+        <Link href="/" className="text-lg font-semibold tracking-tight" onClick={(event) => guard(event, "/")}>
           Nexus Research
         </Link>
         {wide ? null : (
-          <button
+          <Button
             ref={menuButtonRef}
-            type="button"
-            className="cursor-pointer rounded border border-line-strong px-4 py-2"
+            variant="secondary"
             aria-expanded={open}
             aria-controls="app-nav"
             onClick={() => setOpenPath(open ? null : pathname)}
           >
             Menu
-          </button>
+          </Button>
         )}
-        <div className="flex flex-wrap items-center gap-3">
-          <p className="text-sm text-muted">
-            Signed in as <span className="text-ink">{email}</span>
-          </p>
-          <button
-            ref={logoutRef}
-            type="button"
-            className="cursor-pointer rounded border border-line-strong px-4 py-2"
-            onClick={requestLogout}
-          >
-            Log out
-          </button>
-          <ThemeToggle />
-        </div>
       </div>
       {showNav ? (
         <nav
           id="app-nav"
           aria-label="Primary"
-          className={wide ? "flex flex-row gap-4" : "flex flex-col gap-2"}
+          className={wide ? "flex flex-1 flex-col gap-1 px-3" : "flex flex-col gap-1 border-t border-line px-3 py-3"}
         >
-          {navigation(role).map((item, index) => (
-            <Link
-              key={item.href}
-              ref={index === 0 && !wide ? firstLinkRef : undefined}
-              href={item.href}
-              aria-current={pathname === item.href ? "page" : undefined}
-              className="underline"
-              onClick={(event) => guard(event, item.href)}
-            >
-              {item.label}
-            </Link>
-          ))}
+          {items.map((item, index) => {
+            const current = pathname === item.href;
+            return (
+              <Link
+                key={item.href}
+                ref={index === 0 && !wide ? firstLinkRef : undefined}
+                href={item.href}
+                aria-current={current ? "page" : undefined}
+                className="nav-link"
+                onClick={(event) => guard(event, item.href)}
+              >
+                {item.label}
+              </Link>
+            );
+          })}
+          {role === "admin" ? <AdminNav onNavigate={guard} /> : null}
         </nav>
       ) : null}
-      {logoutError ? (
-        <p role="alert" className="text-sm text-danger">
-          {logoutError}
+      <div
+        className={
+          wide
+            ? "mt-auto flex flex-col gap-3 border-t border-line px-4 py-4"
+            : "flex flex-wrap items-center gap-3 border-t border-line px-4 py-3"
+        }
+      >
+        <p className="text-sm break-all text-muted">
+          Signed in as <span className="text-ink">{email}</span>
         </p>
-      ) : null}
+        <div className="flex items-center gap-2">
+          <Button ref={logoutRef} variant="secondary" onClick={requestLogout}>
+            Log out
+          </Button>
+          <ThemeToggle />
+        </div>
+        {logoutError ? (
+          <p role="alert" className="text-sm text-danger">
+            {logoutError}
+          </p>
+        ) : null}
+      </div>
       {pending
         ? createPortal(
-            <div
-              ref={dialogRef}
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="leave-title"
-              aria-describedby="leave-body"
-              className="flex flex-col gap-3 rounded border border-line bg-surface p-4"
-            >
-              <h2 id="leave-title" className="text-lg font-semibold">
-                {logoutCopy ? "Log out?" : "Leave this research?"}
-              </h2>
-              <p id="leave-body">
-                {logoutCopy
-                  ? "Logging out stops this request. It does not keep running in the background."
-                  : "Leaving stops this request. It does not keep running in the background."}
-              </p>
-              <div className="flex flex-wrap gap-3">
-                <button ref={stayRef} type="button" className="cursor-pointer rounded border border-line-strong px-4 py-2" onClick={stay}>
-                  Stay
-                </button>
-                <button
-                  ref={leaveRef}
-                  type="button"
-                  className="cursor-pointer rounded bg-primary px-4 py-2 text-on-primary"
-                  onClick={leave}
-                >
-                  {logoutCopy ? "Log out" : "Leave"}
-                </button>
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay p-4">
+              <div
+                ref={dialogRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="leave-title"
+                aria-describedby="leave-body"
+                className="surface flex w-full max-w-md flex-col gap-4 p-5 shadow-[0_18px_50px_rgb(20_20_19/0.18)]"
+              >
+                <h2 id="leave-title" className="text-lg font-semibold tracking-tight">
+                  {logoutCopy ? "Log out?" : "Leave this research?"}
+                </h2>
+                <p id="leave-body">
+                  {logoutCopy
+                    ? "Logging out stops this request. It does not keep running in the background."
+                    : "Leaving stops this request. It does not keep running in the background."}
+                </p>
+                <div className="flex flex-wrap gap-3">
+                  <Button ref={stayRef} variant="secondary" onClick={stay}>
+                    Stay
+                  </Button>
+                  <Button ref={leaveRef} variant="primary" onClick={leave}>
+                    {logoutCopy ? "Log out" : "Leave"}
+                  </Button>
+                </div>
               </div>
             </div>,
             document.body,
@@ -279,9 +290,11 @@ export function AuthenticatedFrame({
   children: ReactNode;
 }) {
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-4 py-8">
+    <div className="min-h-dvh bg-canvas md:pl-60">
       <AppHeader email={email} role={role} onLogout={onLogout} logoutError={logoutError} />
-      <main key={userId}>{children}</main>
+      <main key={userId} className="mx-auto w-full max-w-5xl px-4 py-8 md:px-8">
+        {children}
+      </main>
     </div>
   );
 }

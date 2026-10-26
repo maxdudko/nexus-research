@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { ResearchReportView } from "@/components/research/research-report";
+import { StatusChip, statusTone } from "@/components/ui/status-chip";
 import { getRun } from "@/lib/api";
 import { isApiError, REQUEST_FAILED_MESSAGE } from "@/lib/errors";
 import { loginHref } from "@/lib/return-path";
@@ -73,9 +74,6 @@ function RunDetailView({ runId }: { runId: string }) {
     };
   }, [runId, router]);
 
-  const prominent =
-    detail?.run.status === "partial" || detail?.run.status === "insufficient_evidence";
-
   if (error) {
     return (
       <p role="alert" className="text-sm text-danger">
@@ -89,8 +87,10 @@ function RunDetailView({ runId }: { runId: string }) {
 
   return (
     <article className="flex flex-col gap-4">
-      <h1 className="break-words text-2xl font-semibold">{detail.run.question}</h1>
-      <p className={prominent ? "font-semibold" : undefined}>Status: {STATUS_LABEL[detail.run.status]}</p>
+      <h1 className="break-words text-2xl font-semibold tracking-tight">{detail.run.question}</h1>
+      <StatusChip tone={statusTone(detail.run.status)}>
+        {`Status: ${STATUS_LABEL[detail.run.status]}`}
+      </StatusChip>
       <p>{timestampLine(detail.run)}</p>
       {detail.run.status === "running" ? (
         <p>
@@ -100,7 +100,7 @@ function RunDetailView({ runId }: { runId: string }) {
       {detail.run.error_code ? <p>Error code: {detail.run.error_code}</p> : null}
       {detail.run.warnings.length > 0 ? (
         <section className="flex flex-col gap-2">
-          <h2 className="text-lg font-semibold">Warnings</h2>
+          <h2 className="text-lg font-semibold tracking-tight">Warnings</h2>
           <ul className="flex list-disc flex-col gap-1 pl-5">
             {detail.run.warnings.map((warning) => (
               <li key={warning} className="break-words">
@@ -125,12 +125,12 @@ export default function ResearchRunPage() {
   const runId = typeof params.runId === "string" ? params.runId : "";
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="reading flex flex-col gap-6">
       <p className="flex flex-wrap gap-x-4 gap-y-1">
-        <Link href="/history" className="underline">
+        <Link href="/history" className="text-link">
           Back to history
         </Link>
-        <Link href="/" className="underline">
+        <Link href="/" className="text-link">
           Dashboard
         </Link>
       </p>

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import type { MouseEvent } from "react";
 
 const LINKS = [
   { href: "/admin", label: "Overview" },
@@ -10,11 +11,15 @@ const LINKS = [
   { href: "/admin/usage", label: "Usage" },
 ] as const;
 
-export function AdminNav() {
+export function AdminNav({
+  onNavigate,
+}: {
+  onNavigate: (event: MouseEvent<HTMLAnchorElement>, href: string) => void;
+}) {
   const pathname = usePathname();
   return (
-    <nav aria-label="Admin">
-      <ul className="flex flex-wrap gap-3 text-sm">
+    <div className="mt-3 border-t border-line pt-3">
+      <ul className="flex flex-col gap-1">
         {LINKS.map((link) => {
           const current =
             link.href === "/admin"
@@ -22,13 +27,18 @@ export function AdminNav() {
               : pathname === link.href || pathname.startsWith(`${link.href}/`);
           return (
             <li key={link.href}>
-              <Link href={link.href} aria-current={current ? "page" : undefined} className="underline">
+              <Link
+                href={link.href}
+                aria-current={current ? "page" : undefined}
+                className="nav-link"
+                onClick={(event) => onNavigate(event, link.href)}
+              >
                 {link.label}
               </Link>
             </li>
           );
         })}
       </ul>
-    </nav>
+    </div>
   );
 }

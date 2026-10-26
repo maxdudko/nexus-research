@@ -42,7 +42,7 @@ export function ThemeToggle() {
       type="button"
       aria-label={themeLabel(theme)}
       title="Switch between light and dark theme"
-      className="cursor-pointer rounded p-2 text-ink"
+      className="cursor-pointer rounded-lg p-2 text-ink hover:bg-nav-active"
       onClick={() => applyTheme(theme === "dark" ? "light" : "dark")}
     >
       <ThemeIcon theme={theme} />

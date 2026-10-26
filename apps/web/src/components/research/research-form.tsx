@@ -1,6 +1,7 @@
 "use client";
 
 import { PdfUpload } from "@/components/research/pdf-upload";
+import { Button } from "@/components/ui/button";
 import {
   canRetry,
   canStart,
@@ -33,7 +34,7 @@ export function ResearchForm({
 
   return (
     <form
-      className="flex flex-col gap-4"
+      className="surface flex flex-col gap-4 p-5"
       onSubmit={(event) => {
         event.preventDefault();
         onStart();
@@ -51,7 +52,7 @@ export function ResearchForm({
           readOnly={busy}
           aria-invalid={showQuestionError}
           aria-describedby={showQuestionError ? "question-hint question-error" : "question-hint"}
-          className="w-full rounded border border-line bg-surface p-3 text-base text-ink"
+          className="field"
           onChange={(event) => onQuestion(event.target.value)}
         />
         <p id="question-hint" className="text-sm text-muted">
@@ -71,23 +72,15 @@ export function ResearchForm({
         onFile={onFile}
       />
       <div className="flex flex-col gap-3">
-        <button
-          type="submit"
-          disabled={!canStart(state)}
-          className={`rounded bg-primary px-4 py-2 text-on-primary ${canStart(state) ? 'cursor-pointer' : 'cursor-not-allowed'}`}
-        >
+        <Button type="submit" variant="primary" disabled={!canStart(state)}>
           Start research
-        </button>
+        </Button>
         {busy ? (
           <div className="flex flex-col gap-2">
-            <button
-              type="button"
-              onClick={onStop}
-              className="rounded border border-line-strong px-4 py-2 cursor-pointer"
-            >
+            <Button type="button" variant="secondary" className="whitespace-normal text-left" onClick={onStop}>
               Stop this request. Stopping does not pause or resume, it can take a moment, and
               provider cost may already have been incurred.
-            </button>
+            </Button>
             <p className="text-sm text-muted">
               Closing the tab stops the request. This page cannot warn you before the browser
               closes it.
@@ -95,9 +88,9 @@ export function ResearchForm({
           </div>
         ) : null}
         {canRetry(state.phase) ? (
-          <button type="button" onClick={onRetry} className="rounded border border-line px-4 py-2 cursor-pointer">
+          <Button type="button" variant="secondary" onClick={onRetry}>
             Start a new run
-          </button>
+          </Button>
         ) : null}
       </div>
     </form>

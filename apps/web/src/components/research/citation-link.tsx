@@ -22,7 +22,7 @@ export function CitationLink({
   return (
     <span className="break-words">
       {view.href ? (
-        <a href={view.href} target="_blank" rel="noopener noreferrer">
+        <a href={view.href} target="_blank" rel="noopener noreferrer" className="text-link">
           {view.evidenceId}
         </a>
       ) : (

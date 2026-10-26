@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { ConfusionMatrix, EvaluationFacts, caseText } from "@/components/admin/evaluation-view";
 import { useSessionIdentity } from "@/components/auth/session-boundary";
+import { Button } from "@/components/ui/button";
 import { getEvaluation, listEvaluationCases } from "@/lib/admin-api";
 import type { EvaluationDetail as EvaluationDetailBody, StoredCase } from "@/lib/admin-api";
 import { isApiError } from "@/lib/errors";
@@ -99,9 +100,9 @@ export function EvaluationDetailView({ evaluationId }: { evaluationId: string })
         <p role="alert" className="text-sm text-danger">
           The research service is unavailable.
         </p>
-        <button
+        <Button
           type="button"
-          className="w-fit cursor-pointer rounded border border-line-strong px-4 py-2"
+          variant="secondary"
           onClick={() => {
             setLoading(true);
             setUnavailable(false);
@@ -109,7 +110,7 @@ export function EvaluationDetailView({ evaluationId }: { evaluationId: string })
           }}
         >
           Try again
-        </button>
+        </Button>
       </div>
     );
   }
@@ -126,7 +127,7 @@ export function EvaluationDetailView({ evaluationId }: { evaluationId: string })
       <p>{detail.code_revision_source === "operator_asserted" ? "Operator asserted" : "Revision source unknown"}</p>
       {detail.calibration ? <ConfusionMatrix calibration={detail.calibration} counts={detail.counts} /> : null}
       <div className="overflow-x-auto">
-        <table aria-label="Evaluation cases" className="w-full text-sm">
+        <table aria-label="Evaluation cases" className="data-table">
           <thead>
             <tr>
               <th scope="col">Category</th>
@@ -146,15 +147,15 @@ export function EvaluationDetailView({ evaluationId }: { evaluationId: string })
         </table>
       </div>
       {cursor ? (
-        <button
+        <Button
           type="button"
-          className="w-fit cursor-pointer rounded border border-line-strong px-4 py-2"
+          variant="secondary"
           onClick={() => {
             void loadOlder();
           }}
         >
           Load older cases
-        </button>
+        </Button>
       ) : null}
     </div>
   );
