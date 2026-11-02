@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 
+import { PasswordInput } from "@/components/ui/password-input";
 import { Button } from "@/components/ui/button";
 import { fetchIdentity } from "@/lib/identity";
 import { destinationFromNext, isAllowlistedPath } from "@/lib/return-path";
@@ -120,17 +121,16 @@ export function RegisterForm() {
         <label htmlFor="password" className="text-sm font-medium">
           Password
         </label>
-        <input
+        <PasswordInput
+          visibilityLabel="password"
           id="password"
           name="password"
-          type="password"
           autoComplete="new-password"
           minLength={12}
           maxLength={128}
           aria-describedby="password-help"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
-          className="field"
           required
         />
       </div>
@@ -141,14 +141,13 @@ export function RegisterForm() {
         <label htmlFor="confirmation" className="text-sm font-medium">
           Confirm password
         </label>
-        <input
+        <PasswordInput
+          visibilityLabel="confirm password"
           id="confirmation"
           name="confirmation"
-          type="password"
           autoComplete="new-password"
           value={confirmation}
           onChange={(event) => setConfirmation(event.target.value)}
-          className="field"
           required
           minLength={12}
           maxLength={128}

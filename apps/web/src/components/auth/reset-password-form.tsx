@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Button } from "@/components/ui/button";
 
 export function ResetPasswordForm() {
@@ -79,12 +80,12 @@ export function ResetPasswordForm() {
     <form className="flex flex-col gap-4" onSubmit={(event) => void onSubmit(event)}>
       <p className="text-sm text-muted">Resetting your password signs you out on every device.</p>
       <label htmlFor="password" className="text-sm font-medium">New password</label>
-      <input id="password" name="new_password" type="password" autoComplete="new-password"
-        required minLength={12} maxLength={128} disabled={pending} className="field" aria-describedby="password-help"
+      <PasswordInput visibilityLabel="password" id="password" name="new_password" autoComplete="new-password"
+        required minLength={12} maxLength={128} disabled={pending} aria-describedby="password-help"
         value={password} onChange={(event) => setPassword(event.target.value)} />
       <p id="password-help" className="text-sm text-muted">Use 12–128 characters, different from your email and current password.</p>
       <label htmlFor="confirmation" className="text-sm font-medium">Confirm new password</label>
-      <input id="confirmation" name="confirmation" type="password" autoComplete="new-password"
+      <PasswordInput visibilityLabel="confirm password" id="confirmation" name="confirmation" autoComplete="new-password"
         required minLength={12} maxLength={128} disabled={pending} className="field"
         value={confirmation} onChange={(event) => setConfirmation(event.target.value)} />
       {error ? <p role="alert" className="text-sm text-danger">{error}</p> : null}

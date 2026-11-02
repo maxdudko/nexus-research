@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 
+import { PasswordInput } from "@/components/ui/password-input";
 import { Button } from "@/components/ui/button";
 import { fetchIdentity } from "@/lib/identity";
 import { destinationFromNext, isAllowlistedPath } from "@/lib/return-path";
@@ -100,14 +101,13 @@ export function LoginForm() {
         <label htmlFor="password" className="text-sm font-medium">
           Password
         </label>
-        <input
+        <PasswordInput
+          visibilityLabel="password"
           id="password"
           name="password"
-          type="password"
           autoComplete="current-password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
-          className="field"
           required
         />
       </div>

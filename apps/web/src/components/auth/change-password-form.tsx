@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useRef, useState, type FormEvent } from "react";
 
+import { PasswordInput } from "@/components/ui/password-input";
 import { Button } from "@/components/ui/button";
 import { csrfHeaders } from "@/lib/csrf";
 import { loginHref } from "@/lib/return-path";
@@ -84,14 +85,14 @@ export function ChangePasswordForm() {
       </p>
       <div className="flex flex-col gap-2">
         <label htmlFor="current-password" className="text-sm font-medium">Current password</label>
-        <input id="current-password" name="current_password" type="password" autoComplete="current-password"
-          className="field" required maxLength={128} disabled={pending}
+        <PasswordInput visibilityLabel="current password" id="current-password" name="current_password" autoComplete="current-password"
+          required maxLength={128} disabled={pending}
           value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} />
       </div>
       <div className="flex flex-col gap-2">
         <label htmlFor="new-password" className="text-sm font-medium">New password</label>
-        <input id="new-password" name="new_password" type="password" autoComplete="new-password"
-          className="field" required minLength={12} maxLength={128} disabled={pending}
+        <PasswordInput visibilityLabel="new password" id="new-password" name="new_password" autoComplete="new-password"
+          required minLength={12} maxLength={128} disabled={pending}
           aria-describedby="password-help" value={newPassword}
           onChange={(event) => setNewPassword(event.target.value)} />
         <p id="password-help" className="text-sm text-muted">
@@ -100,8 +101,8 @@ export function ChangePasswordForm() {
       </div>
       <div className="flex flex-col gap-2">
         <label htmlFor="confirm-password" className="text-sm font-medium">Confirm new password</label>
-        <input id="confirm-password" name="confirmation" type="password" autoComplete="new-password"
-          className="field" required minLength={12} maxLength={128} disabled={pending}
+        <PasswordInput visibilityLabel="confirm new password" id="confirm-password" name="confirmation" autoComplete="new-password"
+          required minLength={12} maxLength={128} disabled={pending}
           value={confirmation} onChange={(event) => setConfirmation(event.target.value)} />
       </div>
       {error ? <p role="alert" className="text-sm text-danger">{error}</p> : null}
