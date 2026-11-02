@@ -130,7 +130,7 @@ npm ci
 npm run dev
 ```
 
-`API_PROXY_TARGET` defaults to `http://127.0.0.1:8000`. Open `http://127.0.0.1:3000`.
+`API_PROXY_TARGET` defaults to `http://127.0.0.1:8000`. Open `http://127.0.0.1:3000` for the public landing page. Create an account at `/register` or sign in at `/login` to reach `/dashboard`. Research creation, history, and saved reports remain at `/research/new`, `/history`, and `/research/{run_id}`. The landing page renders without the API; the authenticated workspace requires it.
 
 A text PDF is optional. The API accepts up to 10 MiB and 100 pages by default and does not store the original bytes. The same draft id is sent with the upload and with `POST /api/v1/research/stream`. When the stream finishes, the UI opens `/research/{run_id}` and loads the saved report. `https` citations open in a new tab. A PDF citation is a page label, not a file link. Refreshing that URL reads the domain row again.
 

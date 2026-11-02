@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 const WIDE_QUERY = "(min-width: 768px)";
 
 const NAV = [
-  { href: "/", label: "Dashboard" },
+  { href: "/dashboard", label: "Dashboard" },
   { href: "/research/new", label: "New research" },
   { href: "/history", label: "History" },
 ] as const;
@@ -171,7 +171,8 @@ export function AppHeader({
   return (
     <>
       <header className="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-x-6 gap-y-3 border-b border-line bg-surface px-4 py-3 md:col-span-2 md:h-16 md:flex-nowrap md:px-6 md:py-0">
-        <Link href="/" className="shrink-0 text-lg font-semibold tracking-tight" onClick={(event) => guard(event, "/")}>
+        <Link href="/dashboard" className="nexus-brand" aria-label="Nexus Research home">
+          <span className="nexus-mark" aria-hidden="true">n<span>↗</span></span>
           Nexus Research
         </Link>
         {wide ? null : (
@@ -185,20 +186,33 @@ export function AppHeader({
             Menu
           </Button>
         )}
-        <div className="flex w-full min-w-0 items-center gap-3 md:ml-auto md:w-auto md:max-w-[60%]">
+        <div className="flex w-full items-center justify-end gap-2 md:ml-auto md:w-auto">
           <ThemeToggle />
           <Link
             href="/account"
-            title={email}
+            title={`Account (${email})`}
+            aria-label="Account"
             aria-current={pathname === "/account" ? "page" : undefined}
-            className="min-w-0 flex-1 truncate text-sm text-ink underline-offset-4 hover:underline"
+            className="rounded-lg p-2 text-ink hover:bg-nav-active"
             onClick={(event) => guard(event, "/account")}
           >
-            {email}
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="size-5">
+              <circle cx="12" cy="8" r="4" />
+              <path d="M4 21v-2a8 8 0 0 1 16 0v2" />
+            </svg>
           </Link>
-          <Button ref={logoutRef} variant="secondary" className="shrink-0" onClick={requestLogout}>
-            Log out
-          </Button>
+          <button
+            ref={logoutRef}
+            type="button"
+            title="Log out"
+            aria-label="Log out"
+            className="cursor-pointer rounded-lg p-2 text-ink hover:bg-nav-active"
+            onClick={requestLogout}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="size-5">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M14 17l5-5-5-5M8 12h13" />
+            </svg>
+          </button>
         </div>
         {logoutError ? (
           <p role="alert" className="surface absolute top-full right-4 left-4 mt-2 p-3 text-sm text-danger md:left-auto md:max-w-sm">

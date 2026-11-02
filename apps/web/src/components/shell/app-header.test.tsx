@@ -69,13 +69,23 @@ afterEach(() => {
 });
 
 describe("app header", () => {
+  it("links the brand and Dashboard to the authenticated dashboard", () => {
+    setWide(true);
+    navigation.pathname = "/dashboard";
+    renderHeader();
+    expect(screen.getByRole("link", { name: "Nexus Research home" }).getAttribute("href")).toBe("/dashboard");
+    const dashboard = screen.getByRole("link", { name: "Dashboard" });
+    expect(dashboard.getAttribute("href")).toBe("/dashboard");
+    expect(dashboard.getAttribute("aria-current")).toBe("page");
+  });
+
   it.each(["user", "admin"])("opens Account through the email for %s and guards active research", async (role) => {
     setWide(true);
     renderHeader(role);
     const user = userEvent.setup();
-    expect(screen.getByRole("link", { name: "ada@example.com" }).getAttribute("href")).toBe("/account");
+    expect(screen.getByRole("link", { name: "Account" }).getAttribute("href")).toBe("/account");
     await user.click(screen.getByRole("button", { name: "Arm" }));
-    await user.click(screen.getByRole("link", { name: "ada@example.com" }));
+    await user.click(screen.getByRole("link", { name: "Account" }));
     expect(screen.getByRole("dialog")).toBeTruthy();
     expect(navigation.push).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Leave" }));
@@ -94,8 +104,10 @@ describe("app header", () => {
       </ResearchActivityProvider>,
     );
     const header = within(screen.getByRole("banner"));
-    const account = header.getByRole("link", { name: "ada@example.com" });
+    const account = header.getByRole("link", { name: "Account" });
     expect(account.getAttribute("href")).toBe("/account");
+    expect(account.getAttribute("title")).toBe("Account (ada@example.com)");
+    expect(header.getByRole("button", { name: "Log out" }).getAttribute("title")).toBe("Log out");
     expect(header.getByRole("button", { name: "Switch to dark theme" })).toBeTruthy();
     await user.click(header.getByRole("button", { name: "Log out" }));
     expect(onLogout).toHaveBeenCalledTimes(1);

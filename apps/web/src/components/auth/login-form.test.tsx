@@ -76,12 +76,12 @@ describe("login form", () => {
     expect(screen.queryByRole("button", { name: "Log out" })).toBeNull();
   });
 
-  it("redirects an existing session and ignores an off-site next", async () => {
-    navigation.next = "https://evil.example";
+  it.each([null, "https://evil.example"])("redirects an existing session safely (%s)", async (next) => {
+    navigation.next = next;
     vi.stubGlobal("fetch", vi.fn(async () => Response.json(IDENTITY)));
     render(<LoginForm />);
     await waitFor(() => {
-      expect(navigation.replace).toHaveBeenCalledWith("/");
+      expect(navigation.replace).toHaveBeenCalledWith("/dashboard");
     });
     expect(screen.queryByLabelText("Email")).toBeNull();
   });

@@ -12,7 +12,7 @@ import { AuthenticatedFrame } from "@/components/shell/app-header";
 const navigation = vi.hoisted(() => ({
   replace: vi.fn(),
   push: vi.fn(),
-  pathname: "/",
+  pathname: "/dashboard",
 }));
 
 vi.mock("next/navigation", () => ({
@@ -49,7 +49,7 @@ afterEach(() => {
   cleanup();
   navigation.replace.mockReset();
   navigation.push.mockReset();
-  navigation.pathname = "/";
+  navigation.pathname = "/dashboard";
   vi.unstubAllGlobals();
   localStorage.clear();
   document.cookie = "nexus_csrf=; Max-Age=0";
@@ -80,9 +80,9 @@ describe("session boundary", () => {
     expect(screen.getByText("ada@example.com")).toBeTruthy();
   });
 
-  it("sends an anonymous reader to login with a safe next path", async () => {
+  it.each(["/history", "/dashboard"])("sends an anonymous reader to login with a safe next path (%s)", async (path) => {
     setWide(true);
-    navigation.pathname = "/history";
+    navigation.pathname = path;
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 401 })));
     render(
       <SessionBoundary>
@@ -90,7 +90,7 @@ describe("session boundary", () => {
       </SessionBoundary>,
     );
     await waitFor(() => {
-      expect(navigation.replace).toHaveBeenCalledWith("/login?next=%2Fhistory");
+      expect(navigation.replace).toHaveBeenCalledWith(`/login?next=${encodeURIComponent(path)}`);
     });
     expect(screen.queryByText("Private runs")).toBeNull();
   });

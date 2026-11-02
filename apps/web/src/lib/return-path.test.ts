@@ -7,6 +7,9 @@ const RUN = "/research/11111111-1111-4111-8111-111111111111";
 describe("return path", () => {
   it("allows the dashboard, history, new research, and one run id", () => {
     expect(isAllowlistedPath("/")).toBe(true);
+    expect(isAllowlistedPath("/dashboard")).toBe(true);
+    expect(destinationFromNext("/")).toBe("/");
+    expect(destinationFromNext("/dashboard")).toBe("/dashboard");
     expect(isAllowlistedPath("/history")).toBe(true);
     expect(isAllowlistedPath("/research/new")).toBe(true);
     expect(isAllowlistedPath(RUN)).toBe(true);
@@ -28,8 +31,8 @@ describe("return path", () => {
     expect(isAllowlistedPath("/admin/usage/extra")).toBe(false);
     expect(isAllowlistedPath("/admin/evaluations/compare/extra")).toBe(false);
     expect(isAllowlistedPath("/admin/evaluations/not-a-uuid")).toBe(false);
-    expect(destinationFromNext("https://evil.example")).toBe("/");
-    expect(destinationFromNext(null)).toBe("/");
+    expect(destinationFromNext("https://evil.example")).toBe("/dashboard");
+    expect(destinationFromNext(null)).toBe("/dashboard");
   });
 
   it("puts an allowlisted path on the login redirect", () => {

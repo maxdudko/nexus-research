@@ -130,7 +130,7 @@ export default function ResearchRunPage() {
         <Link href="/history" className="text-link">
           Back to history
         </Link>
-        <Link href="/" className="text-link">
+        <Link href="/dashboard" className="text-link">
           Dashboard
         </Link>
       </p>

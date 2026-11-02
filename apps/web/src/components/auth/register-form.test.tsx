@@ -108,7 +108,7 @@ describe("registration form", () => {
     expect(navigation.replace).not.toHaveBeenCalled();
   });
 
-  it.each([["/history", "/history"], ["https://evil.example", "/"]])("redirects an existing session safely (%s)", async (next, target) => {
+  it.each([[null, "/dashboard"], ["/history", "/history"], ["https://evil.example", "/dashboard"]])("redirects an existing session safely (%s)", async (next, target) => {
     navigation.next = next;
     vi.stubGlobal("fetch", vi.fn(async () => Response.json(IDENTITY)));
     render(<RegisterForm />);
@@ -125,6 +125,6 @@ describe("registration form", () => {
     const user = await fill();
     expect(screen.getByRole("link", { name: "Sign in" }).getAttribute("href")).toBe("/login");
     await user.click(screen.getByRole("button", { name: "Create account" }));
-    await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/"));
+    await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/dashboard"));
   });
 });

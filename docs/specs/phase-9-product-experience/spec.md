@@ -98,7 +98,7 @@ Do not add API endpoints or database migrations solely to support speculative UI
 | Route | Purpose | Access | Primary content |
 |---|---|---|---|
 | `/login` | Sign in | Anonymous or already authenticated | Credentials, errors, safe redirect |
-| `/` | Dashboard | Authenticated | Welcome, New research CTA, recent owner-owned runs |
+| `/dashboard` | Dashboard | Authenticated | Welcome, New research CTA, recent owner-owned runs |
 | `/research/new` | Start/monitor research | Authenticated | Question, optional PDF, streaming progress, stop/retry |
 | `/history` | Browse research runs | Authenticated | Paginated list, statuses, links to detail |
 | `/research/[runId]` | View one persisted run | Authenticated + owner | Status, report or absence, citations, limitations |
@@ -247,7 +247,7 @@ Record date, commit, browser/viewport and evidence; use an approved private envi
 
 Accepted 2026-10-23. The review record is [gate-0.md](gate-0.md). Normative detail is ADR-009 D1–D8 and clarifications C1–C8.
 
-1. `/` is the dashboard. Research is `/research/new`.
+1. `/dashboard` is the dashboard. `/` is the public landing page (see the 2026-11-02 addendum to ADR-009). Research is `/research/new`.
 2. One authenticated route group loads `/auth/me` in a client boundary. 200 renders the page, 401 goes to login, and any other failure is an unavailable view. No second auth framework.
 3. A scope is minted once on submit, then the optional PDF is indexed, then the stream opens with that `research_id`. Unmount aborts the request.
 4. In-app navigation away from an active attempt asks for confirmation. Browser unload is not intercepted.

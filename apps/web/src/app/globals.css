@@ -104,6 +104,32 @@ body {
     text-align: center;
   }
 
+  .nexus-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: .7rem;
+    font-size: 1.05rem;
+    font-weight: 650;
+    letter-spacing: -.035em;
+  }
+  .nexus-mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: var(--primary);
+    color: var(--on-primary);
+    font-size: 24px;
+    line-height: 1;
+  }
+  .nexus-mark span {
+    font-size: 17px;
+    margin-left: -3px;
+    margin-top: -6px;
+  }
+
   .btn:disabled {
     cursor: not-allowed;
   }

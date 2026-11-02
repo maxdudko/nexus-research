@@ -92,7 +92,7 @@ describe("ResearchRunPage", () => {
       `Updated ${new Date("2026-10-18T12:05:00Z").toLocaleString()}`,
     );
     expect(screen.getByRole("link", { name: "Back to history" }).getAttribute("href")).toBe("/history");
-    expect(screen.getByRole("link", { name: "Dashboard" }).getAttribute("href")).toBe("/");
+    expect(screen.getByRole("link", { name: "Dashboard" }).getAttribute("href")).toBe("/dashboard");
     expect(document.body.textContent?.toLowerCase()).not.toContain("currently researching");
   });
 

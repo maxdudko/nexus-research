@@ -5,6 +5,7 @@ const EVALUATION_PATH =
 export function isAllowlistedPath(value: string): boolean {
   return (
     value === "/" ||
+    value === "/dashboard" ||
     value === "/history" ||
     value === "/account" ||
     value === "/research/new" ||
@@ -25,5 +26,5 @@ export function loginHref(pathname: string): string {
 
 export function destinationFromNext(value: string | null): string {
   if (value && isAllowlistedPath(value)) return value;
-  return "/";
+  return "/dashboard";
 }

@@ -66,7 +66,7 @@ docker compose --env-file .env.release -f compose.release.yml ps
 curl -fsS http://127.0.0.1:3000/api/v1/health/ready
 ```
 
-Readiness returns `{"status":"ok","postgres":"ok","qdrant":"ok"}`. Open `http://127.0.0.1:3000`.
+Readiness returns `{"status":"ok","postgres":"ok","qdrant":"ok"}`. Open `http://127.0.0.1:3000` for the landing page, then register or sign in to reach `/dashboard`.
 
 Stop with `docker compose --env-file .env.release -f compose.release.yml down`. That keeps the `nexus-release` volumes; `down -v` deletes them.
 

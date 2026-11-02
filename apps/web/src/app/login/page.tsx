@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { Suspense } from "react";
 
 import { LoginForm } from "@/components/auth/login-form";
@@ -11,7 +13,8 @@ export default function LoginPage() {
       </div>
       <div className="surface flex w-full max-w-md flex-col gap-6 p-6 sm:p-8">
         <header className="flex flex-col gap-2">
-          <h1 className="text-2xl font-semibold tracking-tight">Nexus Research</h1>
+          <Link href="/" className="text-sm text-muted underline underline-offset-4">Back to Nexus Research</Link>
+          <h1 className="text-2xl font-semibold tracking-tight">Sign in</h1>
           <p className="text-sm text-muted">Sign in to your Nexus Research account.</p>
         </header>
         <main>
