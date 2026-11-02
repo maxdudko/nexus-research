@@ -69,6 +69,20 @@ afterEach(() => {
 });
 
 describe("app header", () => {
+  it.each(["user", "admin"])("shows Account for %s and guards active research", async (role) => {
+    setWide(true);
+    renderHeader(role);
+    const user = userEvent.setup();
+    expect(screen.getByRole("link", { name: "Account" }).getAttribute("href")).toBe("/account");
+    await user.click(screen.getByRole("button", { name: "Arm" }));
+    await user.click(screen.getByRole("link", { name: "Account" }));
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(navigation.push).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Leave" }));
+    expect(stopResearch).toHaveBeenCalledTimes(1);
+    expect(navigation.push).toHaveBeenCalledWith("/account");
+  });
+
   it("opens the narrow menu, focuses the first link, and closes on Escape", async () => {
     setWide(false);
     const user = userEvent.setup();

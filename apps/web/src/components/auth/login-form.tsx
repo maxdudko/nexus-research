@@ -12,6 +12,7 @@ export function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const next = searchParams.get("next");
+  const passwordChanged = searchParams.get("password_changed") === "1";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -75,6 +76,11 @@ export function LoginForm() {
 
   return (
     <form className="flex flex-col gap-4" onSubmit={(event) => void onSubmit(event)}>
+      {passwordChanged ? (
+        <p role="status" className="text-sm text-muted">
+          Your password was changed. Sign in with your new password.
+        </p>
+      ) : null}
       <div className="flex flex-col gap-2">
         <label htmlFor="email" className="text-sm font-medium">
           Email
@@ -105,6 +111,7 @@ export function LoginForm() {
           required
         />
       </div>
+      <Link className="text-sm underline" href="/forgot-password">Forgot password?</Link>
       {error ? (
         <p role="alert" className="text-sm text-danger">
           {error}

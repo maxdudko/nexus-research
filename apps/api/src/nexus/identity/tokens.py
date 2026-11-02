@@ -51,3 +51,12 @@ def csrf_token(session_token: str, pepper: str) -> str:
         hashlib.sha256,
     ).digest()
     return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+
+
+def password_reset_hash(token: str, pepper: str) -> bytes:
+    """Use a separate MAC domain from browser session and CSRF verifiers."""
+    return hmac.new(
+        pepper.encode("utf-8"),
+        b"nexus-password-reset-v1\0" + token.encode("ascii"),
+        hashlib.sha256,
+    ).digest()

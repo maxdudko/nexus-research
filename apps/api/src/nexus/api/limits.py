@@ -37,6 +37,16 @@ class UsageLimiter:
         self._registration_limit = settings.registration_max_ip_attempts
         self._registration_window = settings.registration_window_seconds
         self._registration_attempts: dict[str, list[datetime]] = {}
+        self._password_change_limit = settings.password_change_max_attempts
+        self._password_change_window = settings.password_change_window_seconds
+        self._password_changes: dict[UUID, list[datetime]] = {}
+        self._reset_ip_limit = settings.password_reset_max_ip_requests
+        self._reset_email_limit = settings.password_reset_max_email_requests
+        self._reset_submission_limit = settings.password_reset_max_ip_submissions
+        self._reset_window = settings.password_reset_window_seconds
+        self._reset_ips: dict[str, list[datetime]] = {}
+        self._reset_emails: dict[str, list[datetime]] = {}
+        self._reset_submissions: dict[str, list[datetime]] = {}
         self._lock = asyncio.Lock()
         self._email_failures: dict[str, list[datetime]] = {}
         self._ip_failures: dict[str, list[datetime]] = {}
@@ -44,6 +54,32 @@ class UsageLimiter:
         self._mints: dict[UUID, list[datetime]] = {}
         self._runs: set[UUID] = set()
         self._streams: set[UUID] = set()
+
+    async def charge_password_reset_request(self, host: str, email: str) -> None:
+        """Reserve both anonymous request budgets in a single critical section."""
+        async with self._lock:
+            now = self.clock()
+            ips = _remember(self._reset_ips, host, now, self._reset_window)
+            emails = _remember(self._reset_emails, email, now, self._reset_window)
+            waits = []
+            if len(ips) >= self._reset_ip_limit:
+                waits.append(_retry_after(ips, now, self._reset_window))
+            if len(emails) >= self._reset_email_limit:
+                waits.append(_retry_after(emails, now, self._reset_window))
+            if waits:
+                raise too_many_requests(retry_after=max(waits))
+            self._reset_ips[host] = [*ips, now]
+            self._reset_emails[email] = [*emails, now]
+
+    async def charge_password_reset_submission(self, host: str) -> None:
+        async with self._lock:
+            now = self.clock()
+            stamps = _remember(self._reset_submissions, host, now, self._reset_window)
+            if len(stamps) >= self._reset_submission_limit:
+                raise too_many_requests(
+                    retry_after=_retry_after(stamps, now, self._reset_window)
+                )
+            self._reset_submissions[host] = [*stamps, now]
 
     async def charge_registration(self, host: str) -> None:
         """Reserve an attempt atomically, including successful registrations."""
@@ -96,6 +132,15 @@ class UsageLimiter:
         """A successful login forgets that email. The address bucket stays."""
         async with self._lock:
             self._email_failures.pop(email, None)
+
+    async def charge_password_change(self, user_id: UUID) -> None:
+        """Reserve a password change attempt independently of login budgets."""
+        await self._charge(
+            self._password_changes,
+            user_id,
+            self._password_change_limit,
+            self._password_change_window,
+        )
 
     async def charge_billable(self, user_id: UUID) -> None:
         """Count one plan, discovery, run, stream, or evidence request."""

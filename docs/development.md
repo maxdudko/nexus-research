@@ -92,7 +92,7 @@ uv run alembic upgrade head
 uv run python -m nexus.research.checkpoint
 ```
 
-Alembic owns the domain schema (`users`, `auth_sessions`, `research_scopes`, `sources`, `research_runs`, `research_reports`). Head is `e3b7d91c4a20` after `c8e4a1b27d05`. Running `upgrade head` again leaves the database at the current head. `uv run alembic downgrade base` is not a release rollback: scope downgrade aborts once a real owner exists, and the supported recovery is the paired volume restore in `docs/release/operations.md`.
+Alembic owns the domain schema (`users`, `auth_sessions`, `password_reset_tokens`, `research_scopes`, `sources`, `research_runs`, `research_reports`, and evaluation history). Head is `a4d9c2f78106`, following `f6c1a8d04e27`. Running `upgrade head` again leaves the database at the current head. `uv run alembic downgrade base` is not a release rollback: scope downgrade aborts once a real owner exists, and the supported recovery is the paired volume restore in `docs/release/operations.md`.
 
 LangGraph checkpoint tables are not managed by Alembic, and a request does not create them. `python -m nexus.research.checkpoint` creates or migrates them and is safe to run more than once. The release stack runs both commands in its one-shot `init` service.
 
@@ -366,7 +366,45 @@ Success returns `201` with `{id, email, role}` and the same session/CSRF cookies
 
 `NEXUS_REGISTRATION_MAX_IP_ATTEMPTS` (default `5`) and `NEXUS_REGISTRATION_WINDOW_SECONDS` (default `900`) configure the separate registration budget. It atomically counts allowed attempts, including success and invalid credentials, before hashing or creating accounts. A full bucket returns `429 too_many_requests` and `Retry-After`. Limits use the API socket address, ignore forwarded address headers, reset on restart, and support one API process. Browsers behind the Web proxy share its address bucket.
 
-After signing in, unsafe authenticated requests require the existing CSRF header. New accounts have the same ownership and research limits as CLI-created users. Self-service registration does not change private deployment requirements or add email delivery, password recovery, or invitation management.
+After signing in, unsafe authenticated requests require the existing CSRF header. New accounts have the same ownership and research limits as CLI-created users. Registration does not verify email ownership or change private deployment requirements. Optional email recovery is described below.
+
+### Change your password
+
+Open **Account** in the navigation to change your password. Enter the current password, a new password of 12–128 characters that differs from your normalized email and current password, and confirmation. Success signs out every browser and returns to login with a success message. Regular users and admins use the same flow.
+
+`POST /api/v1/auth/change-password` accepts `{"current_password":"old-password","new_password":"different-password"}`. It uses the session identity, an allowlisted Origin, and the session-bound CSRF header; extra fields cannot select another account. Success returns `200 {"status":"ok"}`, atomically updates the password hash, revokes all sessions, and clears both cookies. An incorrect current password returns `400 current_password_incorrect`; invalid new passwords return sanitized `422 invalid_request`; an unusable session returns `401 unauthenticated`; invalid Origin/CSRF returns `403 forbidden`. Failed changes preserve the password and session revocation state.
+
+`NEXUS_PASSWORD_CHANGE_MAX_ATTEMPTS` (default `5`) and `NEXUS_PASSWORD_CHANGE_WINDOW_SECONDS` (default `900`) configure a separate per-user attempt budget, shared across that user's sessions. Attempts are reserved atomically before password verification, including successful attempts. Throttling returns `429 too_many_requests` and `Retry-After`. Like other limits, counters are process-local, reset on restart, and support one API process. The release Compose stack forwards both settings.
+
+The store locks the user before the presented session and rechecks account/session validity after acquiring locks. Password replacement and revocation commit together; concurrent password changes, login, reset, disablement, and logout cannot use a revoked session to change credentials or issue a session with an outdated password. An audit event records only the action and user ID. Password changes do not send email notifications. Forgotten-password recovery is a separate flow below; operator reset remains available.
+
+### Recover a forgotten password
+
+Choose **Forgot password?** on login, or open `/forgot-password`. Submit the account email, open the emailed link, and enter and confirm a new password. Links expire after 30 minutes; requesting another link invalidates the previous one. Opening the page does not consume the link. A successful reset signs out all sessions and returns to login; it does not automatically sign in.
+
+`POST /api/v1/auth/forgot-password` accepts `{"email":"user@example.com"}` and returns `202 {"message":"If an eligible account exists, you’ll receive a password-reset link."}` for active, unknown, and disabled accounts. Only active accounts receive mail. With SMTP unconfigured, every valid email request returns `503 recovery_unavailable`. Invalid email is sanitized `422`; untrusted/missing Origin is `403`. Account lookup and best-effort SMTP delivery run after the response. A restart may interrupt delivery; request a new link if needed. Delivery failure logs contain only a fixed audit action, never the email, link, token, or SMTP error text.
+
+`POST /api/v1/auth/reset-password` accepts `{"token":"opaque-token","new_password":"different-password"}`. Success returns `200 {"status":"ok"}` and clears authentication cookies. Invalid, expired, consumed, or revoked tokens return `400 invalid_reset_token`; invalid passwords return sanitized `422` without consuming the token. Both endpoints always require a trusted Origin, including with stale session cookies, and do not require a session or CSRF token. Successful password changes, operator resets, and account disablement invalidate outstanding reset tokens.
+
+Tokens travel in the email URL fragment (`/reset-password#token=…`), are removed from browser history after capture, and are submitted only in the POST body. They are not query parameters or stored in browser storage. Reloading the page after the fragment is removed requires reopening the email link. PostgreSQL stores only a purpose-specific HMAC digest in `password_reset_tokens`; the raw token is never a database column.
+
+Configure SMTP using the settings below and migrate with `uv run alembic upgrade head`. No live email is sent by automated tests; delivery is mocked. For local manual tests, use a local SMTP capture server with `NEXUS_SMTP_TLS=plain`; plaintext SMTP is rejected in production.
+
+| Setting | Default / purpose |
+|---|---|
+| `NEXUS_SMTP_HOST` | Empty; SMTP hostname |
+| `NEXUS_SMTP_PORT` | `587` |
+| `NEXUS_SMTP_SENDER` | Empty; sender email address |
+| `NEXUS_SMTP_USERNAME`, `NEXUS_SMTP_PASSWORD` | Empty; configure both or neither |
+| `NEXUS_SMTP_TLS` | `starttls`; also `implicit` (typically port 465) or local-development `plain` |
+| `NEXUS_SMTP_TIMEOUT_SECONDS` | `10`; timeout for SMTP socket operations |
+| `NEXUS_PASSWORD_RESET_ORIGIN` | Empty; browser-reachable origin, without a path; HTTPS in production except explicitly configured loopback HTTP |
+| `NEXUS_PASSWORD_RESET_MAX_IP_REQUESTS` | `5` requests per API socket address |
+| `NEXUS_PASSWORD_RESET_MAX_EMAIL_REQUESTS` | `3` requests per normalized email |
+| `NEXUS_PASSWORD_RESET_MAX_IP_SUBMISSIONS` | `5` reset submissions per API socket address |
+| `NEXUS_PASSWORD_RESET_WINDOW_SECONDS` | `900` seconds for each independent reset budget |
+
+Reset throttling returns `429` with `Retry-After`. The counters are atomic, process-local, independent of login/registration/password-change limits, and reset on restart. The existing single-API-process requirement applies. Web proxy users share its socket-address budget; forwarded address headers are not trusted. Ensure the reset origin is in `NEXUS_TRUSTED_ORIGINS`. Mail links use this configured origin, never browser-supplied Host or forwarded headers.
 
 ## Learning notes
 

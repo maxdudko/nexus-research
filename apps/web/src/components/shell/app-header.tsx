@@ -16,6 +16,7 @@ const NAV = [
   { href: "/", label: "Dashboard" },
   { href: "/research/new", label: "New research" },
   { href: "/history", label: "History" },
+  { href: "/account", label: "Account" },
 ] as const;
 
 function navigation(role: string) {

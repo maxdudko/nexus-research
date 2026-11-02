@@ -41,3 +41,9 @@ describe("return path", () => {
     expect(destinationFromNext("/research/new")).toBe("/research/new");
   });
 });
+
+ it("allows the Account page through authentication redirects", () => {
+  expect(isAllowlistedPath("/account")).toBe(true);
+  expect(loginHref("/account")).toBe("/login?next=%2Faccount");
+  expect(destinationFromNext("/account")).toBe("/account");
+});

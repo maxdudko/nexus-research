@@ -222,3 +222,13 @@ docker compose --env-file .env.release -f compose.release.yml down -v   # delete
 ```
 
 `down -v` deletes both volumes: run history, reports, checkpoints and every indexed passage. Original PDFs were never stored and cannot be recovered from anywhere.
+
+## Optional password recovery email
+
+Password recovery is available at `/forgot-password`, linked from login, after configuring SMTP in `.env.release`. Set `NEXUS_SMTP_HOST`, `NEXUS_SMTP_SENDER`, and `NEXUS_PASSWORD_RESET_ORIGIN`; configure `NEXUS_SMTP_USERNAME` and `NEXUS_SMTP_PASSWORD` together if authentication is required. Defaults are port `587`, `NEXUS_SMTP_TLS=starttls`, and a 10-second socket timeout. Use `implicit` with port `465` for implicit TLS. Plaintext SMTP is rejected in production. Keep credentials private with the rest of `.env.release`.
+
+The reset origin must be an origin without a trailing slash or path, reachable from the user's browser and allowed by `NEXUS_TRUSTED_ORIGINS`. HTTPS is required in production, except the existing explicit loopback HTTP configuration. For this loopback-only release stack, `http://127.0.0.1:3000` works only when the link is opened on the machine or through a matching private tunnel. This feature does not publish additional ports or change private deployment requirements.
+
+Rebuild and start the stack normally; init applies migration `a4d9c2f78106`, which adds `password_reset_tokens`. The API receives the SMTP settings; Web and init do not receive mail credentials. Configure reset limits with `NEXUS_PASSWORD_RESET_MAX_IP_REQUESTS` (5), `NEXUS_PASSWORD_RESET_MAX_EMAIL_REQUESTS` (3), `NEXUS_PASSWORD_RESET_MAX_IP_SUBMISSIONS` (5), and `NEXUS_PASSWORD_RESET_WINDOW_SECONDS` (900).
+
+If SMTP is unconfigured, all reset requests return a generic service-unavailable error. With SMTP configured, requests receive the same acknowledgement whether or not the account exists. Delivery is best-effort after the response, without a durable queue or automatic retries. Check for the fixed `password_reset_delivery_failed` audit action when troubleshooting; logs deliberately omit transport exception text, recipients, credentials, and reset links. Users may request another link after checking spam and delivery settings; only the latest link works, for 30 minutes. Password reset revokes all sessions. Operator CLI reset remains available when mail is unavailable.

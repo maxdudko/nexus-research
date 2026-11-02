@@ -281,3 +281,50 @@ async def test_registration_reserves_attempts_atomically_and_expires() -> None:
     await limiter.charge_registration("another-host")
     clock["now"] += timedelta(seconds=900)
     await limiter.charge_registration(HOST)
+
+
+async def test_password_change_budget_is_atomic_per_user_and_independent() -> None:
+    import asyncio
+
+    limiter, clock = _limiter(
+        password_change_max_attempts=2, password_change_window_seconds=60
+    )
+    results = await asyncio.gather(
+        *(limiter.charge_password_change(PRINCIPAL.id) for _ in range(5)),
+        return_exceptions=True,
+    )
+    assert sum(result is None for result in results) == 2
+    failures = [result for result in results if isinstance(result, ResearchError)]
+    assert len(failures) == 3 and all(failure.retry_after == 60 for failure in failures)
+    await limiter.charge_password_change(uuid4())
+    await limiter.charge_registration(HOST)
+    await limiter.charge_billable(PRINCIPAL.id)
+    assert await limiter.login_retry_after(EMAIL, HOST) is None
+    clock["now"] += timedelta(seconds=60)
+    await limiter.charge_password_change(PRINCIPAL.id)
+
+
+async def test_password_reset_limits_are_atomic_separate_and_expire() -> None:
+    import asyncio
+
+    limiter, clock = _limiter()
+    results = await asyncio.gather(
+        *(limiter.charge_password_reset_request(HOST, EMAIL) for _ in range(8)),
+        return_exceptions=True,
+    )
+    assert sum(result is None for result in results) == 3
+    await limiter.charge_password_reset_request(HOST, "other@example.com")
+    await limiter.charge_password_reset_request(HOST, "third@example.com")
+    with pytest.raises(ResearchError):
+        await limiter.charge_password_reset_request(HOST, "fourth@example.com")
+    with pytest.raises(ResearchError):
+        await limiter.charge_password_reset_request("other-host", EMAIL)
+    for _ in range(5):
+        await limiter.charge_password_reset_submission(HOST)
+    with pytest.raises(ResearchError):
+        await limiter.charge_password_reset_submission(HOST)
+    await limiter.charge_registration(HOST)
+    assert await limiter.login_retry_after(EMAIL, HOST) is None
+    clock["now"] += timedelta(seconds=900)
+    await limiter.charge_password_reset_request(HOST, EMAIL)
+    await limiter.charge_password_reset_submission(HOST)

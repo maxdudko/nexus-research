@@ -84,8 +84,71 @@ class Settings(BaseSettings):
     login_max_ip_failures: int = Field(default=30, ge=1, le=100)
     login_failure_window_seconds: int = Field(default=15 * 60, ge=60, le=60 * 60)
 
+    password_change_max_attempts: int = Field(default=5, ge=1, le=100)
+    password_change_window_seconds: int = Field(default=15 * 60, ge=60, le=60 * 60)
     registration_max_ip_attempts: int = Field(default=5, ge=1, le=100)
     registration_window_seconds: int = Field(default=15 * 60, ge=60, le=60 * 60)
+
+    smtp_host: str | None = None
+    smtp_port: int = Field(default=587, ge=1, le=65535)
+    smtp_sender: str | None = None
+    smtp_username: str | None = None
+    smtp_password: SecretStr | None = None
+    smtp_tls: Literal["starttls", "implicit", "plain"] = "starttls"
+    smtp_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
+    password_reset_origin: str | None = None
+    password_reset_max_ip_requests: int = Field(default=5, ge=1, le=100)
+    password_reset_max_email_requests: int = Field(default=3, ge=1, le=20)
+    password_reset_max_ip_submissions: int = Field(default=5, ge=1, le=100)
+    password_reset_window_seconds: int = Field(default=900, ge=60, le=3600)
+
+    def password_recovery_configured(self) -> bool:
+        """Recovery is optional; a partially configured transport is unavailable."""
+        return bool(self.smtp_host and self.smtp_sender and self.password_reset_origin)
+
+    @field_validator(
+        "smtp_host",
+        "smtp_sender",
+        "smtp_username",
+        "smtp_password",
+        "password_reset_origin",
+        mode="before",
+    )
+    @classmethod
+    def optional_mail_value(cls, value: object) -> object:
+        return None if value == "" else value
+
+    @model_validator(mode="after")
+    def validate_mail_settings(self) -> Self:
+        if self.smtp_tls == "plain" and self.environment == "production":
+            raise ValueError("plaintext SMTP is allowed only for local development")
+        if bool(self.smtp_username) != bool(self.smtp_password):
+            raise ValueError("SMTP username and password must be configured together")
+        if self.smtp_host and any(char.isspace() for char in self.smtp_host):
+            raise ValueError("SMTP host must not contain whitespace")
+        if (
+            self.smtp_sender
+            and re.fullmatch(r"[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+", self.smtp_sender)
+            is None
+        ):
+            raise ValueError("SMTP sender must be an email address")
+        if self.password_reset_origin:
+            origin = self.password_reset_origin
+            if _ORIGIN.fullmatch(origin) is None:
+                raise ValueError(
+                    "password reset origin must be an origin without a path"
+                )
+            if self.environment == "production" and not origin.startswith("https://"):
+                from urllib.parse import urlsplit
+
+                if not (
+                    self.cookie_insecure_loopback
+                    and urlsplit(origin).hostname in {"127.0.0.1", "localhost", "::1"}
+                ):
+                    raise ValueError(
+                        "password reset origin must use HTTPS in production"
+                    )
+        return self
 
     @model_validator(mode="after")
     def overlap_fits_in_a_chunk(self) -> Self:

@@ -16,7 +16,14 @@ from nexus.identity.cookies import CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE
 from nexus.identity.tokens import csrf_token
 
 _UNSAFE = frozenset({"POST", "PUT", "PATCH", "DELETE"})
-_CREDENTIAL_PATHS = frozenset({"/api/v1/auth/login", "/api/v1/auth/register"})
+_CREDENTIAL_PATHS = frozenset(
+    {
+        "/api/v1/auth/login",
+        "/api/v1/auth/register",
+        "/api/v1/auth/forgot-password",
+        "/api/v1/auth/reset-password",
+    }
+)
 _NO_STORE_PREFIXES = ("/api/v1/auth", "/api/v1/admin")
 
 

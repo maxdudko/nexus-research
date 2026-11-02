@@ -6,6 +6,7 @@ export function isAllowlistedPath(value: string): boolean {
   return (
     value === "/" ||
     value === "/history" ||
+    value === "/account" ||
     value === "/research/new" ||
     value === "/admin" ||
     value === "/admin/diagnostics" ||
