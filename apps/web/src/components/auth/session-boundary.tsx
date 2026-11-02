@@ -1,14 +1,20 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 
 import { AuthenticatedFrame } from "@/components/shell/app-header";
 import { Button } from "@/components/ui/button";
 import { ResearchActivityProvider } from "@/components/research/research-activity";
-import { fetchIdentity, type Identity } from "@/lib/identity";
+import { fetchIdentity, type Identity, type IdentityResult } from "@/lib/identity";
 import { csrfHeaders } from "@/lib/csrf";
 import { loginHref } from "@/lib/return-path";
+
+export const SessionRefresh = createContext<() => Promise<IdentityResult>>(fetchIdentity);
+
+export function useSessionRefresh() {
+  return useContext(SessionRefresh);
+}
 
 export const SessionIdentity = createContext<Identity | null>(null);
 
@@ -43,6 +49,13 @@ export function SessionBoundary({ children }: { children: ReactNode }) {
     if (phase.status !== "anonymous") return;
     router.replace(loginHref(pathname));
   }, [pathname, phase, router]);
+
+  const refreshIdentity = useCallback(async () => {
+    const result = await fetchIdentity();
+    // Keep the page mounted on service failures so the mutation is not repeated.
+    if (result.status !== "unavailable") setPhase(result);
+    return result;
+  }, []);
 
   async function logout() {
     setLogoutError(null);
@@ -99,17 +112,19 @@ export function SessionBoundary({ children }: { children: ReactNode }) {
 
   return (
     <SessionIdentity.Provider value={phase.identity}>
-      <AuthenticatedFrame
-        email={phase.identity.email}
-        role={phase.identity.role}
-        userId={phase.identity.id}
-        logoutError={logoutError}
-        onLogout={() => {
-          void logout();
-        }}
-      >
-        {children}
-      </AuthenticatedFrame>
+      <SessionRefresh.Provider value={refreshIdentity}>
+        <AuthenticatedFrame
+          email={phase.identity.email}
+          role={phase.identity.role}
+          userId={phase.identity.id}
+          logoutError={logoutError}
+          onLogout={() => {
+            void logout();
+          }}
+        >
+          {children}
+        </AuthenticatedFrame>
+      </SessionRefresh.Provider>
     </SessionIdentity.Provider>
   );
 }

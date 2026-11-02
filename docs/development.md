@@ -406,6 +406,18 @@ Configure SMTP using the settings below and migrate with `uv run alembic upgrade
 
 Reset throttling returns `429` with `Retry-After`. The counters are atomic, process-local, independent of login/registration/password-change limits, and reset on restart. The existing single-API-process requirement applies. Web proxy users share its socket-address budget; forwarded address headers are not trusted. Ensure the reset origin is in `NEXUS_TRUSTED_ORIGINS`. Mail links use this configured origin, never browser-supplied Host or forwarded headers.
 
+### Change your email
+
+Open **Account → Change email**, enter a new email and your current password. The new address immediately becomes the login and password-recovery address without email verification or SMTP delivery. Check the address carefully. This browser receives a fresh session and CSRF cookie; all previous sessions and outstanding password-reset links are revoked. Your user ID, role, password hash, and research ownership remain unchanged.
+
+`POST /api/v1/auth/change-email` accepts `{"new_email":"new@example.com","current_password":"current-password"}` with an authenticated session, trusted Origin, and session-bound CSRF header. It returns the updated `{id, email, role}` identity and replacement cookies. Account identity comes only from the session, never request fields. The email is trimmed and lowercased using existing login normalization; invalid or unchanged addresses, and addresses equal to the current password, return sanitized `422 invalid_request`. An incorrect password returns `400 current_password_incorrect`; a duplicate email, including a disabled account's address, returns `409 email_unavailable`; an unusable session returns `401`. Invalid Origin/CSRF returns `403`.
+
+Email replacement, old-session and reset-token revocation, and replacement-session creation commit atomically under user-then-session locks. Failure preserves the original state. Login checks the expected email under the account lock so a request using the old address cannot mint a session after the change commits. The audit event contains only the action and user ID.
+
+`NEXUS_EMAIL_CHANGE_MAX_ATTEMPTS` (default `5`) and `NEXUS_EMAIL_CHANGE_WINDOW_SECONDS` (default `900`) configure a separate per-user attempt budget, shared across sessions and charged before password verification. Throttling returns `429` and `Retry-After`. Counters are atomic, process-local, and reset on restart; the single-API-process requirement remains. Release Compose forwards both settings. No schema migration is needed for this feature.
+
+After success, the Account page refreshes `/auth/me` to update the shared identity and header. If that refresh is unavailable, **Refresh account details** retries only the identity request, without repeating the email mutation. An anonymous response returns to login. The feature does not verify new addresses or notify either mailbox.
+
 ## Learning notes
 
 [Phase 1](learning/phase-1.md) (Python concepts), [Phase 2](learning/phase-2.md) (structured output, tool calling, search budgets), [Phase 3](learning/phase-3.md) (scoped retrieval), [Phase 4](learning/phase-4.md) (checkpoints and cancellation), [Phase 5](learning/phase-5.md) (product UI).

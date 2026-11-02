@@ -328,3 +328,26 @@ async def test_password_reset_limits_are_atomic_separate_and_expire() -> None:
     clock["now"] += timedelta(seconds=900)
     await limiter.charge_password_reset_request(HOST, EMAIL)
     await limiter.charge_password_reset_submission(HOST)
+
+
+async def test_email_change_budget_is_atomic_and_independent() -> None:
+    import asyncio
+
+    limiter, clock = _limiter(
+        email_change_max_attempts=2, email_change_window_seconds=60
+    )
+    results = await asyncio.gather(
+        *(limiter.charge_email_change(PRINCIPAL.id) for _ in range(6)),
+        return_exceptions=True,
+    )
+    assert sum(result is None for result in results) == 2
+    assert all(
+        result.retry_after == 60
+        for result in results
+        if isinstance(result, ResearchError)
+    )
+    await limiter.charge_email_change(uuid4())
+    await limiter.charge_password_change(PRINCIPAL.id)
+    assert await limiter.login_retry_after(EMAIL, HOST) is None
+    clock["now"] += timedelta(seconds=60)
+    await limiter.charge_email_change(PRINCIPAL.id)

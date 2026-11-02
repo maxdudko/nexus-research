@@ -47,6 +47,9 @@ class UsageLimiter:
         self._reset_ips: dict[str, list[datetime]] = {}
         self._reset_emails: dict[str, list[datetime]] = {}
         self._reset_submissions: dict[str, list[datetime]] = {}
+        self._email_change_limit = settings.email_change_max_attempts
+        self._email_change_window = settings.email_change_window_seconds
+        self._email_changes: dict[UUID, list[datetime]] = {}
         self._lock = asyncio.Lock()
         self._email_failures: dict[str, list[datetime]] = {}
         self._ip_failures: dict[str, list[datetime]] = {}
@@ -132,6 +135,15 @@ class UsageLimiter:
         """A successful login forgets that email. The address bucket stays."""
         async with self._lock:
             self._email_failures.pop(email, None)
+
+    async def charge_email_change(self, user_id: UUID) -> None:
+        """Reserve a separate per-account credential mutation budget."""
+        await self._charge(
+            self._email_changes,
+            user_id,
+            self._email_change_limit,
+            self._email_change_window,
+        )
 
     async def charge_password_change(self, user_id: UUID) -> None:
         """Reserve a password change attempt independently of login budgets."""

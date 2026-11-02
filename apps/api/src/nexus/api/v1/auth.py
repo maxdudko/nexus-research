@@ -24,6 +24,7 @@ from nexus.identity.errors import IdentityError
 from nexus.identity.mail import deliver_password_reset
 from nexus.identity.passwords import hash_password, needs_rehash, verify_password
 from nexus.identity.store import (
+    change_email,
     change_password,
     consume_password_reset,
     expires_at,
@@ -65,6 +66,12 @@ class ResetPasswordRequest(BaseModel):
 
 class RecoveryRequestResponse(BaseModel):
     message: str
+
+
+class ChangeEmailRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    new_email: str = Field(max_length=254)
+    current_password: str = Field(max_length=128)
 
 
 class ChangePasswordRequest(BaseModel):
@@ -243,6 +250,7 @@ async def login(body: LoginRequest, request: Request) -> Response:
         now,
         expires_at(now, settings.session_absolute_seconds),
         replacement_password_hash=replacement,
+        expected_email=email,
     )
     if issued is None:
         raise invalid_credentials()
@@ -328,6 +336,67 @@ async def reset_password(body: ResetPasswordRequest, request: Request) -> Respon
         ) from None
     response = JSONResponse({"status": "ok"})
     _clear_cookies(response, settings)
+    return response
+
+
+async def email_change_guard(
+    request: Request,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+) -> CurrentUser:
+    if not origin_allowed(request, request.app.state.settings):
+        raise forbidden()
+    await request.app.state.limiter.charge_email_change(current.id)
+    return current
+
+
+@router.post("/change-email", response_model=IdentityResponse)
+async def change_own_email(
+    body: ChangeEmailRequest,
+    request: Request,
+    current: Annotated[CurrentUser, Depends(email_change_guard)],
+) -> Response:
+    """Change this account's email and issue a fresh browser session."""
+    settings: Settings = request.app.state.settings
+    pepper = settings.session_pepper.get_secret_value()
+    session_token = new_token()
+    try:
+        account = await change_email(
+            request.app.state.session_factory,
+            current.id,
+            current.session_id,
+            body.current_password,
+            body.new_email,
+            token_hash(session_token, pepper),
+            idle_seconds=settings.session_idle_seconds,
+            absolute_seconds=settings.session_absolute_seconds,
+        )
+    except IdentityError as exc:
+        if exc.code == "unauthenticated":
+            raise unauthenticated() from None
+        if exc.code == "current_password_incorrect":
+            raise ResearchError(
+                "current_password_incorrect", 400, "Your current password is incorrect."
+            ) from None
+        if exc.code == "duplicate_email":
+            raise ResearchError(
+                "email_unavailable", 409, "This email is unavailable."
+            ) from None
+        messages = {
+            "invalid_email": "Enter a valid email address.",
+            "email_unchanged": "Choose a different email address.",
+            "password_matches_email": (
+                "Your email must differ from your current password."
+            ),
+        }
+        raise ResearchError(
+            "invalid_request", 422, messages.get(exc.code, "Invalid email change.")
+        ) from None
+    assert account.email is not None
+    payload = IdentityResponse(
+        id=account.id, email=account.email, role=_role(account.role)
+    )
+    response = JSONResponse(payload.model_dump(mode="json"))
+    _set_cookies(response, settings, session_token, csrf_token(session_token, pepper))
     return response
 
 

@@ -84,6 +84,8 @@ class Settings(BaseSettings):
     login_max_ip_failures: int = Field(default=30, ge=1, le=100)
     login_failure_window_seconds: int = Field(default=15 * 60, ge=60, le=60 * 60)
 
+    email_change_max_attempts: int = Field(default=5, ge=1, le=100)
+    email_change_window_seconds: int = Field(default=900, ge=60, le=3600)
     password_change_max_attempts: int = Field(default=5, ge=1, le=100)
     password_change_window_seconds: int = Field(default=15 * 60, ge=60, le=60 * 60)
     registration_max_ip_attempts: int = Field(default=5, ge=1, le=100)
