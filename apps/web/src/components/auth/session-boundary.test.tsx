@@ -77,7 +77,7 @@ describe("session boundary", () => {
     expect(screen.queryByText("Private runs")).toBeNull();
     resolveMe(Response.json(ADA));
     expect(await screen.findByText("Private runs")).toBeTruthy();
-    expect(screen.getByText("ada@example.com")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Account" }).getAttribute("title")).toBe(`Account (${ADA.email})`);
   });
 
   it.each(["/history", "/dashboard"])("sends an anonymous reader to login with a safe next path (%s)", async (path) => {
@@ -142,7 +142,7 @@ describe("session boundary", () => {
     );
     await user.click(await screen.findByRole("button", { name: "Log out" }));
     expect((await screen.findByRole("alert")).textContent).toBe("Log out did not finish. Try again.");
-    expect(screen.getByText("ada@example.com")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Account" }).getAttribute("title")).toBe(`Account (${ADA.email})`);
     expect(navigation.replace).not.toHaveBeenCalled();
 
     fetchImpl.mockImplementation(async (url: string) => {
@@ -217,7 +217,7 @@ describe("session boundary", () => {
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Log out" }));
     expect(stop).toHaveBeenCalledTimes(1);
     expect((await screen.findByRole("alert")).textContent).toBe("Log out did not finish. Try again.");
-    expect(screen.getByText("ada@example.com")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Account" }).getAttribute("title")).toBe(`Account (${ADA.email})`);
     expect(navigation.replace).not.toHaveBeenCalled();
     const logoutCall = fetchImpl.mock.calls.find((call) => call[0] === "/api/v1/auth/logout");
     expect(logoutCall?.[1]).toMatchObject({
@@ -293,6 +293,6 @@ describe("authenticated frame", () => {
     expect(screen.getByRole("button", { name: "from Ada" })).toBeTruthy();
     rerender(frame(GRACE));
     expect(screen.getByRole("button", { name: "empty" })).toBeTruthy();
-    expect(screen.getByText("grace@example.com")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Account" }).getAttribute("title")).toBe(`Account (${GRACE.email})`);
   });
 });

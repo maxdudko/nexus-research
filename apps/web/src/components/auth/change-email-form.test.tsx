@@ -46,9 +46,9 @@ describe("email change", () => {
     expect((screen.getByLabelText("Current password") as HTMLInputElement).type).toBe("text");
     await user.click(screen.getByRole("button", { name: "Change email" }));
     expect((await screen.findByRole("status")).textContent).toContain("Your email was changed");
-    await waitFor(() => expect(screen.getByText(NEW.email)).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("link", { name: "Account" }).getAttribute("title")).toBe(`Account (${NEW.email})`));
     expect(screen.getByText(`Current email: ${NEW.email}`)).toBeTruthy();
-    expect(screen.queryByText(ADA.email)).toBeNull();
+    expect(screen.queryByTitle(`Account (${ADA.email})`)).toBeNull();
     expect(screen.queryByLabelText("Current password")).toBeNull();
     expect(fetchImpl).toHaveBeenCalledWith("/api/v1/auth/change-email", {
       method: "POST", credentials: "same-origin", cache: "no-store",
@@ -75,7 +75,7 @@ describe("email change", () => {
     expect((await screen.findByRole("alert")).textContent).toContain("Your email was changed");
     expect(screen.queryByRole("button", { name: "Change email" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Refresh account details" }));
-    await waitFor(() => expect(screen.getByText(NEW.email)).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("link", { name: "Account" }).getAttribute("title")).toBe(`Account (${NEW.email})`));
     expect(fetchImpl.mock.calls.filter(([url]) => url.endsWith("/change-email"))).toHaveLength(1);
   });
 
