@@ -16,7 +16,6 @@ const NAV = [
   { href: "/", label: "Dashboard" },
   { href: "/research/new", label: "New research" },
   { href: "/history", label: "History" },
-  { href: "/account", label: "Account" },
 ] as const;
 
 function navigation(role: string) {
@@ -170,15 +169,9 @@ export function AppHeader({
   const items = navigation(role);
 
   return (
-    <header
-      className={
-        wide
-          ? "fixed inset-y-0 left-0 z-30 flex w-60 flex-col overflow-y-auto border-r border-line bg-surface"
-          : "sticky top-0 z-20 border-b border-line bg-surface"
-      }
-    >
-      <div className="flex items-center justify-between gap-3 px-4 py-4">
-        <Link href="/" className="text-lg font-semibold tracking-tight" onClick={(event) => guard(event, "/")}>
+    <>
+      <header className="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-x-6 gap-y-3 border-b border-line bg-surface px-4 py-3 md:col-span-2 md:h-16 md:flex-nowrap md:px-6 md:py-0">
+        <Link href="/" className="shrink-0 text-lg font-semibold tracking-tight" onClick={(event) => guard(event, "/")}>
           Nexus Research
         </Link>
         {wide ? null : (
@@ -192,12 +185,32 @@ export function AppHeader({
             Menu
           </Button>
         )}
-      </div>
+        <div className="flex w-full min-w-0 items-center gap-3 md:ml-auto md:w-auto md:max-w-[60%]">
+          <ThemeToggle />
+          <Link
+            href="/account"
+            title={email}
+            aria-current={pathname === "/account" ? "page" : undefined}
+            className="min-w-0 flex-1 truncate text-sm text-ink underline-offset-4 hover:underline"
+            onClick={(event) => guard(event, "/account")}
+          >
+            {email}
+          </Link>
+          <Button ref={logoutRef} variant="secondary" className="shrink-0" onClick={requestLogout}>
+            Log out
+          </Button>
+        </div>
+        {logoutError ? (
+          <p role="alert" className="surface absolute top-full right-4 left-4 mt-2 p-3 text-sm text-danger md:left-auto md:max-w-sm">
+            {logoutError}
+          </p>
+        ) : null}
+      </header>
       {showNav ? (
         <nav
           id="app-nav"
           aria-label="Primary"
-          className={wide ? "flex flex-1 flex-col gap-1 px-3" : "flex flex-col gap-1 border-t border-line px-3 py-3"}
+          className={wide ? "sticky top-16 flex h-[calc(100dvh-4rem)] flex-col gap-1 overflow-y-auto border-r border-line bg-surface px-3 py-4" : "flex flex-col gap-1 border-b border-line bg-surface px-3 py-3"}
         >
           {items.map((item, index) => {
             const current = pathname === item.href;
@@ -217,28 +230,6 @@ export function AppHeader({
           {role === "admin" ? <AdminNav onNavigate={guard} /> : null}
         </nav>
       ) : null}
-      <div
-        className={
-          wide
-            ? "mt-auto flex flex-col gap-3 border-t border-line px-4 py-4"
-            : "flex flex-wrap items-center gap-3 border-t border-line px-4 py-3"
-        }
-      >
-        <p className="text-sm break-all text-muted">
-          Signed in as <span className="text-ink">{email}</span>
-        </p>
-        <div className="flex items-center gap-2">
-          <Button ref={logoutRef} variant="secondary" onClick={requestLogout}>
-            Log out
-          </Button>
-          <ThemeToggle />
-        </div>
-        {logoutError ? (
-          <p role="alert" className="text-sm text-danger">
-            {logoutError}
-          </p>
-        ) : null}
-      </div>
       {pending
         ? createPortal(
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay p-4">
@@ -271,7 +262,7 @@ export function AppHeader({
             document.body,
           )
         : null}
-    </header>
+    </>
   );
 }
 
@@ -291,9 +282,9 @@ export function AuthenticatedFrame({
   children: ReactNode;
 }) {
   return (
-    <div className="min-h-dvh bg-canvas md:pl-60">
+    <div className="min-h-dvh bg-canvas md:grid md:grid-cols-[15rem_minmax(0,1fr)] md:grid-rows-[4rem_1fr]">
       <AppHeader email={email} role={role} onLogout={onLogout} logoutError={logoutError} />
-      <main key={userId} className="mx-auto w-full max-w-5xl px-4 py-8 md:px-8">
+      <main key={userId} className="mx-auto min-w-0 w-full max-w-5xl px-4 py-8 md:px-8">
         {children}
       </main>
     </div>

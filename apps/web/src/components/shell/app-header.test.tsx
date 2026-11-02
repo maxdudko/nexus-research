@@ -69,15 +69,39 @@ afterEach(() => {
 });
 
 describe("app header", () => {
-  it.each(["user", "admin"])("shows Account for %s and guards active research", async (role) => {
+  it.each(["user", "admin"])("opens Account through the email for %s and guards active research", async (role) => {
     setWide(true);
     renderHeader(role);
     const user = userEvent.setup();
-    expect(screen.getByRole("link", { name: "Account" }).getAttribute("href")).toBe("/account");
+    expect(screen.getByRole("link", { name: "ada@example.com" }).getAttribute("href")).toBe("/account");
     await user.click(screen.getByRole("button", { name: "Arm" }));
-    await user.click(screen.getByRole("link", { name: "Account" }));
+    await user.click(screen.getByRole("link", { name: "ada@example.com" }));
     expect(screen.getByRole("dialog")).toBeTruthy();
     expect(navigation.push).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Leave" }));
+    expect(stopResearch).toHaveBeenCalledTimes(1);
+    expect(navigation.push).toHaveBeenCalledWith("/account");
+  });
+
+  it.each([true, false])("keeps account controls in the top bar (wide: %s)", async (wide) => {
+    setWide(wide);
+    const onLogout = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <ResearchActivityProvider>
+        <AppHeader email="ada@example.com" role="user" logoutError={null} onLogout={onLogout} />
+        <Arm />
+      </ResearchActivityProvider>,
+    );
+    const header = within(screen.getByRole("banner"));
+    const account = header.getByRole("link", { name: "ada@example.com" });
+    expect(account.getAttribute("href")).toBe("/account");
+    expect(header.getByRole("button", { name: "Switch to dark theme" })).toBeTruthy();
+    await user.click(header.getByRole("button", { name: "Log out" }));
+    expect(onLogout).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole("button", { name: "Arm" }));
+    await user.click(account);
+    expect(screen.getByRole("dialog")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Leave" }));
     expect(stopResearch).toHaveBeenCalledTimes(1);
     expect(navigation.push).toHaveBeenCalledWith("/account");
