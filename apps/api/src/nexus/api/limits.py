@@ -34,6 +34,9 @@ class UsageLimiter:
         self._email_limit = settings.login_max_email_failures
         self._ip_limit = settings.login_max_ip_failures
         self._login_window = settings.login_failure_window_seconds
+        self._registration_limit = settings.registration_max_ip_attempts
+        self._registration_window = settings.registration_window_seconds
+        self._registration_attempts: dict[str, list[datetime]] = {}
         self._lock = asyncio.Lock()
         self._email_failures: dict[str, list[datetime]] = {}
         self._ip_failures: dict[str, list[datetime]] = {}
@@ -41,6 +44,21 @@ class UsageLimiter:
         self._mints: dict[UUID, list[datetime]] = {}
         self._runs: set[UUID] = set()
         self._streams: set[UUID] = set()
+
+    async def charge_registration(self, host: str) -> None:
+        """Reserve an attempt atomically, including successful registrations."""
+        async with self._lock:
+            now = self.clock()
+            stamps = _remember(
+                self._registration_attempts, host, now, self._registration_window
+            )
+            if len(stamps) >= self._registration_limit:
+                raise too_many_requests(
+                    retry_after=_retry_after(stamps, now, self._registration_window),
+                    message="Too many registration attempts.",
+                )
+            stamps.append(now)
+            self._registration_attempts[host] = stamps
 
     async def login_retry_after(self, email: str, host: str) -> int | None:
         """Seconds until a full bucket has room. None means the attempt may proceed."""

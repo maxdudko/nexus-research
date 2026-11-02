@@ -134,7 +134,7 @@ The Jaeger UI is `http://127.0.0.1:16686`. Traces stay in Jaeger memory. An expo
 
 ## Private remote access
 
-Do not publish port 3000 on a public interface. Every research request spends the operator's OpenAI and Tavily credit, and the history API lists every run.
+Do not publish port 3000 on a public interface. Research requests spend the operator's OpenAI and Tavily credit. Anyone with access to the application can create a regular account through `/register`; history and research remain scoped to that account.
 
 To use the stack from another machine, keep the loopback binding and use one of:
 

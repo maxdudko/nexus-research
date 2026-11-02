@@ -12,7 +12,7 @@ export default function LoginPage() {
       <div className="surface flex w-full max-w-md flex-col gap-6 p-6 sm:p-8">
         <header className="flex flex-col gap-2">
           <h1 className="text-2xl font-semibold tracking-tight">Nexus Research</h1>
-          <p className="text-sm text-muted">Sign in with the account an operator created for you.</p>
+          <p className="text-sm text-muted">Sign in to your Nexus Research account.</p>
         </header>
         <main>
           <Suspense fallback={<p role="status">Checking session.</p>}>

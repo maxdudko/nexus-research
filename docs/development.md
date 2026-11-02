@@ -356,6 +356,18 @@ Index a PDF with `POST /api/v1/evidence/pdf` before the run, then pass that `res
 - If port 5432 or 8000 is already taken, stop the other process. The published ports stay on `127.0.0.1` so they match `.env.example`.
 - Stop the API with Ctrl+C in the uvicorn terminal. `docker compose stop` stops the data services and keeps their volumes.
 
+## Registration and authentication
+
+Open `/register` to create an account, or `/login` to sign in. Registration immediately signs the user in; email addresses are login identifiers and are not verified. Existing operator CLI provisioning, password reset, disablement, and admin bootstrap remain available.
+
+`POST /api/v1/auth/register` accepts JSON `{"email":"user@example.com","password":"a-long-password"}` with an allowlisted `Origin`. Extra fields are ignored; every new account has role `user` and status `active`. Emails are trimmed and lowercased. Passwords must contain 12–128 characters and differ from the normalized email.
+
+Success returns `201` with `{id, email, role}` and the same session/CSRF cookies as login. The account and session are committed together. Validation returns sanitized `422 invalid_request`; an existing email (including a disabled account) returns `409 email_unavailable`. Missing/untrusted Origin returns `403 forbidden`. Registration accepts stale session cookies without a CSRF header, but always checks Origin.
+
+`NEXUS_REGISTRATION_MAX_IP_ATTEMPTS` (default `5`) and `NEXUS_REGISTRATION_WINDOW_SECONDS` (default `900`) configure the separate registration budget. It atomically counts allowed attempts, including success and invalid credentials, before hashing or creating accounts. A full bucket returns `429 too_many_requests` and `Retry-After`. Limits use the API socket address, ignore forwarded address headers, reset on restart, and support one API process. Browsers behind the Web proxy share its address bucket.
+
+After signing in, unsafe authenticated requests require the existing CSRF header. New accounts have the same ownership and research limits as CLI-created users. Self-service registration does not change private deployment requirements or add email delivery, password recovery, or invitation management.
+
 ## Learning notes
 
 [Phase 1](learning/phase-1.md) (Python concepts), [Phase 2](learning/phase-2.md) (structured output, tool calling, search budgets), [Phase 3](learning/phase-3.md) (scoped retrieval), [Phase 4](learning/phase-4.md) (checkpoints and cancellation), [Phase 5](learning/phase-5.md) (product UI).

@@ -84,6 +84,9 @@ class Settings(BaseSettings):
     login_max_ip_failures: int = Field(default=30, ge=1, le=100)
     login_failure_window_seconds: int = Field(default=15 * 60, ge=60, le=60 * 60)
 
+    registration_max_ip_attempts: int = Field(default=5, ge=1, le=100)
+    registration_window_seconds: int = Field(default=15 * 60, ge=60, le=60 * 60)
+
     @model_validator(mode="after")
     def overlap_fits_in_a_chunk(self) -> Self:
         if self.chunk_overlap_tokens >= self.chunk_tokens:

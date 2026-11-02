@@ -1,11 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import { fetchIdentity } from "@/lib/identity";
-import { destinationFromNext } from "@/lib/return-path";
+import { destinationFromNext, isAllowlistedPath } from "@/lib/return-path";
 
 export function LoginForm() {
   const router = useRouter();
@@ -109,6 +110,15 @@ export function LoginForm() {
           {error}
         </p>
       ) : null}
+      <p className="text-sm text-muted">
+        New to Nexus?{" "}
+        <Link
+          className="underline"
+          href={next && isAllowlistedPath(next) ? `/register?next=${encodeURIComponent(next)}` : "/register"}
+        >
+          Create an account
+        </Link>
+      </p>
       <Button type="submit" variant="primary" disabled={pending}>
         Log in
       </Button>

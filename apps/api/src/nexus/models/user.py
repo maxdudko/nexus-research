@@ -1,4 +1,4 @@
-"""Invited accounts and revocable server-side sessions.
+"""User accounts and revocable server-side sessions.
 
 The quarantine row is not a person. It exists so a later ownership migration
 has a non-loginable owner for pre-Alpha research. This revision does not
@@ -29,7 +29,7 @@ USER_STATUSES = ("active", "disabled", "quarantine")
 
 
 class User(Base):
-    """One invited account. Email is a normalized login identifier."""
+    """One user account. Email is a normalized login identifier."""
 
     __tablename__ = "users"
     __table_args__ = (

@@ -263,3 +263,21 @@ async def test_a_dead_session_does_not_call_the_planner() -> None:
     assert update["status"] == "interrupted"
     assert update["error_code"] == "interrupted"
     assert planner.questions == []
+
+
+async def test_registration_reserves_attempts_atomically_and_expires() -> None:
+    import asyncio
+
+    limiter, clock = _limiter()
+    results = await asyncio.gather(
+        *(limiter.charge_registration(HOST) for _ in range(10)),
+        return_exceptions=True,
+    )
+    assert sum(result is None for result in results) == 5
+    failures = [result for result in results if isinstance(result, ResearchError)]
+    assert len(failures) == 5
+    assert all(failure.retry_after == 900 for failure in failures)
+    assert await limiter.login_retry_after(EMAIL, HOST) is None
+    await limiter.charge_registration("another-host")
+    clock["now"] += timedelta(seconds=900)
+    await limiter.charge_registration(HOST)

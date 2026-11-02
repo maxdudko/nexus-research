@@ -46,6 +46,7 @@ describe("login form", () => {
     render(<LoginForm />);
 
     await user.type(await screen.findByLabelText("Email"), "ada@example.com");
+    expect(screen.getByRole("link", { name: "Create an account" }).getAttribute("href")).toBe("/register?next=%2Fhistory");
     await user.type(screen.getByLabelText("Password"), "correct-horse-1");
     await user.click(screen.getByRole("button", { name: "Log in" }));
 

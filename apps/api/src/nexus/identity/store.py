@@ -146,6 +146,49 @@ async def create_user(
     return user_id
 
 
+async def register_user(
+    factory: async_sessionmaker[AsyncSession],
+    email: str,
+    password: str,
+    session_token_hash: bytes,
+    now: datetime,
+    session_expires_at: datetime,
+) -> Account:
+    """Create a regular account and its first session in one transaction."""
+    normalized = normalize_email(email)
+    validate_password(password, normalized)
+    password_hash = hash_password(password)
+    user_id = uuid.uuid4()
+    user = User(
+        id=user_id,
+        email=normalized,
+        role="user",
+        status="active",
+        password_hash=password_hash,
+        created_at=now,
+        updated_at=now,
+    )
+    try:
+        async with factory() as db, db.begin():
+            db.add(user)
+            await db.flush()
+            db.add(
+                _session_row(
+                    uuid.uuid4(), user_id, session_token_hash, now, session_expires_at
+                )
+            )
+            await db.flush()
+            account = _account(user)
+    except IntegrityError as exc:
+        # Only the email uniqueness violation is a duplicate registration.
+        original = getattr(exc.orig, "__cause__", None)
+        if getattr(original, "constraint_name", None) == "uq_users_email":
+            raise IdentityError("duplicate_email") from None
+        raise
+    _audit("register_user", user_id)
+    return account
+
+
 async def get_user_by_email(
     factory: async_sessionmaker[AsyncSession],
     email: str,

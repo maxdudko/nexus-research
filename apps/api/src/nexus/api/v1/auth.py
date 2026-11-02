@@ -1,4 +1,4 @@
-"""Login, logout, and the current account."""
+"""Registration, login, logout, and the current account."""
 
 from datetime import UTC, datetime
 from typing import Annotated, Literal
@@ -8,7 +8,12 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
-from nexus.ai.errors import forbidden, invalid_credentials, too_many_requests
+from nexus.ai.errors import (
+    ResearchError,
+    forbidden,
+    invalid_credentials,
+    too_many_requests,
+)
 from nexus.api.csrf import origin_allowed
 from nexus.api.deps import CurrentUser, get_current_user
 from nexus.api.limits import LOGIN_LIMIT_MESSAGE, client_host
@@ -20,6 +25,7 @@ from nexus.identity.store import (
     expires_at,
     get_user_by_email,
     issue_session,
+    register_user,
     revoke_session,
 )
 from nexus.identity.tokens import csrf_token, new_token, normalize_email, token_hash
@@ -98,6 +104,58 @@ def _clear_cookies(response: Response, settings: Settings) -> None:
         secure=secure,
         samesite="lax",
     )
+
+
+async def registration_guard(request: Request) -> None:
+    """Check the browser origin and charge before validating credentials."""
+    settings: Settings = request.app.state.settings
+    if not origin_allowed(request, settings):
+        raise forbidden()
+    host = client_host(None if request.client is None else request.client.host)
+    await request.app.state.limiter.charge_registration(host)
+
+
+@router.post(
+    "/register",
+    response_model=IdentityResponse,
+    status_code=201,
+    dependencies=[Depends(registration_guard)],
+)
+async def register(body: LoginRequest, request: Request) -> Response:
+    """Register a regular account and immediately establish a browser session."""
+    settings: Settings = request.app.state.settings
+    now = datetime.now(UTC)
+    pepper = settings.session_pepper.get_secret_value()
+    session_token = new_token()
+    try:
+        account = await register_user(
+            request.app.state.session_factory,
+            body.email,
+            body.password,
+            token_hash(session_token, pepper),
+            now,
+            expires_at(now, settings.session_absolute_seconds),
+        )
+    except IdentityError as exc:
+        if exc.code == "duplicate_email":
+            raise ResearchError(
+                "email_unavailable", 409, "This email is unavailable. Try signing in."
+            ) from None
+        messages = {
+            "invalid_email": "Enter a valid email address.",
+            "invalid_password": "Password must be between 12 and 128 characters.",
+            "password_matches_email": "Password must not equal your email address.",
+        }
+        raise ResearchError(
+            "invalid_request",
+            422,
+            messages.get(exc.code, "Invalid registration details."),
+        ) from None
+    assert account.email is not None
+    payload = IdentityResponse(id=account.id, email=account.email, role="user")
+    response = JSONResponse(payload.model_dump(mode="json"), status_code=201)
+    _set_cookies(response, settings, session_token, csrf_token(session_token, pepper))
+    return response
 
 
 @router.post("/login", response_model=IdentityResponse)
