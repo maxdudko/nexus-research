@@ -77,7 +77,9 @@ Run the normal `alembic upgrade head` before starting the new API. Migration
 `research_runs`; existing rows receive `standard` and `{}` (historical limits are
 unknown). No report backfill or Qdrant rebuild is required. Existing PDFs remain
 readable through their stored evidence. New runs fetch/index web content with
-the new extraction. The embedding dimensions and point-id formula do not change.
+the new extraction. Web digests include the chunking version, so fetching an
+existing source again refreshes fragments produced by the previous table strategy.
+The embedding dimensions and point-id formula do not change.
 Checkpoint state is version 2; old checkpoints are not resumed (runs remain
 request-scoped). Stored domain reports remain readable independently of checkpoints.
 

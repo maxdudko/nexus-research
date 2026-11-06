@@ -73,13 +73,15 @@ async def verify_node(
                     }
                 spend()
                 async with asyncio.timeout(max(0, seconds_left() - 20)):
-                    report = await verifier.repair(state, report, checked)
-                checked = None
+                    repaired = await verifier.repair(state, report, checked)
                 spend()
                 async with asyncio.timeout(seconds_left()):
-                    checked = await verifier.check(
-                        report, state["analysis"], state["plan"]
+                    rechecked = await verifier.check(
+                        repaired, state["analysis"], state["plan"]
                     )
+                # Keep the checked draft and its verdicts if rechecking fails.
+                # Known unsupported claims can then still be removed below.
+                report, checked = repaired, rechecked
                 passed = not checked.missing_task_ids and all(
                     c.verdict == "supported" for c in checked.checks
                 )

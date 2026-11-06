@@ -500,3 +500,30 @@ async def test_supported_blocks_cannot_complete_a_report_that_omits_a_planned_ta
     assert result["status"] == "partial"
     assert result["report"]["verification"] == "incomplete"
     assert any("T1" in item for item in result["report"]["limitations"])
+
+
+async def test_recheck_failure_keeps_checked_draft_and_removes_known_bad_claims():
+    state = quality_state()
+    report = assemble_report_v2(
+        draft(),
+        status="partial",
+        snapshot=enrich_refs(state, assign_evidence_ids(state["evidence"])),
+    )
+    state = merge_update(state, {"report": report.model_dump(), "status": "partial"})
+    original_checks = checks()
+    original_checks["checks"][1]["verdict"] = "unsupported"
+    unverified_repair = draft()
+    unverified_repair["summary_blocks"][0]["text"] = "The value was 999 kg."
+    verifier = ReportVerifier(
+        make_settings(),
+        Model(original_checks, ValueError("recheck unavailable")),
+        Model(unverified_repair),
+    )
+    result = await verify_node(
+        state, runtime_for(replace(context(), verifier=verifier))
+    )
+    assert result["status"] == "partial"
+    assert result["report"]["summary"] == "In 2025 the value was 10 kg."
+    assert result["report"]["sections"] == []
+    assert "999" not in json.dumps(result["report"])
+    assert result["usage"]["llm_calls"] == 3

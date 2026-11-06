@@ -313,3 +313,23 @@ async def test_rate_limit_is_not_retried() -> None:
     assert calls["n"] == 1
     assert exc_info.value.code == "provider_rate_limited"
     assert "quota secret" not in exc_info.value.message
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "tag=z&tag=a&query=two%20words",
+        "download&signature=b%2fc%2B&expires=123",
+    ],
+)
+def test_normalization_preserves_meaningful_query_order_and_encoding(
+    query: str,
+) -> None:
+    from nexus.tools.web_search import normalize_url
+
+    assert normalize_url(f"https://example.org/report?{query}") == (
+        f"https://example.org/report?{query}"
+    )
+    assert normalize_url(f"https://example.org/report?utm_source=test&{query}#ref") == (
+        f"https://example.org/report?{query}"
+    )

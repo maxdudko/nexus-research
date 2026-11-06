@@ -471,3 +471,65 @@ async def test_identical_web_reprints_share_one_source_inside_each_scope(
         assert len(sources) == 1
     finally:
         await engine.dispose()
+
+
+async def test_web_source_is_refreshed_after_chunking_version_changes(
+    test_database_url: str,
+    evidence_store: tuple[EvidenceVectorStore, Settings],
+) -> None:
+    from nexus.ingestion.chunking import Chunker, normalize_text, web_content_hash
+    from nexus.ingestion.service import _Attempt
+    from nexus.ingestion.web import extract_article
+    from nexus.models.source import SourceType
+
+    store, settings = evidence_store
+    await _upgrade(test_database_url)
+    engine = create_db_engine(test_database_url)
+    factory = session_factory(engine)
+    scope = uuid.uuid4()
+    await quarantine_scopes(factory, scope)
+    url = "https://example.org/measurements"
+    body = ARTICLE.format(
+        title="Measurements",
+        body=(
+            "The annual measurements cover the entire sample and use standardized "
+            "units. The observed mass is ten kilograms throughout the year."
+        ),
+    ).encode()
+    article, title = extract_article(body, url)
+    legacy_digest = hashlib.sha256(normalize_text(article).encode()).hexdigest()
+
+    async def fetch_page(requested_url: str) -> FetchedPage:
+        return FetchedPage(url=requested_url, body=body)
+
+    service = IngestionService(
+        factory, store, DeterministicEmbedder(), settings, fetch_page=fetch_page
+    )
+    legacy_chunker = Chunker(
+        chunk_tokens=settings.chunk_tokens,
+        overlap_tokens=settings.chunk_overlap_tokens,
+        max_chunks=settings.max_chunks,
+        model_name=settings.openai_embedding_model,
+    )
+    try:
+        legacy = await service._index(
+            _Attempt(),
+            research_id=scope,
+            source_type=SourceType.WEB,
+            uri=url,
+            content_hash=legacy_digest,
+            display_name=title,
+            chunks=legacy_chunker.chunk_pages([(None, article)]),
+            url=url,
+            title=title,
+        )
+        refreshed = await service.ingest_web(scope, url, owner_id=QUARANTINE_USER_ID)
+        assert refreshed.source_id == legacy.source_id
+        assert not refreshed.deduplicated
+        async with factory() as db:
+            source = await db.get(Source, legacy.source_id)
+        assert source is not None
+        assert source.content_hash == web_content_hash(article)
+        assert source.content_hash != legacy_digest
+    finally:
+        await engine.dispose()
