@@ -9,11 +9,12 @@ import { LoginForm } from "@/components/auth/login-form";
 const navigation = vi.hoisted(() => ({
   replace: vi.fn(),
   next: null as string | null,
+  passwordChanged: null as string | null,
 }));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: navigation.replace }),
-  useSearchParams: () => ({ get: (key: string) => (key === "next" ? navigation.next : null) }),
+  useSearchParams: () => ({ get: (key: string) => (key === "next" ? navigation.next : key === "password_changed" ? navigation.passwordChanged : null) }),
 }));
 
 const IDENTITY = {
@@ -26,10 +27,18 @@ afterEach(() => {
   cleanup();
   navigation.replace.mockReset();
   navigation.next = null;
+  navigation.passwordChanged = null;
   vi.unstubAllGlobals();
 });
 
 describe("login form", () => {
+  it("shows the fixed password-change success message", async () => {
+    navigation.passwordChanged = "1";
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 401 })));
+    render(<LoginForm />);
+    expect((await screen.findByText("Your password was changed. Sign in with your new password.")).getAttribute("role")).toBe("status");
+  });
+
   it("posts credentials and redirects to the allowlisted path", async () => {
     navigation.next = "/history";
     let meCalls = 0;
@@ -46,6 +55,8 @@ describe("login form", () => {
     render(<LoginForm />);
 
     await user.type(await screen.findByLabelText("Email"), "ada@example.com");
+    expect(screen.getByRole("link", { name: "Forgot password?" }).getAttribute("href")).toBe("/forgot-password");
+    expect(screen.getByRole("link", { name: "Create an account" }).getAttribute("href")).toBe("/register?next=%2Fhistory");
     await user.type(screen.getByLabelText("Password"), "correct-horse-1");
     await user.click(screen.getByRole("button", { name: "Log in" }));
 
@@ -65,12 +76,12 @@ describe("login form", () => {
     expect(screen.queryByRole("button", { name: "Log out" })).toBeNull();
   });
 
-  it("redirects an existing session and ignores an off-site next", async () => {
-    navigation.next = "https://evil.example";
+  it.each([null, "https://evil.example"])("redirects an existing session safely (%s)", async (next) => {
+    navigation.next = next;
     vi.stubGlobal("fetch", vi.fn(async () => Response.json(IDENTITY)));
     render(<LoginForm />);
     await waitFor(() => {
-      expect(navigation.replace).toHaveBeenCalledWith("/");
+      expect(navigation.replace).toHaveBeenCalledWith("/dashboard");
     });
     expect(screen.queryByLabelText("Email")).toBeNull();
   });

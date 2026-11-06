@@ -95,6 +95,7 @@ async def get_runner(
                 store,
                 owner_user_id=owned.user.id,
                 session_id=owned.user.session_id,
+                depth=owned.depth,
             ),
         )
     finally:
@@ -174,12 +175,15 @@ async def stream_research(
                 owned.question,
                 runner.clock(),
                 owner_id=owned.user.id,
+                depth=owned.depth,
+                applied_limits=runner.context.limits.snapshot(),
             )
         except ResearchError:
             raise
         except Exception as exc:
             logger.warning("could not store a research run: %s", type(exc).__name__)
             raise history_unavailable() from None
+        await limiter.mark_run_active(run_id)
     except BaseException:
         if semaphore_held:
             semaphore.release()
@@ -215,6 +219,7 @@ async def stream_research(
                 yield frame
         finally:
             semaphore.release()
+            await limiter.mark_run_finished(run_id)
             await limiter.release_stream(owned.user.id)
 
     return StreamingResponse(

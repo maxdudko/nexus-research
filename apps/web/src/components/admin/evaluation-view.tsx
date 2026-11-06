@@ -72,7 +72,7 @@ export function ConfusionMatrix({
 }) {
   return (
     <div className="overflow-x-auto">
-      <table aria-label="Confusion matrix" className="w-full text-sm">
+      <table aria-label="Confusion matrix" className="data-table">
         <caption>
           Gold labels are rows and predicted labels are columns. Compared {calibration.compared}.
           {counts ? ` Skipped ${counts.skipped}. Failed ${counts.failed}.` : ""}

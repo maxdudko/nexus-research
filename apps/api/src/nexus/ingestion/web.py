@@ -14,7 +14,9 @@ def extract_article(body: bytes, url: str) -> tuple[str, str | None]:
         body,
         url=url,
         include_comments=False,
-        include_tables=False,
+        include_tables=True,
+        include_formatting=True,
+        output_format="markdown",
         favor_precision=True,
     )
     metadata = trafilatura.extract_metadata(body.decode("utf-8", errors="replace"))

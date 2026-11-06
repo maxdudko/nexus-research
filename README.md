@@ -4,19 +4,22 @@
 
 Nexus Research answers a research question with a bounded LangGraph workflow. It plans the question, searches the web with Tavily, indexes fetched pages and an optional text PDF into Qdrant, retrieves scoped evidence, and writes a structured report whose citations point at the retrieved passages. A Next.js UI streams progress over server-sent events and keeps a run history.
 
-> **Invited accounts.** Research, evidence, and history require a session created by the operator. One account cannot read another account's runs. The release stack still publishes only Web, on `127.0.0.1`. Do not expose it publicly. For remote access, see [Private remote access](docs/release/deployment.md#private-remote-access). Known limits — including request-scoped runs, unscanned PDFs, and citations that do not prove a sentence — are in [Limitations](docs/release/limitations.md).
+> **User accounts.** Register at `/register` with an email and password to sign in immediately. Research, evidence, and history require an authenticated session. One account cannot read another account's runs. The release stack still publishes only Web, on `127.0.0.1`. Do not expose it publicly. For remote access, see [Private remote access](docs/release/deployment.md#private-remote-access). Known limits — including request-scoped runs, unscanned PDFs, and citations that do not prove a sentence — are in [Limitations](docs/release/limitations.md).
 
 ## Status
 
-**MVP `v0.1.0`.** Phases 1–7 are done. CI builds both images and runs a packaged smoke test with a mocked model. The paid-provider demo and the rest of Gate C are recorded in [`docs/release/checklist.md`](docs/release/checklist.md). Multi-user Alpha (`v0.2.0`) is a separate milestone in the [roadmap](docs/roadmap.md).
+**0.2.0 Alpha candidate.** Private pilot acceptance is in progress. Track the candidate build, tests and release decision in the [Alpha checklist](docs/release/alpha-checklist.md). The previous published milestone is [MVP v0.1.0](docs/release/checklist.md).
 
-## Features in v0.1.0
+## Candidate features
+
+- **Research depth and reports.** Choose standard or deep research. Analytical v2 reports show cited excerpts and coverage gaps. Older reports remain readable.
+- **Administration.** Restricted views show evaluation history, compatible-run comparisons, diagnostics and usage coverage.
 
 - **Planning.** `POST /api/v1/research/plan` returns a structured plan from OpenAI (strict JSON schema).
 - **Discovery.** Bounded Tavily search through model tool calls, returning only sources that were actually retrieved.
 - **Evidence.** Text PDFs (up to 10 MiB and 100 pages) and public HTML pages are chunked, embedded with `text-embedding-3-small` and stored in Qdrant, filtered by `research_id`. Private, loopback and metadata URLs are refused.
 - **Research run.** A LangGraph workflow (planning, discovery, ingestion, retrieval, evaluation, synthesis) with caps on iterations, searches, model calls, pages, passages and wall-clock time. Outcomes are `completed`, `partial`, `insufficient_evidence`, `failed` or `interrupted`. PostgreSQL stores checkpoints and the domain history.
-- **Web UI.** Sign in, ask a question, optionally attach a text PDF, watch stage progress and heartbeats over SSE, stop a run, and later open that account's reports and history. Follow `https` citations or read `PDF · page N` labels. The original PDF is not kept. Light and dark themes.
+- **Web UI.** Register or sign in, change your email or password from Account, recover a forgotten password by email when SMTP is configured, ask a question, optionally attach a text PDF, watch stage progress and heartbeats over SSE, stop a run after a confirmation, later open that account's reports and history, and remove a finished run from history (its sources and indexed evidence are kept). Follow `https` citations or read `PDF · page N` labels. The original PDF is not kept. Light and dark themes.
 - **Reliability.** JSON logs with an allowlist, optional OpenTelemetry tracing (off by default), partial cost estimates in logs, a failure matrix, and an offline evaluation suite locked to a committed baseline.
 - **Release packaging.** Non-root API and Web images built from lockfiles, a private full-stack `compose.release.yml` with one-shot schema initialization, static Compose checks and a packaged smoke script.
 
@@ -66,11 +69,19 @@ docker compose --env-file .env.release -f compose.release.yml ps
 curl -fsS http://127.0.0.1:3000/api/v1/health/ready
 ```
 
-Readiness returns `{"status":"ok","postgres":"ok","qdrant":"ok"}`. Open `http://127.0.0.1:3000`.
+Readiness returns `{"status":"ok","postgres":"ok","qdrant":"ok"}`. Open `http://127.0.0.1:3000` for the landing page, then register or sign in to reach `/dashboard`.
 
 Stop with `docker compose --env-file .env.release -f compose.release.yml down`. That keeps the `nexus-release` volumes; `down -v` deletes them.
 
 Environment variables, schema initialization, upgrades and remote access are in [`docs/release/deployment.md`](docs/release/deployment.md).
+
+## Research quality
+
+Research now offers Standard (up to 3 minutes) and Deep (up to 10 minutes).
+Adaptive gap searches, task-balanced evidence, claim analysis, and report support
+checks feed analytical reports with paragraph citations, tables and readable
+excerpts. Existing reports remain readable. See [behavior and upgrade notes](docs/research-quality.md)
+and the separate [30-case quality evaluation](docs/evaluation/research-quality/README.md).
 
 ## Evaluation
 
@@ -103,7 +114,8 @@ That import does not change the offline byte gate, and this checkout does not ta
 | [`docs/release/operations.md`](docs/release/operations.md) | Health, logs, failed init, persistence, backups, rollback, stale runs |
 | [`docs/release/demo.md`](docs/release/demo.md) | Mocked CI smoke versus manual paid-provider demo |
 | [`docs/release/limitations.md`](docs/release/limitations.md) | Known limitations and production restrictions |
-| [`docs/release/checklist.md`](docs/release/checklist.md) | Gate C release checklist |
+| [`docs/release/alpha-checklist.md`](docs/release/alpha-checklist.md) | 0.2.0 Alpha candidate evidence and release decision |
+| [`docs/release/checklist.md`](docs/release/checklist.md) | MVP 0.1.0 Gate C release record |
 | [`docs/development.md`](docs/development.md) | Local development, API reference, tests, CI |
 | [`docs/roadmap.md`](docs/roadmap.md) | MVP phases and the Alpha milestone |
 | [`CHANGELOG.md`](CHANGELOG.md) | Release notes |

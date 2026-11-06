@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 
 import { provenanceBadge } from "@/components/admin/evaluation-view";
 import { useSessionIdentity } from "@/components/auth/session-boundary";
+import { Button } from "@/components/ui/button";
 import {
   getDiagnostics,
   getOverview,
@@ -30,10 +31,10 @@ function preset(days: number): string {
 function WindowLinks({ path }: { path: string }) {
   return (
     <p className="flex flex-wrap gap-3 text-sm">
-      <a className="underline" href={`${path}?${preset(7)}`}>
+      <a className="text-link" href={`${path}?${preset(7)}`}>
         Last 7 days
       </a>
-      <a className="underline" href={`${path}?${preset(90)}`}>
+      <a className="text-link" href={`${path}?${preset(90)}`}>
         Last 90 days
       </a>
     </p>
@@ -52,13 +53,9 @@ function Unavailable({ onRetry }: { onRetry: () => void }) {
   return (
     <div className="flex flex-col gap-4">
       <p role="alert">The research service is unavailable.</p>
-      <button
-        type="button"
-        className="w-fit cursor-pointer rounded border border-line-strong px-4 py-2"
-        onClick={onRetry}
-      >
+      <Button type="button" variant="secondary" onClick={onRetry}>
         Try again
-      </button>
+      </Button>
     </div>
   );
 }
@@ -92,11 +89,11 @@ function Counts({ summary }: { summary: DiagnosticsSummary }) {
     ["Recorded failure", summary.statuses.recorded_failure],
   ] as const;
   return (
-    <dl className="grid grid-cols-2 gap-2 text-sm">
+    <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
       {rows.map(([label, value]) => (
-        <div key={label}>
-          <dt>{label}</dt>
-          <dd>{value}</dd>
+        <div key={label} className="surface p-3">
+          <dt className="text-muted">{label}</dt>
+          <dd className="mt-1 text-lg font-semibold">{value}</dd>
         </div>
       ))}
     </dl>
@@ -115,7 +112,7 @@ function RecordedState({ summary }: { summary: DiagnosticsSummary }) {
 function LatestEvaluation({ item }: { item: EvaluationListItem | null }) {
   if (!item) return <p>No evaluations recorded.</p>;
   return (
-    <article className="flex flex-col gap-1 text-sm">
+    <article className="surface flex flex-col gap-1 p-4 text-sm">
       <p>{provenanceBadge(item)}</p>
       <p>{item.dataset_version}</p>
       <p>Execution time unknown</p>
@@ -220,7 +217,7 @@ export function DiagnosticsPanel() {
       <Counts summary={summary} />
       <RecordedState summary={summary} />
       <div className="overflow-x-auto">
-        <table className="w-full text-left text-sm">
+        <table className="data-table">
           <thead>
             <tr>
               <th>Run</th>
@@ -242,9 +239,9 @@ export function DiagnosticsPanel() {
         </table>
       </div>
       {cursor ? (
-        <button
+        <Button
           type="button"
-          className="w-fit cursor-pointer rounded border border-line-strong px-4 py-2"
+          variant="secondary"
           onClick={() => {
             void listDiagnosticRuns(from, to, 20, cursor).then((page) => {
               setRuns((current) => [...current, ...page.items]);
@@ -253,7 +250,7 @@ export function DiagnosticsPanel() {
           }}
         >
           Older runs
-        </button>
+        </Button>
       ) : null}
     </div>
   );
@@ -309,11 +306,11 @@ export function UsagePanel() {
       </p>
       <WindowLinks path="/admin/usage" />
       <p>These counts are logical graph calls. They are not provider tokens, SDK retries, or a bill.</p>
-      <dl className="grid grid-cols-2 gap-2 text-sm">
+      <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
         {counters.map(([label, value]) => (
-          <div key={label}>
-            <dt>{label}</dt>
-            <dd>{value}</dd>
+          <div key={label} className="surface p-3">
+            <dt className="text-muted">{label}</dt>
+            <dd className="mt-1 text-lg font-semibold">{value}</dd>
           </div>
         ))}
       </dl>

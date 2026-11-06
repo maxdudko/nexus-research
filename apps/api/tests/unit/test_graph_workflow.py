@@ -115,8 +115,8 @@ async def test_zero_evidence_is_insufficient_and_does_not_retry() -> None:
     assert result["report"]["sources"] == []
     assert result["report"]["sections"] == []
     assert len(discovery.questions) == 1
-    assert "alpha three" in discovery.questions[0]
-    assert "beta one" not in discovery.questions[0]
+    assert "beta one" in discovery.questions[0]
+    assert "alpha three" not in discovery.questions[0]
     assert ingestion.calls == []
     assert _ids_match(retrieval.calls, research_id)  # type: ignore[arg-type]
 
@@ -154,8 +154,8 @@ async def test_one_refinement_then_a_partial_report() -> None:
 
     assert len(discovery.questions) == 2
     assert "alpha one" in discovery.questions[0]
-    assert "beta one" in discovery.questions[1]
-    assert "beta one" not in discovery.questions[0]
+    assert "beta two" in discovery.questions[1]
+    assert "alpha three" not in discovery.questions[0]
     assert result["iteration"] == 2
     assert result["status"] == "partial"
     assert result["report"] is not None

@@ -12,6 +12,7 @@ from uuid import UUID, uuid4
 from langgraph.graph.state import CompiledStateGraph
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from nexus.ai.analysis import EvidenceAnalyzer
 from nexus.ai.coverage import OpenAICoverageEvaluator
 from nexus.ai.errors import (
     MODEL_REFUSED,
@@ -29,14 +30,15 @@ from nexus.ai.errors import (
 )
 from nexus.ai.planner import Planner
 from nexus.ai.synthesis import OpenAIReportSynthesizer
+from nexus.ai.verification import ReportVerifier
 from nexus.core.config import Settings
 from nexus.identity.store import session_is_active
 from nexus.ingestion.service import IngestionService
 from nexus.observability.context import bind_run
 from nexus.observability.spans import operation
 from nexus.observability.usage import emit_run_summary
-from nexus.research.budgets import limits_from_settings
-from nexus.research.discovery import Discovery
+from nexus.research.budgets import profile_limits
+from nexus.research.discovery import PlannedDiscovery
 from nexus.research.graph import GraphContext, run_config
 from nexus.research.state import (
     GraphStateError,
@@ -49,7 +51,7 @@ from nexus.retrieval.embeddings import OpenAIEmbedder
 from nexus.retrieval.service import RetrievalService
 from nexus.retrieval.vector_store import EvidenceVectorStore
 from nexus.schemas.report import ResearchReport
-from nexus.schemas.research import ResearchRunResponse
+from nexus.schemas.research import ResearchDepth, ResearchRunResponse
 
 logger = logging.getLogger(__name__)
 
@@ -173,6 +175,8 @@ class ResearchRunner:
             run_id=run_id,
             question=question,
             started_at=self.clock(),
+            depth=self._context.limits.depth,
+            applied_limits=self._context.limits.snapshot(),
         )
 
     async def _stream_graph(
@@ -293,6 +297,7 @@ def production_context(
     *,
     owner_user_id: UUID,
     session_id: UUID | None = None,
+    depth: ResearchDepth = "standard",
 ) -> GraphContext:
     """The services one HTTP run calls. The store is closed by the caller."""
 
@@ -309,12 +314,14 @@ def production_context(
     embedder = OpenAIEmbedder(settings)
     return GraphContext(
         planner=Planner(settings),
-        discovery=Discovery(settings),
+        discovery=PlannedDiscovery(settings),
         ingestion=IngestionService(sessions, store, embedder, settings),
         retrieval=RetrievalService(sessions, store, embedder),
         evaluator=OpenAICoverageEvaluator(settings),
+        analyzer=EvidenceAnalyzer(settings),
+        verifier=ReportVerifier(settings),
         synthesizer=OpenAIReportSynthesizer(settings),
-        limits=limits_from_settings(settings),
+        limits=profile_limits(settings, depth),
         clock=lambda: datetime.now(UTC),
         owner_user_id=owner_user_id,
         session_active=session_active,

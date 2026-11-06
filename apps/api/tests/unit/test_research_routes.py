@@ -60,6 +60,9 @@ async def test_plan_returns_the_contract_and_live_stays_ok() -> None:
             {
                 "question": "Which activities benefit from AI agents?",
                 "search_queries": ["AI coding agents software development workflows"],
+                "sufficiency_criteria": [],
+                "time_range": None,
+                "include_domains": [],
             }
         ],
     }
@@ -239,6 +242,9 @@ async def test_discover_returns_the_contract_and_live_stays_ok() -> None:
             "url": "https://example.org/notes",
             "snippet": "The notes describe code review.",
             "published_at": None,
+            "query": None,
+            "retrieved_at": None,
+            "relevance_score": 0.0,
         }
     ]
     assert live.status_code == 200

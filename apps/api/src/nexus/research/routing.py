@@ -159,4 +159,4 @@ def _deadline_exceeded(
     if started.tzinfo is None or now.tzinfo is None:
         raise GraphStateError("deadlines require timezone-aware times")
     elapsed = (now - started).total_seconds()
-    return elapsed >= limits.deadline_seconds
+    return elapsed >= limits.deadline_seconds - limits.finish_reserve_seconds

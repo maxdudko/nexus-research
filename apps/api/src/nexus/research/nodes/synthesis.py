@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from nexus.ai.errors import ResearchError
@@ -59,13 +60,22 @@ async def synthesize_node(
         return _published(state, report, decision.warning, None, None)
     limits = runtime.context.limits
     try:
-        outcome = await runtime.context.synthesizer.synthesize(
-            state,
-            status=decision.report_status,
-            max_calls=synthesis_calls_allowed(state["usage"], limits),
-        )
+        elapsed = (
+            runtime.context.clock() - datetime.fromisoformat(state["started_at"])
+        ).total_seconds()
+        seconds = max(0, limits.deadline_seconds - elapsed - 30)
+        async with asyncio.timeout(seconds):
+            outcome = await runtime.context.synthesizer.synthesize(
+                state,
+                status=decision.report_status,
+                max_calls=synthesis_calls_allowed(state["usage"], limits),
+            )
     except asyncio.CancelledError:
         raise
+    except TimeoutError:
+        report = grounded_report(state, "partial")
+        usage = _charge(state, runtime, synthesis_calls_allowed(state["usage"], limits))
+        return _published(state, report, decision.warning, "provider_timeout", usage)
     except ResearchError as exc:
         usage = _charge(state, runtime, 1)
         if exc.code == "provider_not_configured":
@@ -85,7 +95,9 @@ async def synthesize_node(
             "partial" if state["evidence"] else "insufficient_evidence",
         )
         return _published(state, report, decision.warning, outcome.warning, usage)
-    if outcome.report.status != decision.report_status:
+    if outcome.report.status != decision.report_status and not (
+        outcome.report.format_version == 2 and outcome.report.status == "partial"
+    ):
         charged = usage if outcome.llm_calls > 0 else None
         return failed("invalid_model_output", charged)
     return _published(state, outcome.report, decision.warning, outcome.warning, usage)

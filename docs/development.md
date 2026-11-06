@@ -92,7 +92,7 @@ uv run alembic upgrade head
 uv run python -m nexus.research.checkpoint
 ```
 
-Alembic owns the domain schema (`users`, `auth_sessions`, `research_scopes`, `sources`, `research_runs`, `research_reports`). Head is `e3b7d91c4a20` after `c8e4a1b27d05`. Running `upgrade head` again leaves the database at the current head. `uv run alembic downgrade base` is not a release rollback: scope downgrade aborts once a real owner exists, and the supported recovery is the paired volume restore in `docs/release/operations.md`.
+Alembic owns the domain schema (`users`, `auth_sessions`, `password_reset_tokens`, `research_scopes`, `sources`, `research_runs`, `research_reports`, and evaluation history). Head is `da73e1b94026`, following `a4d9c2f78106`. Apply migrations before starting updated API code; the new research history fields require this revision. Running `upgrade head` again leaves the database at the current head. `uv run alembic downgrade base` is not a release rollback: scope downgrade aborts once a real owner exists, and the supported recovery is the paired volume restore in `docs/release/operations.md`.
 
 LangGraph checkpoint tables are not managed by Alembic, and a request does not create them. `python -m nexus.research.checkpoint` creates or migrates them and is safe to run more than once. The release stack runs both commands in its one-shot `init` service.
 
@@ -130,11 +130,11 @@ npm ci
 npm run dev
 ```
 
-`API_PROXY_TARGET` defaults to `http://127.0.0.1:8000`. Open `http://127.0.0.1:3000`.
+`API_PROXY_TARGET` defaults to `http://127.0.0.1:8000`. Open `http://127.0.0.1:3000` for the public landing page. Create an account at `/register` or sign in at `/login` to reach `/dashboard`. Research creation, history, and saved reports remain at `/research/new`, `/history`, and `/research/{run_id}`. The landing page renders without the API; the authenticated workspace requires it.
 
 A text PDF is optional. The API accepts up to 10 MiB and 100 pages by default and does not store the original bytes. The same draft id is sent with the upload and with `POST /api/v1/research/stream`. When the stream finishes, the UI opens `/research/{run_id}` and loads the saved report. `https` citations open in a new tab. A PDF citation is a page label, not a file link. Refreshing that URL reads the domain row again.
 
-Stop uses the label "Stop this request; research may be interrupted." That aborts the request. It does not resume later. A row left at `running` after a crash says execution is not confirmed. There is no authentication. Do not expose the API or the UI on the public internet. `research_id` is an evidence scope, not an access token.
+**Stop this request** opens a confirmation dialog. **Stop request** aborts the request, and **Keep researching** closes the dialog. A stopped run does not resume later. A row left at `running` after a crash says execution is not confirmed. **Remove** on a History row deletes that run and its report after a confirmation; sources, indexed passages and checkpoints stay, and a run that is still streaming returns 409 `run_in_progress`. Every research route requires a session, and every `research_id` is checked against the signed-in account. Do not expose the API or the UI on the public internet.
 
 A short local check, with provider keys only if you want a real report:
 
@@ -143,6 +143,7 @@ A short local check, with provider keys only if you want a real report:
 3. Follow an `https` citation, or read a `PDF · page N` label.
 4. Stop a second run and confirm the status is interrupted.
 5. Open an older history page if one exists, and open a `running` row directly if one was left behind.
+6. Remove a finished run from History and confirm it no longer opens.
 
 ## Tests
 
@@ -191,12 +192,13 @@ The Phase 3 retrieval fixture in `nexus.retrieval.evaluate` is a different, olde
 | Trigger | Fast lane | Full lane |
 | --- | --- | --- |
 | Push to `development` | yes | no |
+| Push to `codex/release-candidate/**` | yes, all paths | yes |
 | Pull request to `master` | yes | yes |
 | Push to `master` (after a merge) | yes | yes |
 | Release tag `v*` ([`release.yml`](../.github/workflows/release.yml)) | yes | yes, plus release verification |
 | Manual run (`workflow_dispatch`) | yes | only when `full` is checked |
 
-Pushes to other branches do not trigger CI on their own. Open a pull request instead.
+Pushes to other branches do not trigger CI on their own. Open a pull request instead. A release-candidate branch runs every job regardless of changed paths.
 
 Fast lane, with no services and no Docker:
 
@@ -210,21 +212,50 @@ Full lane. It starts only after the fast lane passes:
 
 A **Changes** job skips jobs whose paths did not change. API jobs need a change under `apps/api/`, Web jobs under `apps/web/`, and the image job under either. A change to `.github/`, `scripts/`, the Compose files, `.env.release.example` or `docs/evaluation/baseline.json` runs everything. A commit that touches only docs runs no checks. Tags and manual runs always run everything.
 
-Branch protection should require only the **ci-ok** check. It passes when every job either succeeded or was skipped. Superseded runs on `development` and on pull requests are cancelled. Runs on `master` and on tags are never cancelled.
+Branch protection should require only the **ci-ok** check. It passes when every job either succeeded or was skipped. Superseded runs on `development`, release-candidate branches and pull requests are cancelled. Runs on `master` and on tags are never cancelled.
 
 Caches: uv, npm, Ruff/mypy and the Docker layer cache (`type=gha`). GitHub only lets a run restore caches from its own ref or from `master`, so the full-lane run after each merge to `master` is what keeps pull-request builds warm. Pull requests write Docker layers to their own `pr-<number>-` scope, so they never evict the `master` entries.
 
-Release tags run [`.github/workflows/release.yml`](../.github/workflows/release.yml). It runs `scripts/check_release_version.py --tag <tag>`, which checks that the tag, `pyproject.toml`, `package.json`, `package-lock.json`, the `compose.release.yml` default, `.env.release.example` and a dated `CHANGELOG.md` entry agree. It also checks that the tag is annotated and reachable from `master`. It then runs the full CI and uploads `release-images-<version>`: gzipped `docker save` tarballs, `image-ids.txt`, `commit.txt` and `SHA256SUMS`, kept for 90 days. Nothing is pushed to a registry. Run `python3 scripts/check_release_version.py` locally before tagging.
+Release tags run [`.github/workflows/release.yml`](../.github/workflows/release.yml). It runs `scripts/check_release_version.py --tag <tag>`, which checks that the tag, `pyproject.toml`, `nexus.__version__`, `uv.lock`, `package.json`, `package-lock.json`, the `compose.release.yml` and `compose.smoke.yml` defaults, `.env.release.example` and a dated `CHANGELOG.md` entry agree. It also checks that the tag is annotated and reachable from `master`. It then runs the full CI and uploads `release-images-<version>`: gzipped `docker save` tarballs, `image-ids.txt`, `commit.txt` and `SHA256SUMS`, kept for 90 days. Nothing is pushed to a registry. Run `python3 scripts/check_release_version.py` locally before tagging.
 
 ## Evidence
 
 `RetrievalService` loads the accepted digest of each source in one `research_id`, embeds the query, and searches Qdrant with that filter on the server. The HTTP handler does not contain that logic.
 
-`research_id` selects which evidence a query may see. It is not authentication or tenant isolation. Do not expose this API as a multi-user service without authorization.
+`research_id` selects which evidence a query may see. Authorization is separate: the API first checks in PostgreSQL that the scope belongs to the signed-in account, and returns 404 otherwise. Qdrant payloads carry no owner, so that check is what isolates accounts.
 
 A search score is cosine similarity between the query and a passage. It is not a probability that the passage is true. `POST /api/v1/evidence/search` returns the passages and their stored page number or URL. It does not call a chat model and it does not write an answer.
 
 The original PDF bytes are not stored. Rebuilding a lost PDF index means uploading the file again. Scanned pages are not read. There is no keyword index and no reranker. Changing the chunk size or the point-id formula requires a new `NEXUS_RAG_COLLECTION`.
+
+## API reference
+
+All routes are under `/api/v1`. The OpenAPI document at `/openapi.json` (development only) is the full schema.
+
+| Area | Routes | Access |
+|---|---|---|
+| Health | `GET /health/live`, `GET /health/ready` | anonymous |
+| Auth | `POST /auth/register`, `POST /auth/login`, `POST /auth/forgot-password`, `POST /auth/reset-password` | anonymous, trusted `Origin` |
+| Account | `GET /auth/me`, `POST /auth/logout`, `POST /auth/change-password`, `POST /auth/change-email` | session |
+| Research | `POST /research/scopes`, `POST /research/plan`, `POST /research/discover`, `POST /research/run`, `POST /research/stream` | session |
+| History | `GET /research/runs`, `GET /research/runs/{run_id}`, `DELETE /research/runs/{run_id}` | session, owner only |
+| Evidence | `POST /evidence/pdf`, `POST /evidence/web`, `POST /evidence/search` | session, owner of the `research_id` |
+| Admin | `GET /admin/overview`, `GET /admin/evaluations`, `GET /admin/evaluations/compare`, `GET /admin/evaluations/{id}`, `GET /admin/evaluations/{id}/cases`, `GET /admin/diagnostics`, `GET /admin/diagnostics/runs`, `GET /admin/usage` | admin session; 401 anonymous, 403 regular user |
+
+Another account's run or scope returns 404, not 403. Unsafe requests that carry a session cookie also need an allowlisted `Origin` and an `X-CSRF-Token` header equal to the `nexus_csrf` cookie.
+
+To call private routes with `curl` against a local API, sign in once into a cookie jar and reuse it:
+
+```bash
+ORIGIN=http://127.0.0.1:3000
+JAR=/tmp/nexus-cookies.txt
+curl -sS -c "$JAR" -X POST http://127.0.0.1:8000/api/v1/auth/login \
+  -H "Origin: $ORIGIN" -H 'Content-Type: application/json' \
+  -d '{"email":"user@example.com","password":"a-long-password"}'
+CSRF=$(awk '$6 == "nexus_csrf" { print $7 }' "$JAR")
+```
+
+The examples below send `-b "$JAR" -H "Origin: $ORIGIN" -H "X-CSRF-Token: $CSRF"`. Create the account first with `/register` in the UI or `POST /auth/register`.
 
 ## Research plan
 
@@ -236,6 +267,7 @@ With the API running:
 
 ```bash
 curl -sS -X POST http://127.0.0.1:8000/api/v1/research/plan \
+  -b "$JAR" -H "Origin: $ORIGIN" -H "X-CSRF-Token: $CSRF" \
   -H 'Content-Type: application/json' \
   -d '{"question":"How do AI coding agents improve software development workflows?"}'
 ```
@@ -315,6 +347,7 @@ Provider failures use the same `{ "error": { "code", "message" } }` envelope as 
 
 ```bash
 curl -sS -X POST http://127.0.0.1:8000/api/v1/research/discover \
+  -b "$JAR" -H "Origin: $ORIGIN" -H "X-CSRF-Token: $CSRF" \
   -H 'Content-Type: application/json' \
   -d '{"question":"How do AI coding agents improve software development workflows?"}'
 ```
@@ -331,7 +364,9 @@ NEXUS_RUN_LIVE_AI=1 \
 
 ## Research run
 
-`POST /api/v1/research/run` accepts a question and an optional `research_id`. The server always mints a new `run_id`. A client `run_id` or `thread_id` is 422 `invalid_request`. The same `research_id` on a later request is a new thread that can see evidence already indexed for that scope. It does not continue the previous thread.
+`POST /api/v1/research/run` accepts a question, an optional `research_id`, and `depth` (`standard` by default, or `deep`). The server always mints a new `run_id`. A client `run_id` or `thread_id` is 422 `invalid_request`. The same `research_id` on a later request is a new thread that can see evidence already indexed for that scope. It does not continue the previous thread.
+
+Reports now support version 2 with cited blocks, tables, source excerpts and model support checks. Version 1 reports remain readable. See [research quality and upgrade notes](research-quality.md) for profile limits and contracts.
 
 The request waits until the graph finishes. There is no worker and no queue. `/run` does not stream. The product UI uses `POST /api/v1/research/stream`, described in [Run the web app](#run-the-web-app). `completed`, `partial`, and `insufficient_evidence` return 200 with the report, identifier warnings, and usage. `failed` and a hard deadline return the `{ "error": { "code", "message" } }` envelope and no report. A missing OpenAI key is 503 `provider_not_configured`. A checkpoint store that is down or not migrated is 503 `checkpoint_unavailable`. The message does not include the database URL.
 
@@ -341,11 +376,11 @@ A checkpoint row is durable state. It can be read after the pool is closed and a
 
 Three stops are different:
 
-- The graph deadline (`NEXUS_GRAPH_DEADLINE_SECONDS`, default 180) can still return 200 with a partial or insufficient report.
-- The HTTP wait is that deadline plus 5 seconds. A proxy read timeout must sit above that sum; 200 seconds is a safe start. If this hard wait fires, the handler writes `interrupted` while the request is alive and returns 504 `deadline_exceeded` with no report.
-- Closing the client, or killing the process, does not write a new status and does not continue the graph. The last completed node may stay `running`.
+- The graph deadline comes from the depth profile: 180 seconds for `standard` and 600 for `deep`. The `NEXUS_GRAPH_*` settings do not change these profiles. A run that reaches the deadline can still return 200 with a partial or insufficient report.
+- The HTTP wait is that deadline plus 5 seconds. A proxy read timeout must sit above that sum; 620 seconds covers Deep. If this hard wait fires, the handler writes `interrupted` to the checkpoint state while the request is alive and returns 504 `deadline_exceeded` with no report.
+- For `/run`, closing the client or killing the process does not write a new status and does not continue the graph. The last completed node may stay `running`. `/stream` is different: Stop or a closed tab stores `interrupted` in history (see [Stale `running` rows](release/operations.md#stale-running-rows)).
 
-There is no resume API, no authentication, no durable PDF storage, and no checkpoint cleanup. Checkpoint tables are not a history API. A later run with the same `research_id` repeats Tavily and OpenAI calls. Fetching the same page again goes through Phase 3 ingestion, which keeps one source when the content is unchanged.
+There is no resume API, no durable PDF storage, and no checkpoint cleanup. Checkpoint tables are not a history API. A later run with the same `research_id` repeats Tavily and OpenAI calls. Fetching the same page again goes through Phase 3 ingestion, which keeps one source when the content is unchanged.
 
 Index a PDF with `POST /api/v1/evidence/pdf` before the run, then pass that `research_id`. `/run` does not accept PDF bytes.
 
@@ -355,6 +390,68 @@ Index a PDF with `POST /api/v1/evidence/pdf` before the run, then pass that `res
 - Integration tests fail to connect when Compose is not running. Start it from the repository root with `docker compose up -d`.
 - If port 5432 or 8000 is already taken, stop the other process. The published ports stay on `127.0.0.1` so they match `.env.example`.
 - Stop the API with Ctrl+C in the uvicorn terminal. `docker compose stop` stops the data services and keeps their volumes.
+
+## Registration and authentication
+
+Open `/register` to create an account, or `/login` to sign in. Registration immediately signs the user in; email addresses are login identifiers and are not verified. Existing operator CLI provisioning, password reset, disablement, and admin bootstrap remain available.
+
+`POST /api/v1/auth/register` accepts JSON `{"email":"user@example.com","password":"a-long-password"}` with an allowlisted `Origin`. Extra fields are ignored; every new account has role `user` and status `active`. Emails are trimmed and lowercased. Passwords must contain 12–128 characters and differ from the normalized email.
+
+Success returns `201` with `{id, email, role}` and the same session/CSRF cookies as login. The account and session are committed together. Validation returns sanitized `422 invalid_request`; an existing email (including a disabled account) returns `409 email_unavailable`. Missing/untrusted Origin returns `403 forbidden`. Registration accepts stale session cookies without a CSRF header, but always checks Origin.
+
+`NEXUS_REGISTRATION_MAX_IP_ATTEMPTS` (default `5`) and `NEXUS_REGISTRATION_WINDOW_SECONDS` (default `900`) configure the separate registration budget. It atomically counts allowed attempts, including success and invalid credentials, before hashing or creating accounts. A full bucket returns `429 too_many_requests` and `Retry-After`. Limits use the API socket address, ignore forwarded address headers, reset on restart, and support one API process. Browsers behind the Web proxy share its address bucket.
+
+After signing in, unsafe authenticated requests require the existing CSRF header. New accounts have the same ownership and research limits as CLI-created users. Registration does not verify email ownership or change private deployment requirements. Optional email recovery is described below.
+
+### Change your password
+
+Open **Account** in the navigation to change your password. Enter the current password, a new password of 12–128 characters that differs from your normalized email and current password, and confirmation. Success signs out every browser and returns to login with a success message. Regular users and admins use the same flow.
+
+`POST /api/v1/auth/change-password` accepts `{"current_password":"old-password","new_password":"different-password"}`. It uses the session identity, an allowlisted Origin, and the session-bound CSRF header; extra fields cannot select another account. Success returns `200 {"status":"ok"}`, atomically updates the password hash, revokes all sessions, and clears both cookies. An incorrect current password returns `400 current_password_incorrect`; invalid new passwords return sanitized `422 invalid_request`; an unusable session returns `401 unauthenticated`; invalid Origin/CSRF returns `403 forbidden`. Failed changes preserve the password and session revocation state.
+
+`NEXUS_PASSWORD_CHANGE_MAX_ATTEMPTS` (default `5`) and `NEXUS_PASSWORD_CHANGE_WINDOW_SECONDS` (default `900`) configure a separate per-user attempt budget, shared across that user's sessions. Attempts are reserved atomically before password verification, including successful attempts. Throttling returns `429 too_many_requests` and `Retry-After`. Like other limits, counters are process-local, reset on restart, and support one API process. The release Compose stack forwards both settings.
+
+The store locks the user before the presented session and rechecks account/session validity after acquiring locks. Password replacement and revocation commit together; concurrent password changes, login, reset, disablement, and logout cannot use a revoked session to change credentials or issue a session with an outdated password. An audit event records only the action and user ID. Password changes do not send email notifications. Forgotten-password recovery is a separate flow below; operator reset remains available.
+
+### Recover a forgotten password
+
+Choose **Forgot password?** on login, or open `/forgot-password`. Submit the account email, open the emailed link, and enter and confirm a new password. Links expire after 30 minutes; requesting another link invalidates the previous one. Opening the page does not consume the link. A successful reset signs out all sessions and returns to login; it does not automatically sign in.
+
+`POST /api/v1/auth/forgot-password` accepts `{"email":"user@example.com"}` and returns `202 {"message":"If an eligible account exists, you’ll receive a password-reset link."}` for active, unknown, and disabled accounts. Only active accounts receive mail. With SMTP unconfigured, every valid email request returns `503 recovery_unavailable`. Invalid email is sanitized `422`; untrusted/missing Origin is `403`. Account lookup and best-effort SMTP delivery run after the response. A restart may interrupt delivery; request a new link if needed. Delivery failure logs contain only a fixed audit action, never the email, link, token, or SMTP error text.
+
+`POST /api/v1/auth/reset-password` accepts `{"token":"opaque-token","new_password":"different-password"}`. Success returns `200 {"status":"ok"}` and clears authentication cookies. Invalid, expired, consumed, or revoked tokens return `400 invalid_reset_token`; invalid passwords return sanitized `422` without consuming the token. Both endpoints always require a trusted Origin, including with stale session cookies, and do not require a session or CSRF token. Successful password changes, operator resets, and account disablement invalidate outstanding reset tokens.
+
+Tokens travel in the email URL fragment (`/reset-password#token=…`), are removed from browser history after capture, and are submitted only in the POST body. They are not query parameters or stored in browser storage. Reloading the page after the fragment is removed requires reopening the email link. PostgreSQL stores only a purpose-specific HMAC digest in `password_reset_tokens`; the raw token is never a database column.
+
+Configure SMTP using the settings below and migrate with `uv run alembic upgrade head`. No live email is sent by automated tests; delivery is mocked. For local manual tests, use a local SMTP capture server with `NEXUS_SMTP_TLS=plain`; plaintext SMTP is rejected in production.
+
+| Setting | Default / purpose |
+|---|---|
+| `NEXUS_SMTP_HOST` | Empty; SMTP hostname |
+| `NEXUS_SMTP_PORT` | `587` |
+| `NEXUS_SMTP_SENDER` | Empty; sender email address |
+| `NEXUS_SMTP_USERNAME`, `NEXUS_SMTP_PASSWORD` | Empty; configure both or neither |
+| `NEXUS_SMTP_TLS` | `starttls`; also `implicit` (typically port 465) or local-development `plain` |
+| `NEXUS_SMTP_TIMEOUT_SECONDS` | `10`; timeout for SMTP socket operations |
+| `NEXUS_PASSWORD_RESET_ORIGIN` | Empty; browser-reachable origin, without a path; HTTPS in production except explicitly configured loopback HTTP |
+| `NEXUS_PASSWORD_RESET_MAX_IP_REQUESTS` | `5` requests per API socket address |
+| `NEXUS_PASSWORD_RESET_MAX_EMAIL_REQUESTS` | `3` requests per normalized email |
+| `NEXUS_PASSWORD_RESET_MAX_IP_SUBMISSIONS` | `5` reset submissions per API socket address |
+| `NEXUS_PASSWORD_RESET_WINDOW_SECONDS` | `900` seconds for each independent reset budget |
+
+Reset throttling returns `429` with `Retry-After`. The counters are atomic, process-local, independent of login/registration/password-change limits, and reset on restart. The existing single-API-process requirement applies. Web proxy users share its socket-address budget; forwarded address headers are not trusted. Ensure the reset origin is in `NEXUS_TRUSTED_ORIGINS`. Mail links use this configured origin, never browser-supplied Host or forwarded headers.
+
+### Change your email
+
+Open **Account → Change email**, enter a new email and your current password. The new address immediately becomes the login and password-recovery address without email verification or SMTP delivery. Check the address carefully. This browser receives a fresh session and CSRF cookie; all previous sessions and outstanding password-reset links are revoked. Your user ID, role, password hash, and research ownership remain unchanged.
+
+`POST /api/v1/auth/change-email` accepts `{"new_email":"new@example.com","current_password":"current-password"}` with an authenticated session, trusted Origin, and session-bound CSRF header. It returns the updated `{id, email, role}` identity and replacement cookies. Account identity comes only from the session, never request fields. The email is trimmed and lowercased using existing login normalization; invalid or unchanged addresses, and addresses equal to the current password, return sanitized `422 invalid_request`. An incorrect password returns `400 current_password_incorrect`; a duplicate email, including a disabled account's address, returns `409 email_unavailable`; an unusable session returns `401`. Invalid Origin/CSRF returns `403`.
+
+Email replacement, old-session and reset-token revocation, and replacement-session creation commit atomically under user-then-session locks. Failure preserves the original state. Login checks the expected email under the account lock so a request using the old address cannot mint a session after the change commits. The audit event contains only the action and user ID.
+
+`NEXUS_EMAIL_CHANGE_MAX_ATTEMPTS` (default `5`) and `NEXUS_EMAIL_CHANGE_WINDOW_SECONDS` (default `900`) configure a separate per-user attempt budget, shared across sessions and charged before password verification. Throttling returns `429` and `Retry-After`. Counters are atomic, process-local, and reset on restart; the single-API-process requirement remains. Release Compose forwards both settings. No schema migration is needed for this feature.
+
+After success, the Account page refreshes `/auth/me` to update the shared identity and header. If that refresh is unavailable, **Refresh account details** retries only the identity request, without repeating the email mutation. An anonymous response returns to login. The feature does not verify new addresses or notify either mailbox.
 
 ## Learning notes
 

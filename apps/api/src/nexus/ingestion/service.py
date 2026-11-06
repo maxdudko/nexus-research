@@ -12,6 +12,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Literal
 
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -162,7 +163,7 @@ class IngestionService:
             if len(article) > self._settings.extracted_text_max_chars:
                 logger.warning("web rejected: text limit")
                 raise payload_too_large()
-            chunks = self._chunker.chunk_pages([(None, article)])
+            chunks = self._chunker.chunk_article(article)
             return await self._index(
                 attempt,
                 research_id=research_id,
@@ -220,6 +221,36 @@ class IngestionService:
     ) -> IngestionResult:
         async with self._sessions() as session:
             async with session.begin():
+                existing_uri = (
+                    await session.scalar(
+                        select(Source.id).where(
+                            Source.research_id == research_id,
+                            Source.uri == uri,
+                        )
+                    )
+                    if source_type == SourceType.WEB
+                    else None
+                )
+                if source_type == SourceType.WEB and existing_uri is None:
+                    identical = await session.scalar(
+                        select(Source)
+                        .where(
+                            Source.research_id == research_id,
+                            Source.type == SourceType.WEB,
+                            Source.status == SourceStatus.INDEXED,
+                            Source.content_hash == content_hash,
+                        )
+                        .with_for_update()
+                        .limit(1)
+                    )
+                    if identical is not None:
+                        return IngestionResult(
+                            source_id=identical.id,
+                            research_id=research_id,
+                            status="indexed",
+                            chunk_count=identical.chunk_count,
+                            deduplicated=True,
+                        )
                 claim = await claim_source(
                     session,
                     research_id=research_id,

@@ -167,6 +167,14 @@ async def test_a_foreign_scope_is_invisible_and_an_owned_scope_still_works(
             f"/api/v1/research/runs/{run_id}",
             headers=ada_headers,
         )
+        foreign_delete = await bea.delete(
+            f"/api/v1/research/runs/{run_id}",
+            headers=bea_headers,
+        )
+        own_after_foreign = await ada.get(
+            f"/api/v1/research/runs/{run_id}",
+            headers=ada_headers,
+        )
 
     assert pdf.status_code == web.status_code == search.status_code == 404
     assert denied.status_code == first.status_code == second.status_code == 404
@@ -174,6 +182,9 @@ async def test_a_foreign_scope_is_invisible_and_an_owned_scope_still_works(
     assert research_id not in pdf.text
     assert detail.status_code == 404
     assert detail.json() == NOT_FOUND
+    assert foreign_delete.status_code == 404
+    assert foreign_delete.json() == NOT_FOUND
+    assert own_after_foreign.status_code == 200
     assert QUESTION not in detail.text
     assert hidden.status_code == 200
     assert QUESTION not in hidden.text

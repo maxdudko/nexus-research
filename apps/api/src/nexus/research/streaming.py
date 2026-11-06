@@ -19,6 +19,8 @@ _STAGES: dict[str, StageName] = {
     "ingest": "ingestion",
     "retrieve": "retrieval",
     "evaluate": "evaluation",
+    "analyze": "analysis",
+    "verify": "verification",
     "synthesize": "synthesis",
 }
 _MESSAGES: dict[StageName, str] = {
@@ -27,6 +29,8 @@ _MESSAGES: dict[StageName, str] = {
     "ingestion": "Indexing sources",
     "retrieval": "Selecting evidence",
     "evaluation": "Checking coverage",
+    "analysis": "Analyzing evidence and contradictions",
+    "verification": "Checking report claims",
     "synthesis": "Writing the report",
 }
 

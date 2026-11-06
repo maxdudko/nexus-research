@@ -1,17 +1,17 @@
 """Short transactions for accounts and sessions."""
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from nexus.identity.errors import IdentityError
-from nexus.identity.passwords import hash_password, validate_password
+from nexus.identity.passwords import hash_password, validate_password, verify_password
 from nexus.identity.sessions import session_verdict
 from nexus.identity.tokens import normalize_email
-from nexus.models.user import QUARANTINE_USER_ID, AuthSession, User
+from nexus.models.user import QUARANTINE_USER_ID, AuthSession, PasswordResetToken, User
 from nexus.observability.logging import log_event
 
 USER_ROLES = frozenset({"user", "admin"})
@@ -146,6 +146,49 @@ async def create_user(
     return user_id
 
 
+async def register_user(
+    factory: async_sessionmaker[AsyncSession],
+    email: str,
+    password: str,
+    session_token_hash: bytes,
+    now: datetime,
+    session_expires_at: datetime,
+) -> Account:
+    """Create a regular account and its first session in one transaction."""
+    normalized = normalize_email(email)
+    validate_password(password, normalized)
+    password_hash = hash_password(password)
+    user_id = uuid.uuid4()
+    user = User(
+        id=user_id,
+        email=normalized,
+        role="user",
+        status="active",
+        password_hash=password_hash,
+        created_at=now,
+        updated_at=now,
+    )
+    try:
+        async with factory() as db, db.begin():
+            db.add(user)
+            await db.flush()
+            db.add(
+                _session_row(
+                    uuid.uuid4(), user_id, session_token_hash, now, session_expires_at
+                )
+            )
+            await db.flush()
+            account = _account(user)
+    except IntegrityError as exc:
+        # Only the email uniqueness violation is a duplicate registration.
+        original = getattr(exc.orig, "__cause__", None)
+        if getattr(original, "constraint_name", None) == "uq_users_email":
+            raise IdentityError("duplicate_email") from None
+        raise
+    _audit("register_user", user_id)
+    return account
+
+
 async def get_user_by_email(
     factory: async_sessionmaker[AsyncSession],
     email: str,
@@ -179,10 +222,130 @@ async def set_password(
         validate_password(password, user.email)
         user.password_hash = hash_password(password)
         user.updated_at = now
+        await _revoke_reset_tokens(db, user_id, now)
         if revoke:
             await _revoke_all(db, user_id, now)
     if audit:
         _audit("reset_password", user_id)
+
+
+async def change_password(
+    factory: async_sessionmaker[AsyncSession],
+    user_id: uuid.UUID,
+    session_id: uuid.UUID,
+    current_password: str,
+    new_password: str,
+    *,
+    idle_seconds: int,
+) -> None:
+    """Verify credentials and revoke all sessions under the user/session locks."""
+    async with factory() as db, db.begin():
+        user = await db.scalar(select(User).where(User.id == user_id).with_for_update())
+        auth_session = await db.scalar(
+            select(AuthSession).where(AuthSession.id == session_id).with_for_update()
+        )
+        # Use fresh time after acquiring locks: a waiting request may have expired.
+        now = datetime.now(UTC)
+        if (
+            user is None
+            or user.email is None
+            or user.password_hash is None
+            or auth_session is None
+            or auth_session.user_id != user_id
+            or session_verdict(
+                status=user.status,
+                expires_at=auth_session.expires_at,
+                last_used_at=auth_session.last_used_at,
+                revoked_at=auth_session.revoked_at,
+                now=now,
+                idle_seconds=idle_seconds,
+            )
+            != "ok"
+        ):
+            raise IdentityError("unauthenticated")
+        if not verify_password(current_password, user.password_hash):
+            raise IdentityError("current_password_incorrect")
+        validate_password(new_password, user.email)
+        if new_password == current_password:
+            raise IdentityError("password_unchanged")
+        user.password_hash = hash_password(new_password)
+        user.updated_at = now
+        await _revoke_all(db, user_id, now)
+        await _revoke_reset_tokens(db, user_id, now)
+    _audit("change_password", user_id)
+
+
+async def change_email(
+    factory: async_sessionmaker[AsyncSession],
+    user_id: uuid.UUID,
+    session_id: uuid.UUID,
+    current_password: str,
+    new_email: str,
+    replacement_token_hash: bytes,
+    *,
+    idle_seconds: int,
+    absolute_seconds: int,
+) -> Account:
+    """Change the login and rotate sessions atomically, preserving account ID."""
+    normalized = normalize_email(new_email)
+    try:
+        async with factory() as db, db.begin():
+            user = await db.scalar(
+                select(User).where(User.id == user_id).with_for_update()
+            )
+            session = await db.scalar(
+                select(AuthSession)
+                .where(AuthSession.id == session_id)
+                .with_for_update()
+            )
+            now = datetime.now(UTC)
+            if (
+                user is None
+                or user.email is None
+                or user.password_hash is None
+                or session is None
+                or session.user_id != user_id
+                or session_verdict(
+                    status=user.status,
+                    expires_at=session.expires_at,
+                    last_used_at=session.last_used_at,
+                    revoked_at=session.revoked_at,
+                    now=now,
+                    idle_seconds=idle_seconds,
+                )
+                != "ok"
+            ):
+                raise IdentityError("unauthenticated")
+            if not verify_password(current_password, user.password_hash):
+                raise IdentityError("current_password_incorrect")
+            if normalized == user.email:
+                raise IdentityError("email_unchanged")
+            if normalized == current_password:
+                raise IdentityError("password_matches_email")
+            user.email = normalized
+            user.updated_at = now
+            # Flush uniqueness before revoking anything; a failure rolls back all.
+            await db.flush()
+            await _revoke_all(db, user_id, now)
+            await _revoke_reset_tokens(db, user_id, now)
+            db.add(
+                _session_row(
+                    uuid.uuid4(),
+                    user_id,
+                    replacement_token_hash,
+                    now,
+                    expires_at(now, absolute_seconds),
+                )
+            )
+            await db.flush()
+            account = _account(user)
+    except IntegrityError as exc:
+        original = getattr(exc.orig, "__cause__", None)
+        if getattr(original, "constraint_name", None) == "uq_users_email":
+            raise IdentityError("duplicate_email") from None
+        raise
+    _audit("change_email", user_id)
+    return account
 
 
 async def disable_user(
@@ -203,6 +366,7 @@ async def disable_user(
         user.status = "disabled"
         user.updated_at = now
         await _revoke_all(db, user.id, now)
+        await _revoke_reset_tokens(db, user.id, now)
         user_id = user.id
     _audit("disable_user", user_id)
     return user_id
@@ -231,6 +395,7 @@ async def issue_session(
     expires_at: datetime,
     *,
     replacement_password_hash: str | None = None,
+    expected_email: str | None = None,
 ) -> uuid.UUID | None:
     """Insert a session only while the verified verifier is still current.
 
@@ -246,6 +411,7 @@ async def issue_session(
             user is None
             or user.status != "active"
             or user.password_hash != expected_password_hash
+            or (expected_email is not None and user.email != expected_email)
         ):
             return None
         if replacement_password_hash is not None:
@@ -436,3 +602,86 @@ async def _revoke_all(db: AsyncSession, user_id: uuid.UUID, now: datetime) -> No
         )
         .values(revoked_at=now)
     )
+
+
+async def _revoke_reset_tokens(
+    db: AsyncSession, user_id: uuid.UUID, now: datetime
+) -> None:
+    await db.execute(
+        update(PasswordResetToken)
+        .where(
+            PasswordResetToken.user_id == user_id,
+            PasswordResetToken.revoked_at.is_(None),
+            PasswordResetToken.consumed_at.is_(None),
+        )
+        .values(revoked_at=func.greatest(PasswordResetToken.created_at, now))
+    )
+
+
+async def issue_password_reset(
+    factory: async_sessionmaker[AsyncSession], email: str, digest: bytes
+) -> str | None:
+    """Replace the outstanding recovery token only for an active account."""
+    async with factory() as db, db.begin():
+        user = await db.scalar(
+            select(User).where(User.email == email).with_for_update()
+        )
+        if user is None or user.status != "active" or user.password_hash is None:
+            return None
+        now = datetime.now(UTC)
+        await _revoke_reset_tokens(db, user.id, now)
+        db.add(
+            PasswordResetToken(
+                id=uuid.uuid4(),
+                user_id=user.id,
+                token_hash=digest,
+                created_at=now,
+                expires_at=now + timedelta(minutes=30),
+                consumed_at=None,
+                revoked_at=None,
+            )
+        )
+        recipient = user.email
+    return recipient
+
+
+async def consume_password_reset(
+    factory: async_sessionmaker[AsyncSession], digest: bytes, new_password: str
+) -> None:
+    """Consume under user-then-token locks, with credentials/revocations atomic."""
+    async with factory() as db, db.begin():
+        user_id = await db.scalar(
+            select(PasswordResetToken.user_id).where(
+                PasswordResetToken.token_hash == digest
+            )
+        )
+        if user_id is None:
+            raise IdentityError("invalid_reset_token")
+        user = await db.scalar(select(User).where(User.id == user_id).with_for_update())
+        token = await db.scalar(
+            select(PasswordResetToken)
+            .where(PasswordResetToken.token_hash == digest)
+            .with_for_update()
+        )
+        now = datetime.now(UTC)
+        if (
+            user is None
+            or user.status != "active"
+            or user.email is None
+            or user.password_hash is None
+            or token is None
+            or token.revoked_at is not None
+            or token.consumed_at is not None
+            or now >= token.expires_at
+        ):
+            raise IdentityError("invalid_reset_token")
+        validate_password(new_password, user.email)
+        if verify_password(new_password, user.password_hash):
+            raise IdentityError("password_unchanged")
+        user.password_hash = hash_password(new_password)
+        user.updated_at = now
+        token.consumed_at = now
+        # Match the session-before-reset-token update order of other mutations.
+        await _revoke_all(db, user_id, now)
+        await _revoke_reset_tokens(db, user_id, now)
+    _audit("recover_password", user_id)

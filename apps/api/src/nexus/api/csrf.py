@@ -1,7 +1,7 @@
 """Reject cookie-authenticated unsafe requests that fail the origin or CSRF check.
 
-Requests without the session cookie are unchanged, so anonymous research calls
-keep working until ownership is enforced.
+Credential entry points check Origin in their handlers or dependencies. Other
+unsafe requests with a session cookie also require the session-bound CSRF token.
 """
 
 import hmac
@@ -16,7 +16,14 @@ from nexus.identity.cookies import CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE
 from nexus.identity.tokens import csrf_token
 
 _UNSAFE = frozenset({"POST", "PUT", "PATCH", "DELETE"})
-_LOGIN_PATH = "/api/v1/auth/login"
+_CREDENTIAL_PATHS = frozenset(
+    {
+        "/api/v1/auth/login",
+        "/api/v1/auth/register",
+        "/api/v1/auth/forgot-password",
+        "/api/v1/auth/reset-password",
+    }
+)
 _NO_STORE_PREFIXES = ("/api/v1/auth", "/api/v1/admin")
 
 
@@ -57,7 +64,7 @@ def _rejected(request: Request) -> bool:
         return False
     if SESSION_COOKIE not in request.cookies:
         return False
-    if request.url.path == _LOGIN_PATH:
+    if request.url.path in _CREDENTIAL_PATHS:
         return False
     settings: Settings = request.app.state.settings
     if not origin_allowed(request, settings):

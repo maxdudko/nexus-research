@@ -2,7 +2,6 @@
 
 import type { ReactNode } from "react";
 
-import { AdminNav } from "@/components/admin/admin-nav";
 import { useSessionIdentity } from "@/components/auth/session-boundary";
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
@@ -14,10 +13,5 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       </p>
     );
   }
-  return (
-    <div className="flex flex-col gap-6">
-      <AdminNav />
-      {children}
-    </div>
-  );
+  return children;
 }

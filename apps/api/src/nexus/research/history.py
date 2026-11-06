@@ -5,7 +5,7 @@ import json
 import re
 from collections.abc import Awaitable, Callable
 from datetime import datetime
-from typing import cast
+from typing import Literal, cast
 from uuid import UUID
 
 from pydantic import ValidationError
@@ -76,6 +76,8 @@ class ResearchHistory:
         now: datetime,
         *,
         owner_id: UUID,
+        depth: str = "standard",
+        applied_limits: dict[str, object] | None = None,
     ) -> None:
         """Insert one running row when this user still owns the scope."""
         moment = _aware(now)
@@ -96,6 +98,8 @@ class ResearchHistory:
                         run_id=run_id,
                         research_id=research_id,
                         question=question,
+                        depth=depth,
+                        applied_limits=applied_limits or {},
                         status="running",
                         error_code=None,
                         warnings=[],
@@ -254,6 +258,32 @@ class ResearchHistory:
                 report = _validated_report(run.status, record)
                 return RunDetailResponse(run=_detail(run), report=report)
 
+    async def delete_run(
+        self,
+        run_id: UUID,
+        *,
+        owner_id: UUID,
+    ) -> bool:
+        """Remove one owned run and its report. Checkpoints are not touched."""
+        async with self._sessions() as session:
+            async with session.begin():
+                run = await session.scalar(
+                    select(ResearchRun)
+                    .join(
+                        ResearchScope,
+                        ResearchScope.research_id == ResearchRun.research_id,
+                    )
+                    .where(
+                        ResearchRun.run_id == run_id,
+                        ResearchScope.owner_user_id == owner_id,
+                    )
+                    .with_for_update()
+                )
+                if run is None:
+                    return False
+                await session.delete(run)
+        return True
+
 
 def sanitize_warnings(warnings: list[str]) -> list[str]:
     """Keep a bounded list of warning codes. Free text is dropped."""
@@ -403,6 +433,8 @@ def _detail(run: ResearchRun) -> RunDetail:
         error_code=run.error_code,
         warnings=_warning_list(run.warnings),
         usage=usage,
+        depth=cast(Literal["standard", "deep"], run.depth),
+        applied_limits=run.applied_limits,
         created_at=run.created_at,
         started_at=run.started_at,
         finished_at=run.finished_at,

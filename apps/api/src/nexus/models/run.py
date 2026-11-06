@@ -40,6 +40,7 @@ class ResearchRun(Base):
 
     __tablename__ = "research_runs"
     __table_args__ = (
+        CheckConstraint("depth IN ('standard', 'deep')", name="ck_research_runs_depth"),
         Index(
             "ix_research_runs_created_at_run_id",
             desc("created_at"),
@@ -80,6 +81,10 @@ class ResearchRun(Base):
             name="fk_research_runs_research_id",
             ondelete="RESTRICT",
         ),
+    )
+    depth: Mapped[str] = mapped_column(Text, server_default="standard")
+    applied_limits: Mapped[dict[str, object]] = mapped_column(
+        JSONB, server_default=text("'{}'::jsonb")
     )
     question: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text)

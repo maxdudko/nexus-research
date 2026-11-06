@@ -5,13 +5,15 @@ import { usePathname, useRouter } from "next/navigation";
 import { useContext, useEffect, useRef, useState, useSyncExternalStore, type MouseEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
+import { AdminNav } from "@/components/admin/admin-nav";
 import { ThemeToggle } from "@/components/theme-toggle/theme-toggle";
 import { ResearchActivityContext } from "@/components/research/research-activity";
+import { Button } from "@/components/ui/button";
 
 const WIDE_QUERY = "(min-width: 768px)";
 
 const NAV = [
-  { href: "/", label: "Dashboard" },
+  { href: "/dashboard", label: "Dashboard" },
   { href: "/research/new", label: "New research" },
   { href: "/history", label: "History" },
 ] as const;
@@ -163,103 +165,118 @@ export function AppHeader({
   }
 
   const showNav = wide || open;
-
   const logoutCopy = pending?.kind === "logout";
+  const items = navigation(role);
 
   return (
-    <header className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <Link href="/" className="text-lg font-semibold" onClick={(event) => guard(event, "/")}>
+    <>
+      <header className="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-x-6 gap-y-3 border-b border-line bg-surface px-4 py-3 md:col-span-2 md:h-16 md:flex-nowrap md:px-6 md:py-0">
+        <Link href="/dashboard" className="nexus-brand" aria-label="Nexus Research home">
+          <span className="nexus-mark" aria-hidden="true">n<span>↗</span></span>
           Nexus Research
         </Link>
         {wide ? null : (
-          <button
+          <Button
             ref={menuButtonRef}
-            type="button"
-            className="cursor-pointer rounded border border-line-strong px-4 py-2"
+            variant="secondary"
             aria-expanded={open}
             aria-controls="app-nav"
             onClick={() => setOpenPath(open ? null : pathname)}
           >
             Menu
-          </button>
+          </Button>
         )}
-        <div className="flex flex-wrap items-center gap-3">
-          <p className="text-sm text-muted">
-            Signed in as <span className="text-ink">{email}</span>
-          </p>
+        <div className="flex w-full items-center justify-end gap-2 md:ml-auto md:w-auto">
+          <ThemeToggle />
+          <Link
+            href="/account"
+            title={`Account (${email})`}
+            aria-label="Account"
+            aria-current={pathname === "/account" ? "page" : undefined}
+            className="rounded-lg p-2 text-ink hover:bg-nav-active"
+            onClick={(event) => guard(event, "/account")}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="size-5">
+              <circle cx="12" cy="8" r="4" />
+              <path d="M4 21v-2a8 8 0 0 1 16 0v2" />
+            </svg>
+          </Link>
           <button
             ref={logoutRef}
             type="button"
-            className="cursor-pointer rounded border border-line-strong px-4 py-2"
+            title="Log out"
+            aria-label="Log out"
+            className="cursor-pointer rounded-lg p-2 text-ink hover:bg-nav-active"
             onClick={requestLogout}
           >
-            Log out
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="size-5">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M14 17l5-5-5-5M8 12h13" />
+            </svg>
           </button>
-          <ThemeToggle />
         </div>
-      </div>
+        {logoutError ? (
+          <p role="alert" className="surface absolute top-full right-4 left-4 mt-2 p-3 text-sm text-danger md:left-auto md:max-w-sm">
+            {logoutError}
+          </p>
+        ) : null}
+      </header>
       {showNav ? (
         <nav
           id="app-nav"
           aria-label="Primary"
-          className={wide ? "flex flex-row gap-4" : "flex flex-col gap-2"}
+          className={wide ? "sticky top-16 flex h-[calc(100dvh-4rem)] flex-col gap-1 overflow-y-auto border-r border-line bg-surface px-3 py-4" : "flex flex-col gap-1 border-b border-line bg-surface px-3 py-3"}
         >
-          {navigation(role).map((item, index) => (
-            <Link
-              key={item.href}
-              ref={index === 0 && !wide ? firstLinkRef : undefined}
-              href={item.href}
-              aria-current={pathname === item.href ? "page" : undefined}
-              className="underline"
-              onClick={(event) => guard(event, item.href)}
-            >
-              {item.label}
-            </Link>
-          ))}
+          {items.map((item, index) => {
+            const current = pathname === item.href;
+            return (
+              <Link
+                key={item.href}
+                ref={index === 0 && !wide ? firstLinkRef : undefined}
+                href={item.href}
+                aria-current={current ? "page" : undefined}
+                className="nav-link"
+                onClick={(event) => guard(event, item.href)}
+              >
+                {item.label}
+              </Link>
+            );
+          })}
+          {role === "admin" ? <AdminNav onNavigate={guard} /> : null}
         </nav>
-      ) : null}
-      {logoutError ? (
-        <p role="alert" className="text-sm text-danger">
-          {logoutError}
-        </p>
       ) : null}
       {pending
         ? createPortal(
-            <div
-              ref={dialogRef}
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="leave-title"
-              aria-describedby="leave-body"
-              className="flex flex-col gap-3 rounded border border-line bg-surface p-4"
-            >
-              <h2 id="leave-title" className="text-lg font-semibold">
-                {logoutCopy ? "Log out?" : "Leave this research?"}
-              </h2>
-              <p id="leave-body">
-                {logoutCopy
-                  ? "Logging out stops this request. It does not keep running in the background."
-                  : "Leaving stops this request. It does not keep running in the background."}
-              </p>
-              <div className="flex flex-wrap gap-3">
-                <button ref={stayRef} type="button" className="cursor-pointer rounded border border-line-strong px-4 py-2" onClick={stay}>
-                  Stay
-                </button>
-                <button
-                  ref={leaveRef}
-                  type="button"
-                  className="cursor-pointer rounded bg-primary px-4 py-2 text-on-primary"
-                  onClick={leave}
-                >
-                  {logoutCopy ? "Log out" : "Leave"}
-                </button>
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay p-4">
+              <div
+                ref={dialogRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="leave-title"
+                aria-describedby="leave-body"
+                className="surface flex w-full max-w-md flex-col gap-4 p-5 shadow-[0_18px_50px_rgb(20_20_19/0.18)]"
+              >
+                <h2 id="leave-title" className="text-lg font-semibold tracking-tight">
+                  {logoutCopy ? "Log out?" : "Leave this research?"}
+                </h2>
+                <p id="leave-body">
+                  {logoutCopy
+                    ? "Logging out stops this request. It does not keep running in the background."
+                    : "Leaving stops this request. It does not keep running in the background."}
+                </p>
+                <div className="flex flex-wrap gap-3">
+                  <Button ref={stayRef} variant="secondary" onClick={stay}>
+                    Stay
+                  </Button>
+                  <Button ref={leaveRef} variant="primary" onClick={leave}>
+                    {logoutCopy ? "Log out" : "Leave"}
+                  </Button>
+                </div>
               </div>
             </div>,
             document.body,
           )
         : null}
-    </header>
+    </>
   );
 }
 
@@ -279,9 +296,11 @@ export function AuthenticatedFrame({
   children: ReactNode;
 }) {
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-4 py-8">
+    <div className="min-h-dvh bg-canvas md:grid md:grid-cols-[15rem_minmax(0,1fr)] md:grid-rows-[4rem_1fr]">
       <AppHeader email={email} role={role} onLogout={onLogout} logoutError={logoutError} />
-      <main key={userId}>{children}</main>
+      <main key={userId} className="mx-auto min-w-0 w-full max-w-5xl px-4 py-8 md:px-8">
+        {children}
+      </main>
     </div>
   );
 }

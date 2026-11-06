@@ -166,6 +166,8 @@ async def _fetch_public_page(
             transport=pinned,
             trust_env=False,
             follow_redirects=False,
+            # _decompress deliberately supports only these bounded codecs.
+            headers={"Accept-Encoding": "gzip, deflate"},
             timeout=httpx.Timeout(timeout_seconds),
         ) as client:
             try:

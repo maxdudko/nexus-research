@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import type { SessionPhase, SessionState } from "@/lib/research-session";
+import { StatusChip, statusTone } from "@/components/ui/status-chip";
 
 const STATUS_LABEL: Record<SessionPhase, string> = {
   idle: "Ready",
@@ -39,12 +40,15 @@ export function ResearchProgress({ state }: { state: SessionState }) {
   }, [active]);
 
   return (
-    <section aria-labelledby="progress-heading" aria-busy={active} className="flex flex-col gap-3">
-      <h2 id="progress-heading" className="text-lg font-semibold">
+    <section aria-labelledby="progress-heading" aria-busy={active} className="surface flex flex-col gap-3 p-5">
+      <h2 id="progress-heading" className="text-lg font-semibold tracking-tight">
         Progress
       </h2>
       <p>
-        Status: <span data-status={state.phase}>{STATUS_LABEL[state.phase]}</span>
+        Status:{" "}
+        <StatusChip tone={statusTone(state.phase)} data-status={state.phase}>
+          {STATUS_LABEL[state.phase]}
+        </StatusChip>
       </p>
       {state.runId ? <p>Run {state.runId}</p> : null}
       {active && state.startedAt !== null ? (
@@ -67,9 +71,9 @@ export function ResearchProgress({ state }: { state: SessionState }) {
           {state.errorMessage}
         </p>
       ) : null}
-      <ol aria-live="polite" className="flex list-decimal flex-col gap-2 pl-5">
+      <ol aria-live="polite" className="flex list-none flex-col gap-2 p-0">
         {state.stages.map((stage, index) => (
-          <li key={`${stage.stage}-${stage.iteration}-${index}`}>
+          <li key={`${stage.stage}-${stage.iteration}-${index}`} className="border-l-2 border-line-strong py-1 pl-3 text-sm">
             {stage.message}
             {` · ${stage.counts.pages_indexed} pages indexed`}
           </li>

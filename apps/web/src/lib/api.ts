@@ -102,6 +102,20 @@ export async function getRun(
   return body as unknown as RunDetailResponse;
 }
 
+export async function deleteRun(
+  runId: string,
+  fetchImpl: FetchLike = fetch,
+): Promise<void> {
+  const response = await fetchImpl(`/api/v1/research/runs/${encodeURIComponent(runId)}`, {
+    method: "DELETE",
+    headers: csrfHeaders(),
+  });
+  const body = await readJson(response);
+  if (!isRecord(body) || body.status !== "ok") {
+    throw new ApiError("request_failed", "The request could not be completed.", response.status);
+  }
+}
+
 export async function uploadPdf(
   researchId: string,
   file: File,

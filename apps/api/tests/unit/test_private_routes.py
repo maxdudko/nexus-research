@@ -33,6 +33,12 @@ UNAUTHENTICATED = {
             None,
         ),
         (
+            "delete",
+            f"/api/v1/research/runs/{RESEARCH}",
+            None,
+            None,
+        ),
+        (
             "post",
             "/api/v1/evidence/web",
             {"research_id": RESEARCH, "url": "https://example.com/a"},

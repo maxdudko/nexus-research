@@ -32,6 +32,33 @@ class OpenAICoverageEvaluator:
         self._model = model
 
     async def evaluate(self, state: ResearchState) -> EvaluationOutcome:
+        if state.get("analysis") is not None:
+            from nexus.schemas.analysis import EvidenceAnalysis
+
+            analysis = EvidenceAnalysis.model_validate(state["analysis"])
+            return EvaluationOutcome(
+                coverage={
+                    "sufficient": not analysis.missing_task_ids,
+                    "covered_task_ids": analysis.covered_task_ids,
+                    "missing_task_ids": analysis.missing_task_ids,
+                    "gaps": analysis.gaps,
+                    "uncertainty": "",
+                },
+                llm_calls=0,
+            )
+        if state.get("applied_limits"):
+            # Production must not declare coverage from an unanalysed snapshot.
+            plan = _plan(state)
+            return EvaluationOutcome(
+                coverage={
+                    "sufficient": False,
+                    "covered_task_ids": [],
+                    "missing_task_ids": task_labels(len(plan.tasks)),
+                    "gaps": ["Evidence analysis unavailable."],
+                    "uncertainty": "Analysis failed.",
+                },
+                llm_calls=0,
+            )
         plan = _plan(state)
         ids = task_labels(len(plan.tasks))
         passages = _passages(state)

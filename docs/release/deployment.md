@@ -1,6 +1,6 @@
 # Deployment
 
-This guide covers `v0.1.0`. The release stack is `compose.release.yml`: Web, API, PostgreSQL, Qdrant and a one-shot `init` service on one host, in the Compose project `nexus-release`. Only Web is published, on `127.0.0.1`. There is no authentication and no per-user isolation. `research_id` scopes evidence; it does not authorize anyone.
+This guide covers the `0.2.0` Alpha candidate. The release stack is `compose.release.yml`: Web, API, PostgreSQL, Qdrant and a one-shot `init` service on one host, in the Compose project `nexus-release`. Only Web is published, on `127.0.0.1`. The API authenticates research requests and checks ownership in PostgreSQL before retrieving evidence. Limit access to the host because anyone reaching Web can self-register.
 
 Every command below runs from the repository root. To shorten them:
 
@@ -26,6 +26,7 @@ Local Python, uv and Node are not needed; both images are built inside Docker fr
 cp .env.release.example .env.release
 chmod 600 .env.release
 openssl rand -hex 32   # paste the output into POSTGRES_PASSWORD
+openssl rand -hex 32   # use this separate value for NEXUS_SESSION_PEPPER
 ```
 
 Then edit `.env.release`. The file has two kinds of variables:
@@ -33,16 +34,24 @@ Then edit `.env.release`. The file has two kinds of variables:
 | Kind | Variables | Who reads them |
 |---|---|---|
 | Compose interpolation | `POSTGRES_PASSWORD` (required), `POSTGRES_USER`, `POSTGRES_DB`, `NEXUS_WEB_PORT`, `NEXUS_VERSION` | Docker Compose, while rendering `compose.release.yml`. They configure the PostgreSQL container, build `NEXUS_DATABASE_URL`, choose the host port and tag the images. |
+| Session secret | `NEXUS_SESSION_PEPPER` (required) | `init` and the API. At least 32 bytes and different from `POSTGRES_PASSWORD`. Changing it signs every user out. Keep it with the backups: an Alpha restore needs the same pepper. |
 | API runtime | `NEXUS_OPENAI_API_KEY`, `NEXUS_TAVILY_API_KEY`, the optional `NEXUS_*` tunables, `NEXUS_OTEL_*`, `NEXUS_LOG_FORMAT`, `NEXUS_TAVILY_USD_PER_SEARCH` | The API container only. Each name is listed explicitly in the `api` service; a name that is not listed there never reaches the container. |
+| Account limits | `NEXUS_REGISTRATION_MAX_IP_ATTEMPTS` / `_WINDOW_SECONDS` (5 per 900 s), `NEXUS_PASSWORD_CHANGE_MAX_ATTEMPTS` / `_WINDOW_SECONDS` (5 per 900 s), `NEXUS_EMAIL_CHANGE_MAX_ATTEMPTS` / `_WINDOW_SECONDS` (5 per 900 s) | The API. Process-local budgets; registration counts the API socket address, which is the Web container for every browser. |
+| Password recovery | `NEXUS_SMTP_*`, `NEXUS_PASSWORD_RESET_*` | The API. See [Optional password recovery email](#optional-password-recovery-email). |
 
-`compose.release.yml` sets `NEXUS_ENVIRONMENT=production`, `NEXUS_DATABASE_URL` and `NEXUS_QDRANT_URL=http://qdrant:6333` itself. Do not put them in `.env.release`. Web receives only `API_PROXY_TARGET=http://api:8000`. No variable uses the `NEXT_PUBLIC_` prefix, so nothing from this file is compiled into the browser bundle.
+`compose.release.yml` sets these itself. Do not put them in `.env.release`:
+
+- `NEXUS_ENVIRONMENT=production`, `NEXUS_DATABASE_URL` and `NEXUS_QDRANT_URL=http://qdrant:6333`.
+- `NEXUS_TRUSTED_ORIGINS=http://127.0.0.1:${NEXUS_WEB_PORT}`. It is the only allowed browser `Origin`.
+- `NEXUS_COOKIE_SECURE=false` and `NEXUS_COOKIE_INSECURE_LOOPBACK=true`. The stack serves plain HTTP on loopback, so cookies are not marked Secure. Web receives only `API_PROXY_TARGET=http://api:8000`. No variable uses the `NEXT_PUBLIC_` prefix, so nothing from this file is compiled into the browser bundle.
 
 Rules that the stack enforces:
 
-- A missing `POSTGRES_PASSWORD` stops `docker compose config` and `up` with `set POSTGRES_PASSWORD in .env.release`.
+- A missing `POSTGRES_PASSWORD` stops `docker compose config` and `up` with `set POSTGRES_PASSWORD in .env.release`. A missing `NEXUS_SESSION_PEPPER` stops them the same way.
 - In production the API refuses the development password `nexus`. `init` exits 1 and the API does not start.
 - Use URL-safe characters for the password. It is embedded in `NEXUS_DATABASE_URL`. `openssl rand -hex 32` is safe.
-- A tunable left commented keeps the API default. An empty value (`NEXUS_GRAPH_DEADLINE_SECONDS=`) is invalid and stops the API with the variable name. The keys, `NEXUS_OTEL_ENDPOINT` and `NEXUS_TAVILY_USD_PER_SEARCH` are the exceptions: empty means unset.
+- A tunable left commented keeps the API default. An empty value (`NEXUS_GRAPH_DEADLINE_SECONDS=`) is invalid and stops the API with the variable name. The keys, `NEXUS_OTEL_ENDPOINT` and `NEXUS_TAVILY_USD_PER_SEARCH` are the exceptions: empty means unset. The account-limit, SMTP and reset variables have Compose defaults, so an empty value falls back to that default instead of failing.
+- The `NEXUS_GRAPH_*` tunables are validated but do not change research runs. Standard and Deep use fixed server profiles ([limitations](limitations.md#request-scoped-execution)).
 - Without provider keys the stack starts and is healthy, and research routes return 503 `provider_not_configured`.
 
 `NEXUS_RAG_COLLECTION` and the chunking settings are not passed to the API container, so the release stack always uses the defaults (`nexus_evidence_v1`, 800-token chunks with 120 overlap).
@@ -76,7 +85,7 @@ In production the API serves neither `/docs` nor `/openapi.json`.
 
 PostgreSQL holds two schemas with different owners:
 
-- **Domain schema**, owned by Alembic: `users`, `auth_sessions`, `research_scopes`, `sources`, `research_runs`, `research_reports` and `alembic_version`. Head is `e3b7d91c4a20`, after `c8e4a1b27d05`.
+- **Domain schema**, owned by Alembic: `users`, `auth_sessions`, `research_scopes`, `sources`, `research_runs`, `research_reports` and `alembic_version`. The Alpha head is `da73e1b94026`. It includes evaluation history, password recovery and research-depth metadata.
 - **LangGraph checkpoint tables**, created by `python -m nexus.research.checkpoint`. Alembic does not manage them.
 
 The `init` service is built from the API image and runs both, in order, on every `up`:
@@ -134,7 +143,7 @@ The Jaeger UI is `http://127.0.0.1:16686`. Traces stay in Jaeger memory. An expo
 
 ## Private remote access
 
-Do not publish port 3000 on a public interface. Every research request spends the operator's OpenAI and Tavily credit, and the history API lists every run.
+Do not publish port 3000 on a public interface. Research requests spend the operator's OpenAI and Tavily credit. Anyone with access to the application can create a regular account through `/register`; history and research remain scoped to that account.
 
 To use the stack from another machine, keep the loopback binding and use one of:
 
@@ -148,9 +157,9 @@ HTTPS on its own is not access control. A TLS reverse proxy without authenticati
 
 The UI uses `POST /api/v1/research/stream`. Headers are sent immediately and a `: ping` comment follows every `NEXUS_STREAM_HEARTBEAT_SECONDS` (15 by default), so the stream stays active for the whole run.
 
-- **A reverse proxy in front of Web** needs a read timeout above `NEXUS_GRAPH_DEADLINE_SECONDS` plus 5 seconds; with the default 180, 200 is safe. Disable response buffering for `text/event-stream`. The API already sends `X-Accel-Buffering: no` and `Cache-Control: no-cache, no-transform`.
+- **A reverse proxy in front of Web** needs a read timeout above the selected profile deadline plus 5 seconds; use at least 620 seconds to support Deep mode. Disable response buffering for `text/event-stream`. The API already sends `X-Accel-Buffering: no` and `Cache-Control: no-cache, no-transform`.
 - **The Web proxy itself** uses Node `fetch`, which waits at most 300 seconds for response headers and 300 seconds between body chunks. Heartbeats keep the stream inside both limits.
-- **`POST /api/v1/research/run`** returns headers only after the graph finishes. Through the Web proxy it fails once a run exceeds about 290 seconds. Keep `NEXUS_GRAPH_DEADLINE_SECONDS` at 280 or lower if you call `/run` through port 3000. The UI does not use `/run`.
+- **`POST /api/v1/research/run`** returns headers only after the graph finishes. Through the Web proxy it fails once a run exceeds about 290 seconds. Use Standard mode for `/run` through port 3000. Deep runs through Web must use `/stream`, as the UI and benchmark harness do. Named profiles choose their limits independently of legacy `NEXUS_GRAPH_*` overrides.
 
 ## Secrets
 
@@ -191,7 +200,7 @@ An upgrade replaces the images and reruns `init` against the existing volumes. I
 1. Let running research finish, or accept that it will be interrupted.
 2. Take a backup as described in [Backups](operations.md#backups). Restoring that backup is the only rollback path if a migration cannot be undone.
 3. Read [`CHANGELOG.md`](../../CHANGELOG.md) for the target version, including new or renamed variables in `.env.release.example`.
-4. Fetch the reviewed revision, for example `git fetch --tags && git checkout v0.1.0`.
+4. Check out the exact candidate SHA recorded for the pilot. After publication, use the reviewed release tag.
 5. Set `NEXUS_VERSION` in `.env.release` to the new version so the old images keep their tag.
 6. Rebuild and restart:
 
@@ -204,7 +213,7 @@ An upgrade replaces the images and reruns `init` against the existing volumes. I
 
 7. Confirm both `init -` lines are present and readiness is 200. If `init` failed, stop here and follow [Failed initialization](operations.md#failed-initialization).
 
-`v0.1.0` is the first release, so there is no earlier release stack to upgrade from. A development database from `docker-compose.yml` is a different project with different volumes and is not migrated into the release stack.
+For an upgrade from `v0.1.0`, keep the same database credentials, set a persistent random session pepper and verify legacy scope quarantine and adoption as described in [operations](operations.md). A development database from `docker-compose.yml` is a different project with different volumes and is not migrated into the release stack.
 
 ## Shutdown
 
@@ -222,3 +231,17 @@ docker compose --env-file .env.release -f compose.release.yml down -v   # delete
 ```
 
 `down -v` deletes both volumes: run history, reports, checkpoints and every indexed passage. Original PDFs were never stored and cannot be recovered from anywhere.
+
+## Optional password recovery email
+
+Password recovery is available at `/forgot-password`, linked from login, after configuring SMTP in `.env.release`. Set `NEXUS_SMTP_HOST`, `NEXUS_SMTP_SENDER`, and `NEXUS_PASSWORD_RESET_ORIGIN`; configure `NEXUS_SMTP_USERNAME` and `NEXUS_SMTP_PASSWORD` together if authentication is required. Defaults are port `587`, `NEXUS_SMTP_TLS=starttls`, and a 10-second socket timeout. Use `implicit` with port `465` for implicit TLS. Plaintext SMTP is rejected in production. Keep credentials private with the rest of `.env.release`.
+
+The reset origin must be an origin without a trailing slash or path and reachable from the user's browser. In this stack use `http://127.0.0.1:<NEXUS_WEB_PORT>`, the origin Compose sets as `NEXUS_TRUSTED_ORIGINS`; the reset page submits from that origin. HTTPS is required in production, except the existing explicit loopback HTTP configuration. For this loopback-only release stack, `http://127.0.0.1:3000` works only when the link is opened on the machine or through a matching private tunnel. This feature does not publish additional ports or change private deployment requirements.
+
+Rebuild and start the stack normally; init applies migration `a4d9c2f78106`, which adds `password_reset_tokens`. The API receives the SMTP settings; Web and init do not receive mail credentials. Configure reset limits with `NEXUS_PASSWORD_RESET_MAX_IP_REQUESTS` (5), `NEXUS_PASSWORD_RESET_MAX_EMAIL_REQUESTS` (3), `NEXUS_PASSWORD_RESET_MAX_IP_SUBMISSIONS` (5), and `NEXUS_PASSWORD_RESET_WINDOW_SECONDS` (900).
+
+If SMTP is unconfigured, all reset requests return a generic service-unavailable error. With SMTP configured, requests receive the same acknowledgement whether or not the account exists. Delivery is best-effort after the response, without a durable queue or automatic retries. Check for the fixed `password_reset_delivery_failed` audit action when troubleshooting; logs deliberately omit transport exception text, recipients, credentials, and reset links. Users may request another link after checking spam and delivery settings; only the latest link works, for 30 minutes. Password reset revokes all sessions. Operator CLI reset remains available when mail is unavailable.
+
+## Email changes
+
+Account supports immediate email changes after password confirmation. SMTP is not needed. This browser receives a replacement session; other sessions and existing recovery links are revoked. The new address is not verified. Set `NEXUS_EMAIL_CHANGE_MAX_ATTEMPTS` (default `5`) and `NEXUS_EMAIL_CHANGE_WINDOW_SECONDS` (default `900`) in `.env.release` to configure the per-user budget. This feature requires no additional migration.

@@ -33,6 +33,12 @@ class EvidenceRef(BaseModel):
     research_id: str
     url: str | None = None
     page_number: int | None = Field(default=None, ge=1)
+    title: str | None = None
+    domain: str | None = None
+    published_at: str | None = None
+    retrieved_at: str | None = None
+    query: str | None = None
+    excerpt: str | None = Field(default=None, max_length=2000)
 
     @field_validator("evidence_id")
     @classmethod
@@ -68,13 +74,65 @@ class ModelReport(BaseModel):
     limitations: list[str]
 
 
+class ReportBlock(BaseModel):
+    """A short cited paragraph or table; kind distinguishes facts and inference."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["fact", "inference", "context", "table"]
+    text: str = Field(max_length=4000)
+    citations: list[str] = Field(max_length=50)
+    columns: list[str] = Field(max_length=12)
+    rows: list[list[str]] = Field(max_length=30)
+
+    @model_validator(mode="after")
+    def valid_block(self) -> Self:
+        if self.kind == "table":
+            if (
+                not self.columns
+                or not self.rows
+                or any(len(r) != len(self.columns) for r in self.rows)
+            ):
+                raise ValueError("table requires consistent columns and rows")
+        elif not self.text.strip() or self.columns or self.rows:
+            raise ValueError("paragraph requires text without table fields")
+        if self.kind != "context" and not self.citations:
+            raise ValueError("factual and analytical blocks require citations")
+        return self
+
+
+class ModelSectionV2(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    heading: str = Field(min_length=1, max_length=200)
+    task_ids: list[str] = Field(default_factory=list, max_length=3)
+    blocks: list[ReportBlock] = Field(min_length=1, max_length=20)
+
+
+class ModelReportV2(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1, max_length=200)
+    summary_blocks: list[ReportBlock] = Field(min_length=1, max_length=4)
+    sections: list[ModelSectionV2] = Field(min_length=1, max_length=20)
+    limitations: list[str] = Field(max_length=20)
+
+    @model_validator(mode="after")
+    def bounded_total(self) -> Self:
+        if len(self.summary_blocks) + sum(len(s.blocks) for s in self.sections) > 120:
+            raise ValueError("too many report blocks")
+        return self
+
+
 class ReportSection(BaseModel):
     """One section. Citations must name evidence selected for this run."""
 
     model_config = ConfigDict(extra="forbid")
 
     heading: str = Field(min_length=1, max_length=200)
-    content: str = Field(min_length=1, max_length=4000)
+    task_ids: list[str] = Field(default_factory=list, max_length=3)
+    content: str = Field(min_length=1, max_length=30000)
+    blocks: list[ReportBlock] = Field(default_factory=list, max_length=20)
     citations: list[str] = Field(default_factory=list, max_length=50)
 
 
@@ -87,8 +145,12 @@ class ResearchReport(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    format_version: Literal[1, 2] = 1
+    summary_blocks: list[ReportBlock] = Field(default_factory=list, max_length=10)
+    verification: Literal["not_checked", "passed", "incomplete"] = "not_checked"
+    body_gaps: list[str] = Field(default_factory=list, max_length=3)
     title: str = Field(min_length=1, max_length=200)
-    summary: str = Field(min_length=1, max_length=2000)
+    summary: str = Field(min_length=1, max_length=12000)
     sections: list[ReportSection] = Field(default_factory=list, max_length=20)
     limitations: list[str] = Field(default_factory=list, max_length=20)
     status: ReportStatus
@@ -99,10 +161,22 @@ class ResearchReport(BaseModel):
         known = {source.evidence_id for source in self.sources}
         if len(known) != len(self.sources):
             raise ValueError("evidence ids must be unique")
+        block_citations = [c for b in self.summary_blocks for c in b.citations]
         for section in self.sections:
+            block_citations.extend(c for b in section.blocks for c in b.citations)
             for citation in section.citations:
                 if citation not in known:
                     raise ValueError("citation does not match selected evidence")
+        if any(c not in known for c in block_citations):
+            raise ValueError("block citation does not match selected evidence")
+        if (
+            self.format_version == 2
+            and self.status == "completed"
+            and (self.verification != "passed" or self.body_gaps)
+        ):
+            raise ValueError(
+                "completed v2 report requires verification and a full body"
+            )
         if self.status == "insufficient_evidence" and (
             self.sources or any(section.citations for section in self.sections)
         ):

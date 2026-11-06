@@ -1,13 +1,14 @@
 """Deterministic budgets for the research graph.
 
-Discovery spends up to three searches and four model calls inside one
-invocation. A round is allowed only when that worst case still fits, including
-a reserve for later evaluation and synthesis. The actual counts on
-DiscoveryResult are what get recorded.
+Production discovery executes at most three searches and one ranking call.
+The standalone legacy discovery endpoint retains its four-call tool loop.
+Each graph profile reserves calls for analysis, writing and support checks;
+only reported actual counts (or conservative ceilings on failure) are charged.
 """
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, replace
+from datetime import datetime
 
 from nexus.core.config import Settings
 from nexus.research.discovery import MAX_LLM_CALLS, MAX_SEARCH_CALLS
@@ -20,13 +21,13 @@ from nexus.research.state import (
     copy_usage,
 )
 from nexus.schemas.coverage import task_label
-from nexus.schemas.research import QUERY_MAX_LENGTH, ResearchPlan
+from nexus.schemas.research import QUERY_MAX_LENGTH, ResearchDepth, ResearchPlan
 from nexus.tools.web_search import normalize_url
 
 PLANNER_LLM_CALLS = 1
-EVALUATION_LLM_RESERVE = 2
+EVALUATION_LLM_RESERVE = 4
 SYNTHESIS_LLM_RESERVE = 2
-_MODEL_RESERVE = EVALUATION_LLM_RESERVE + SYNTHESIS_LLM_RESERVE
+QUALITY_LLM_RESERVE = 4
 
 
 @dataclass(frozen=True)
@@ -42,16 +43,62 @@ class BudgetLimits:
     excerpt_chars: int
     discovery_search_ceiling: int
     discovery_llm_ceiling: int
+    depth: ResearchDepth = "standard"
+    finish_reserve_seconds: float = 45
+    max_synthesis_calls: int = SYNTHESIS_LLM_RESERVE
+
+    def snapshot(self) -> dict[str, object]:
+        return asdict(self)
+
+
+def profile_limits(settings: Settings, depth: ResearchDepth) -> BudgetLimits:
+    # Named profiles are server policy, independent of legacy graph overrides.
+    del settings
+    base = BudgetLimits(
+        max_iterations=2,
+        max_search_calls=6,
+        max_llm_calls=20,
+        max_web_pages=8,
+        max_passages=24,
+        deadline_seconds=180,
+        excerpt_chars=2000,
+        discovery_search_ceiling=3,
+        max_synthesis_calls=5,
+        discovery_llm_ceiling=1,
+    )
+    if depth == "deep":
+        return replace(
+            base,
+            depth=depth,
+            max_iterations=4,
+            max_search_calls=12,
+            max_llm_calls=40,
+            max_web_pages=20,
+            max_passages=50,
+            deadline_seconds=600,
+            excerpt_chars=2000,
+            discovery_llm_ceiling=1,
+            finish_reserve_seconds=150,
+        )
+    return replace(
+        base,
+        depth=depth,
+        max_iterations=2,
+        max_search_calls=6,
+        max_llm_calls=20,
+        max_web_pages=8,
+        max_passages=24,
+        deadline_seconds=180,
+        excerpt_chars=2000,
+        discovery_llm_ceiling=1,
+        finish_reserve_seconds=60,
+    )
 
 
 def limits_from_settings(settings: Settings) -> BudgetLimits:
     """Fail closed when the configured caps cannot hold the nested worst case."""
     search_floor = settings.graph_max_iterations * MAX_SEARCH_CALLS
-    llm_floor = (
-        PLANNER_LLM_CALLS
-        + settings.graph_max_iterations * MAX_LLM_CALLS
-        + _MODEL_RESERVE
-    )
+    llm_floor = PLANNER_LLM_CALLS + settings.graph_max_iterations * MAX_LLM_CALLS + 4
     if settings.graph_max_search_calls < search_floor:
         raise ValueError("graph_max_search_calls cannot cover nested discovery")
     if settings.graph_max_llm_calls < llm_floor:
@@ -82,7 +129,9 @@ def can_discover(usage: UsageSnapshot, limits: BudgetLimits, iteration: int) -> 
     remaining_search = limits.max_search_calls - usage["search_calls"]
     if remaining_search < limits.discovery_search_ceiling:
         return False
-    remaining_llm = limits.max_llm_calls - usage["llm_calls"] - _held_reserve(usage)
+    remaining_llm = (
+        limits.max_llm_calls - usage["llm_calls"] - _held_reserve(usage, limits)
+    )
     return remaining_llm >= limits.discovery_llm_ceiling
 
 
@@ -114,7 +163,7 @@ def charge_synthesis(
 ) -> UsageSnapshot:
     """Count logical synthesis calls, including one malformed retry."""
     calls = _count(calls, "synthesis calls")
-    if usage["synthesis_calls"] + calls > SYNTHESIS_LLM_RESERVE:
+    if usage["synthesis_calls"] + calls > limits.max_synthesis_calls:
         raise ValueError("synthesis budget exceeded")
     updated = _charge_llm(usage, limits, calls)
     updated["synthesis_calls"] += calls
@@ -125,15 +174,15 @@ def evaluation_call_allowed(usage: UsageSnapshot, limits: BudgetLimits) -> bool:
     """True when this visit can spend one call and still leave synthesis funded."""
     if usage["evaluation_calls"] >= EVALUATION_LLM_RESERVE:
         return False
-    synthesis_left = max(0, SYNTHESIS_LLM_RESERVE - usage["synthesis_calls"])
+    synthesis_left = max(0, limits.max_synthesis_calls - usage["synthesis_calls"])
     remaining = limits.max_llm_calls - usage["llm_calls"] - synthesis_left
     return remaining >= 1
 
 
 def synthesis_calls_allowed(usage: UsageSnapshot, limits: BudgetLimits) -> int:
     """How many synthesis attempts still fit in the reserve and the global cap."""
-    reserve_left = max(0, SYNTHESIS_LLM_RESERVE - usage["synthesis_calls"])
-    budget_left = max(0, limits.max_llm_calls - usage["llm_calls"])
+    reserve_left = max(0, limits.max_synthesis_calls - usage["synthesis_calls"])
+    budget_left = max(0, limits.max_llm_calls - usage["llm_calls"] - 3)
     return min(reserve_left, budget_left)
 
 
@@ -212,10 +261,13 @@ def select_queries(
     open_tasks = set(missing_task_ids) if missing_task_ids else None
     chosen: list[str] = []
     seen: set[str] = set()
-    for index, task in enumerate(parsed.tasks, start=1):
-        if open_tasks is not None and task_label(index) not in open_tasks:
-            continue
-        for query in task.search_queries:
+    for query_index in range(3):
+        for index, task in enumerate(parsed.tasks, start=1):
+            if open_tasks is not None and task_label(index) not in open_tasks:
+                continue
+            if query_index >= len(task.search_queries):
+                continue
+            query = task.search_queries[query_index]
             key = query_key(query)
             if not key or key in used or key in seen or len(key) > QUERY_MAX_LENGTH:
                 continue
@@ -255,6 +307,20 @@ def next_query_batch(
 
 def batch_for_state(state: ResearchState, limits: BudgetLimits) -> list[str]:
     """The batch the router and the discovery node both use."""
+    analysis = state.get("analysis")
+    if analysis and analysis.get("next_queries"):
+        used = {query_key(q) for batch in state["query_batches"] for q in batch}
+        from nexus.schemas.analysis import EvidenceAnalysis
+
+        parsed_analysis = EvidenceAnalysis.model_validate(analysis)
+        fresh: list[str] = []
+        for query in parsed_analysis.next_queries:
+            key = query_key(query)
+            if key not in used:
+                used.add(key)
+                fresh.append(" ".join(query.split()))
+        if fresh and can_discover(state["usage"], limits, state["iteration"]):
+            return fresh[: limits.discovery_search_ceiling]
     coverage = state["coverage"]
     missing = None if coverage is None else coverage["missing_task_ids"]
     blocked = [*state["accepted_urls"], *state["rejected_urls"]]
@@ -344,6 +410,7 @@ def merge_passages(
     *,
     limit: int,
     excerpt_chars: int,
+    balanced: bool = False,
 ) -> list[EvidenceState]:
     """Keep the higher score per chunk and cap the stored set. Inputs stay put."""
     by_id: dict[str, EvidenceState] = {}
@@ -358,13 +425,24 @@ def merge_passages(
         by_id.values(),
         key=lambda item: (-item["score"], item["source_id"], item["chunk_id"]),
     )
+    if balanced:
+        ids = dict.fromkeys(item["chunk_id"] for item in [*found, *existing])
+        selected: list[EvidenceState] = []
+        texts: set[str] = set()
+        for chunk_id in ids:
+            item = by_id[chunk_id]
+            key = " ".join(item["excerpt"].split()).casefold()
+            if key not in texts:
+                texts.add(key)
+                selected.append(item)
+        return selected[:limit]
     return ordered[:limit]
 
 
-def _held_reserve(usage: UsageSnapshot) -> int:
+def _held_reserve(usage: UsageSnapshot, limits: BudgetLimits) -> int:
     evaluation_left = max(0, EVALUATION_LLM_RESERVE - usage["evaluation_calls"])
-    synthesis_left = max(0, SYNTHESIS_LLM_RESERVE - usage["synthesis_calls"])
-    return evaluation_left + synthesis_left
+    synthesis_left = max(0, limits.max_synthesis_calls - usage["synthesis_calls"])
+    return evaluation_left + synthesis_left + QUALITY_LLM_RESERVE
 
 
 def _count(value: int, name: str) -> int:
@@ -394,3 +472,11 @@ def _copy_passage(item: EvidenceState, excerpt_chars: int) -> EvidenceState:
         "score": float(item["score"]),
         "excerpt": cap_excerpt(item["excerpt"], excerpt_chars),
     }
+
+
+def work_seconds(state: ResearchState, limits: BudgetLimits, now: datetime) -> float:
+    """Time left for evidence collection; synthesis and verification own the reserve."""
+    from datetime import datetime
+
+    elapsed = (now - datetime.fromisoformat(state["started_at"])).total_seconds()
+    return max(0, limits.deadline_seconds - limits.finish_reserve_seconds - elapsed)

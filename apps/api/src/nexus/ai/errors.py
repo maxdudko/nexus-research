@@ -96,6 +96,14 @@ def indexing_in_progress() -> ResearchError:
     )
 
 
+def run_in_progress() -> ResearchError:
+    return ResearchError(
+        "run_in_progress",
+        409,
+        "This research is still running. Stop it before removing it.",
+    )
+
+
 def fetch_failed() -> ResearchError:
     return ResearchError("fetch_failed", 422, "The page could not be fetched.")
 

@@ -1,6 +1,11 @@
 "use client";
 
+import { useRef } from "react";
+
+import type { ResearchDepth } from "@/lib/types";
+
 import { PdfUpload } from "@/components/research/pdf-upload";
+import { Button } from "@/components/ui/button";
 import {
   canRetry,
   canStart,
@@ -12,6 +17,7 @@ import {
 export function ResearchForm({
   state,
   onQuestion,
+  onDepth,
   onFile,
   onStart,
   onStop,
@@ -19,11 +25,13 @@ export function ResearchForm({
 }: {
   state: SessionState;
   onQuestion: (question: string) => void;
+  onDepth?: (depth: ResearchDepth) => void;
   onFile: (file: File | null) => void;
   onStart: () => void;
   onStop: () => void;
   onRetry: () => void;
 }) {
+  const stopDialogRef = useRef<HTMLDialogElement>(null);
   const busy = canStop(state.phase);
   const trimmed = state.question.trim().length;
   const invalid = questionError(state.question) !== null;
@@ -33,7 +41,7 @@ export function ResearchForm({
 
   return (
     <form
-      className="flex flex-col gap-4"
+      className="surface flex flex-col gap-4 p-5"
       onSubmit={(event) => {
         event.preventDefault();
         onStart();
@@ -51,7 +59,7 @@ export function ResearchForm({
           readOnly={busy}
           aria-invalid={showQuestionError}
           aria-describedby={showQuestionError ? "question-hint question-error" : "question-hint"}
-          className="w-full rounded border border-line bg-surface p-3 text-base text-ink"
+          className="field"
           onChange={(event) => onQuestion(event.target.value)}
         />
         <p id="question-hint" className="text-sm text-muted">
@@ -63,6 +71,15 @@ export function ResearchForm({
           </p>
         ) : null}
       </div>
+      <div className="flex flex-col gap-2">
+        <label htmlFor="depth" className="text-sm font-medium">Research depth</label>
+        <select id="depth" className="field" value={state.depth} disabled={busy}
+          onChange={(event) => onDepth?.(event.target.value as ResearchDepth)}>
+          <option value="standard">Standard · up to 3 minutes</option>
+          <option value="deep">Deep · up to 10 minutes</option>
+        </select>
+        <p className="text-sm text-muted">Deep research examines more sources and evidence. It uses more provider credits.</p>
+      </div>
       <PdfUpload
         fileName={state.fileName}
         fileSize={state.fileSize}
@@ -71,23 +88,41 @@ export function ResearchForm({
         onFile={onFile}
       />
       <div className="flex flex-col gap-3">
-        <button
-          type="submit"
-          disabled={!canStart(state)}
-          className={`rounded bg-primary px-4 py-2 text-on-primary ${canStart(state) ? 'cursor-pointer' : 'cursor-not-allowed'}`}
-        >
+        <Button type="submit" variant="primary" disabled={!canStart(state)}>
           Start research
-        </button>
+        </Button>
         {busy ? (
           <div className="flex flex-col gap-2">
-            <button
-              type="button"
-              onClick={onStop}
-              className="rounded border border-line-strong px-4 py-2 cursor-pointer"
+            <Button type="button" variant="secondary" onClick={() => stopDialogRef.current?.showModal()}>
+              Stop this request
+            </Button>
+            <dialog
+              ref={stopDialogRef}
+              aria-labelledby="stop-request-title"
+              aria-describedby="stop-request-description"
+              className="surface m-auto w-[calc(100%_-_2rem)] max-w-md p-5 text-ink shadow-[0_18px_50px_rgb(20_20_19/0.18)] backdrop:bg-overlay"
             >
-              Stop this request. Stopping does not pause or resume, it can take a moment, and
-              provider cost may already have been incurred.
-            </button>
+              <div className="flex flex-col gap-4">
+                <h2 id="stop-request-title" className="text-lg font-semibold tracking-tight">
+                  Stop this request?
+                </h2>
+                <p id="stop-request-description">
+                  Stopping does not pause or resume, it can take a moment, and provider cost
+                  may already have been incurred.
+                </p>
+                <div className="flex flex-wrap gap-3">
+                  <Button type="button" variant="secondary" autoFocus onClick={() => stopDialogRef.current?.close()}>
+                    Keep researching
+                  </Button>
+                  <Button type="button" variant="primary" onClick={() => {
+                    stopDialogRef.current?.close();
+                    onStop();
+                  }}>
+                    Stop request
+                  </Button>
+                </div>
+              </div>
+            </dialog>
             <p className="text-sm text-muted">
               Closing the tab stops the request. This page cannot warn you before the browser
               closes it.
@@ -95,9 +130,9 @@ export function ResearchForm({
           </div>
         ) : null}
         {canRetry(state.phase) ? (
-          <button type="button" onClick={onRetry} className="rounded border border-line px-4 py-2 cursor-pointer">
+          <Button type="button" variant="secondary" onClick={onRetry}>
             Start a new run
-          </button>
+          </Button>
         ) : null}
       </div>
     </form>

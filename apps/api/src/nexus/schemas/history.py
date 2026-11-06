@@ -42,6 +42,8 @@ class RunDetail(BaseModel):
     question: str
     status: RunStatus
     error_code: str | None
+    depth: Literal["standard", "deep"] = "standard"
+    applied_limits: dict[str, object] = Field(default_factory=dict)
     warnings: list[str]
     usage: GraphUsage | None
     created_at: datetime

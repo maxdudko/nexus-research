@@ -4,7 +4,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import DashboardPage from "@/app/(app)/page";
+import DashboardPage from "@/app/(app)/dashboard/page";
 import { ApiError } from "@/lib/errors";
 import type { RunSummary } from "@/lib/types";
 
@@ -15,7 +15,7 @@ const navigation = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({
   useRouter: () => navigation,
-  usePathname: () => "/",
+  usePathname: () => "/dashboard",
 }));
 
 vi.mock("@/lib/api", () => ({

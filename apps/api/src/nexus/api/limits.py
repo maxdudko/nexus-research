@@ -34,6 +34,22 @@ class UsageLimiter:
         self._email_limit = settings.login_max_email_failures
         self._ip_limit = settings.login_max_ip_failures
         self._login_window = settings.login_failure_window_seconds
+        self._registration_limit = settings.registration_max_ip_attempts
+        self._registration_window = settings.registration_window_seconds
+        self._registration_attempts: dict[str, list[datetime]] = {}
+        self._password_change_limit = settings.password_change_max_attempts
+        self._password_change_window = settings.password_change_window_seconds
+        self._password_changes: dict[UUID, list[datetime]] = {}
+        self._reset_ip_limit = settings.password_reset_max_ip_requests
+        self._reset_email_limit = settings.password_reset_max_email_requests
+        self._reset_submission_limit = settings.password_reset_max_ip_submissions
+        self._reset_window = settings.password_reset_window_seconds
+        self._reset_ips: dict[str, list[datetime]] = {}
+        self._reset_emails: dict[str, list[datetime]] = {}
+        self._reset_submissions: dict[str, list[datetime]] = {}
+        self._email_change_limit = settings.email_change_max_attempts
+        self._email_change_window = settings.email_change_window_seconds
+        self._email_changes: dict[UUID, list[datetime]] = {}
         self._lock = asyncio.Lock()
         self._email_failures: dict[str, list[datetime]] = {}
         self._ip_failures: dict[str, list[datetime]] = {}
@@ -41,6 +57,48 @@ class UsageLimiter:
         self._mints: dict[UUID, list[datetime]] = {}
         self._runs: set[UUID] = set()
         self._streams: set[UUID] = set()
+        self._active_runs: set[UUID] = set()
+
+    async def charge_password_reset_request(self, host: str, email: str) -> None:
+        """Reserve both anonymous request budgets in a single critical section."""
+        async with self._lock:
+            now = self.clock()
+            ips = _remember(self._reset_ips, host, now, self._reset_window)
+            emails = _remember(self._reset_emails, email, now, self._reset_window)
+            waits = []
+            if len(ips) >= self._reset_ip_limit:
+                waits.append(_retry_after(ips, now, self._reset_window))
+            if len(emails) >= self._reset_email_limit:
+                waits.append(_retry_after(emails, now, self._reset_window))
+            if waits:
+                raise too_many_requests(retry_after=max(waits))
+            self._reset_ips[host] = [*ips, now]
+            self._reset_emails[email] = [*emails, now]
+
+    async def charge_password_reset_submission(self, host: str) -> None:
+        async with self._lock:
+            now = self.clock()
+            stamps = _remember(self._reset_submissions, host, now, self._reset_window)
+            if len(stamps) >= self._reset_submission_limit:
+                raise too_many_requests(
+                    retry_after=_retry_after(stamps, now, self._reset_window)
+                )
+            self._reset_submissions[host] = [*stamps, now]
+
+    async def charge_registration(self, host: str) -> None:
+        """Reserve an attempt atomically, including successful registrations."""
+        async with self._lock:
+            now = self.clock()
+            stamps = _remember(
+                self._registration_attempts, host, now, self._registration_window
+            )
+            if len(stamps) >= self._registration_limit:
+                raise too_many_requests(
+                    retry_after=_retry_after(stamps, now, self._registration_window),
+                    message="Too many registration attempts.",
+                )
+            stamps.append(now)
+            self._registration_attempts[host] = stamps
 
     async def login_retry_after(self, email: str, host: str) -> int | None:
         """Seconds until a full bucket has room. None means the attempt may proceed."""
@@ -74,10 +132,41 @@ class UsageLimiter:
             _append(self._email_failures, email, now, self._login_window)
             _append(self._ip_failures, host, now, self._login_window)
 
+    async def address_retry_after(self, host: str) -> int | None:
+        """Check only the address bucket, for an email that cannot be normalized."""
+        async with self._lock:
+            now = self.clock()
+            stamps = _remember(self._ip_failures, host, now, self._login_window)
+            if len(stamps) < self._ip_limit:
+                return None
+            return _retry_after(stamps, now, self._login_window)
+
+    async def record_address_failure(self, host: str) -> None:
+        async with self._lock:
+            _append(self._ip_failures, host, self.clock(), self._login_window)
+
     async def clear_email_failures(self, email: str) -> None:
         """A successful login forgets that email. The address bucket stays."""
         async with self._lock:
             self._email_failures.pop(email, None)
+
+    async def charge_email_change(self, user_id: UUID) -> None:
+        """Reserve a separate per-account credential mutation budget."""
+        await self._charge(
+            self._email_changes,
+            user_id,
+            self._email_change_limit,
+            self._email_change_window,
+        )
+
+    async def charge_password_change(self, user_id: UUID) -> None:
+        """Reserve a password change attempt independently of login budgets."""
+        await self._charge(
+            self._password_changes,
+            user_id,
+            self._password_change_limit,
+            self._password_change_window,
+        )
 
     async def charge_billable(self, user_id: UUID) -> None:
         """Count one plan, discovery, run, stream, or evidence request."""
@@ -112,6 +201,19 @@ class UsageLimiter:
     async def release_stream(self, user_id: UUID) -> None:
         """Return the /stream slot, including when the process cap rejects it."""
         await self._release(self._streams, user_id)
+
+    async def mark_run_active(self, run_id: UUID) -> None:
+        """Record a streamed run whose history row this process still writes."""
+        async with self._lock:
+            self._active_runs.add(run_id)
+
+    async def mark_run_finished(self, run_id: UUID) -> None:
+        await self._release(self._active_runs, run_id)
+
+    async def run_is_active(self, run_id: UUID) -> bool:
+        """False for a stale ``running`` row left by a restart or crash."""
+        async with self._lock:
+            return run_id in self._active_runs
 
     async def _charge(
         self,

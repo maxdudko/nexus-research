@@ -1,15 +1,19 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 
+import { PasswordInput } from "@/components/ui/password-input";
+import { Button } from "@/components/ui/button";
 import { fetchIdentity } from "@/lib/identity";
-import { destinationFromNext } from "@/lib/return-path";
+import { destinationFromNext, isAllowlistedPath } from "@/lib/return-path";
 
 export function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const next = searchParams.get("next");
+  const passwordChanged = searchParams.get("password_changed") === "1";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -73,6 +77,11 @@ export function LoginForm() {
 
   return (
     <form className="flex flex-col gap-4" onSubmit={(event) => void onSubmit(event)}>
+      {passwordChanged ? (
+        <p role="status" className="text-sm text-muted">
+          Your password was changed. Sign in with your new password.
+        </p>
+      ) : null}
       <div className="flex flex-col gap-2">
         <label htmlFor="email" className="text-sm font-medium">
           Email
@@ -84,7 +93,7 @@ export function LoginForm() {
           autoComplete="username"
           value={email}
           onChange={(event) => setEmail(event.target.value)}
-          className="w-full rounded border border-line bg-surface p-3 text-base text-ink"
+          className="field"
           required
         />
       </div>
@@ -92,29 +101,34 @@ export function LoginForm() {
         <label htmlFor="password" className="text-sm font-medium">
           Password
         </label>
-        <input
+        <PasswordInput
+          visibilityLabel="password"
           id="password"
           name="password"
-          type="password"
           autoComplete="current-password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
-          className="w-full rounded border border-line bg-surface p-3 text-base text-ink"
           required
         />
       </div>
+      <Link className="text-sm underline" href="/forgot-password">Forgot password?</Link>
       {error ? (
         <p role="alert" className="text-sm text-danger">
           {error}
         </p>
       ) : null}
-      <button
-        type="submit"
-        disabled={pending}
-        className="w-fit cursor-pointer rounded bg-primary px-4 py-2 text-on-primary"
-      >
+      <p className="text-sm text-muted">
+        New to Nexus?{" "}
+        <Link
+          className="underline"
+          href={next && isAllowlistedPath(next) ? `/register?next=${encodeURIComponent(next)}` : "/register"}
+        >
+          Create an account
+        </Link>
+      </p>
+      <Button type="submit" variant="primary" disabled={pending}>
         Log in
-      </button>
+      </Button>
     </form>
   );
 }

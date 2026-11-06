@@ -2,6 +2,8 @@
 
 import { useRef } from "react";
 
+import { Button } from "@/components/ui/button";
+
 export function formatBytes(size: number): string {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
@@ -62,9 +64,9 @@ export function PdfUpload({
           {selected ? `${fileName} (${formatBytes(fileSize)})` : "No file chosen"}
         </p>
         {selected && !disabled ? (
-          <button type="button" onClick={removeFile} className="text-sm text-muted underline">
+          <Button type="button" variant="quiet" onClick={removeFile}>
             Remove
-          </button>
+          </Button>
         ) : null}
       </div>
       {message ? (

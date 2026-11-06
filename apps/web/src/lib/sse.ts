@@ -13,6 +13,8 @@ const STAGES = new Set<StageName>([
   "ingestion",
   "retrieval",
   "evaluation",
+  "analysis",
+  "verification",
   "synthesis",
 ]);
 

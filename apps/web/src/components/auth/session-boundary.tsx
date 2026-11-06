@@ -1,13 +1,20 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 
 import { AuthenticatedFrame } from "@/components/shell/app-header";
+import { Button } from "@/components/ui/button";
 import { ResearchActivityProvider } from "@/components/research/research-activity";
-import { fetchIdentity, type Identity } from "@/lib/identity";
+import { fetchIdentity, type Identity, type IdentityResult } from "@/lib/identity";
 import { csrfHeaders } from "@/lib/csrf";
 import { loginHref } from "@/lib/return-path";
+
+export const SessionRefresh = createContext<() => Promise<IdentityResult>>(fetchIdentity);
+
+export function useSessionRefresh() {
+  return useContext(SessionRefresh);
+}
 
 export const SessionIdentity = createContext<Identity | null>(null);
 
@@ -43,6 +50,13 @@ export function SessionBoundary({ children }: { children: ReactNode }) {
     router.replace(loginHref(pathname));
   }, [pathname, phase, router]);
 
+  const refreshIdentity = useCallback(async () => {
+    const result = await fetchIdentity();
+    // Keep the page mounted on service failures so the mutation is not repeated.
+    if (result.status !== "unavailable") setPhase(result);
+    return result;
+  }, []);
+
   async function logout() {
     setLogoutError(null);
     try {
@@ -65,7 +79,7 @@ export function SessionBoundary({ children }: { children: ReactNode }) {
 
   if (phase.status === "loading") {
     return (
-      <main className="mx-auto w-full max-w-2xl px-4 py-8">
+      <main className="mx-auto w-full max-w-5xl px-4 py-8">
         <p role="status">Checking session.</p>
       </main>
     );
@@ -73,7 +87,7 @@ export function SessionBoundary({ children }: { children: ReactNode }) {
 
   if (phase.status === "anonymous") {
     return (
-      <main className="mx-auto w-full max-w-2xl px-4 py-8">
+      <main className="mx-auto w-full max-w-5xl px-4 py-8">
         <p role="status">Sign-in is required.</p>
       </main>
     );
@@ -81,35 +95,36 @@ export function SessionBoundary({ children }: { children: ReactNode }) {
 
   if (phase.status === "unavailable") {
     return (
-      <main className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-4 py-8">
+      <main className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 py-8">
         <p role="alert">The research service is unavailable.</p>
-        <button
-          type="button"
-          className="w-fit cursor-pointer rounded border border-line-strong px-4 py-2"
+        <Button
+          variant="secondary"
           onClick={() => {
             setPhase({ status: "loading" });
             setAttempt((current) => current + 1);
           }}
         >
           Try again
-        </button>
+        </Button>
       </main>
     );
   }
 
   return (
     <SessionIdentity.Provider value={phase.identity}>
-      <AuthenticatedFrame
-        email={phase.identity.email}
-        role={phase.identity.role}
-        userId={phase.identity.id}
-        logoutError={logoutError}
-        onLogout={() => {
-          void logout();
-        }}
-      >
-        {children}
-      </AuthenticatedFrame>
+      <SessionRefresh.Provider value={refreshIdentity}>
+        <AuthenticatedFrame
+          email={phase.identity.email}
+          role={phase.identity.role}
+          userId={phase.identity.id}
+          logoutError={logoutError}
+          onLogout={() => {
+            void logout();
+          }}
+        >
+          {children}
+        </AuthenticatedFrame>
+      </SessionRefresh.Provider>
     </SessionIdentity.Provider>
   );
 }

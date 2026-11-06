@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { EvaluationFacts } from "@/components/admin/evaluation-view";
 import { useSessionIdentity } from "@/components/auth/session-boundary";
+import { Button } from "@/components/ui/button";
 import { listEvaluations } from "@/lib/admin-api";
 import type { EvaluationListItem } from "@/lib/admin-api";
 import { isApiError } from "@/lib/errors";
@@ -110,9 +111,9 @@ export function EvaluationHistory() {
         <p role="alert" className="text-sm text-danger">
           The research service is unavailable.
         </p>
-        <button
+        <Button
           type="button"
-          className="w-fit cursor-pointer rounded border border-line-strong px-4 py-2"
+          variant="secondary"
           onClick={() => {
             setLoading(true);
             setUnavailable(false);
@@ -120,7 +121,7 @@ export function EvaluationHistory() {
           }}
         >
           Try again
-        </button>
+        </Button>
       </div>
     );
   }
@@ -130,7 +131,7 @@ export function EvaluationHistory() {
     <div className="flex flex-col gap-4">
       <ul className="flex flex-col gap-4">
         {items.map((item) => (
-          <li key={item.id} className="flex flex-col gap-2 rounded border border-line p-3">
+          <li key={item.id} className="surface flex flex-col gap-2 p-4">
             <label className="flex items-center gap-2">
               <input
                 type="checkbox"
@@ -138,7 +139,7 @@ export function EvaluationHistory() {
                 aria-label={`Select ${item.id}`}
                 onChange={() => toggle(item.id)}
               />
-              <Link href={`/admin/evaluations/${item.id}`} className="underline">
+              <Link href={`/admin/evaluations/${item.id}`} className="text-link">
                 Open {item.id}
               </Link>
             </label>
@@ -146,9 +147,9 @@ export function EvaluationHistory() {
           </li>
         ))}
       </ul>
-      <button
+      <Button
         type="button"
-        className="w-fit cursor-pointer rounded border border-line-strong px-4 py-2 disabled:cursor-not-allowed"
+        variant="primary"
         disabled={selected.length !== 2}
         onClick={() => {
           const [left, right] = selected;
@@ -157,17 +158,17 @@ export function EvaluationHistory() {
         }}
       >
         Compare
-      </button>
+      </Button>
       {cursor ? (
-        <button
+        <Button
           type="button"
-          className="w-fit cursor-pointer rounded border border-line-strong px-4 py-2"
+          variant="secondary"
           onClick={() => {
             void loadOlder();
           }}
         >
           Load older evaluations
-        </button>
+        </Button>
       ) : null}
     </div>
   );

@@ -1,0 +1,306 @@
+{
+  "version": "research-quality-2026-11-06.2",
+  "baseline_revision": "7c9a85f012bf8d0a20e7427deb8a032462746d24",
+  "cases": [
+    {
+      "id": "rq01",
+      "split": "development",
+      "domain": "engineering",
+      "question": "What are the tradeoffs between PostgreSQL and a dedicated vector database for RAG with one million documents?",
+      "criteria": [
+        "Distinguish document count from vector count",
+        "Compare filtering, operations, updates, and cost"
+      ]
+    },
+    {
+      "id": "rq02",
+      "split": "development",
+      "domain": "science",
+      "question": "How reproducible are published claims of room-temperature superconductivity at ambient pressure?",
+      "criteria": [
+        "Distinguish original claims from independent replication attempts",
+        "Identify publication dates and retracted papers"
+      ]
+    },
+    {
+      "id": "rq03",
+      "split": "development",
+      "domain": "energy",
+      "question": "How can the cost of electricity storage in lithium-ion batteries and pumped-storage hydropower be compared?",
+      "criteria": [
+        "Compare storage duration and service life",
+        "Distinguish capital expenditure from levelized cost of storage (LCOS)"
+      ]
+    },
+    {
+      "id": "rq04",
+      "split": "development",
+      "domain": "economics",
+      "question": "What factors explain changes in US labor productivity since 2019?",
+      "criteria": [
+        "Use comparable periods and definitions",
+        "Distinguish correlation from causation"
+      ]
+    },
+    {
+      "id": "rq05",
+      "split": "development",
+      "domain": "environment",
+      "question": "What are the benefits and limitations of direct air capture of CO2?",
+      "criteria": [
+        "Compare energy requirements and life-cycle impacts",
+        "Distinguish capacity, actual carbon removal, and announced plans"
+      ]
+    },
+    {
+      "id": "rq06",
+      "split": "development",
+      "domain": "history",
+      "question": "Which explanations for the decline of the Indus Valley Civilization have the strongest archaeological support?",
+      "criteria": [
+        "Compare competing hypotheses",
+        "Identify uncertainty in historical dating"
+      ]
+    },
+    {
+      "id": "rq07",
+      "split": "development",
+      "domain": "business",
+      "question": "When does vertical integration benefit electric vehicle manufacturers, and when does it increase risk?",
+      "criteria": [
+        "Compare multiple companies and time periods",
+        "Avoid inferring causation from a single example"
+      ]
+    },
+    {
+      "id": "rq08",
+      "split": "development",
+      "domain": "education",
+      "question": "What evidence compares the effectiveness of spaced repetition with rereading?",
+      "criteria": [
+        "Identify study designs and retention intervals",
+        "Distinguish laboratory conditions from educational settings"
+      ]
+    },
+    {
+      "id": "rq09",
+      "split": "development",
+      "domain": "engineering",
+      "question": "What are the limitations of exactly-once guarantees in distributed systems?",
+      "criteria": [
+        "Distinguish processing, delivery, and external side effects",
+        "Verify definitions against primary documentation"
+      ]
+    },
+    {
+      "id": "rq10",
+      "split": "development",
+      "domain": "agriculture",
+      "question": "How do changes in tillage practices affect soil carbon stocks?",
+      "criteria": [
+        "Account for measurement depth and study duration",
+        "Discuss conflicting findings"
+      ]
+    },
+    {
+      "id": "rq11",
+      "split": "development",
+      "domain": "transport",
+      "question": "Under what conditions does high-speed rail reduce total transport emissions?",
+      "criteria": [
+        "Account for construction, occupancy, and the electricity mix",
+        "Specify the time horizon"
+      ]
+    },
+    {
+      "id": "rq12",
+      "split": "development",
+      "domain": "science",
+      "question": "How do methods of measuring the Hubble constant differ, and what might explain their discrepancies?",
+      "criteria": [
+        "Report estimates with their uncertainties",
+        "Distinguish observations from hypotheses"
+      ]
+    },
+    {
+      "id": "rq13",
+      "split": "development",
+      "domain": "software",
+      "question": "What do studies show about the effects of AI coding assistants on development speed and software quality?",
+      "criteria": [
+        "Compare study methods and participant tasks",
+        "Distinguish self-reported outcomes from measured results"
+      ]
+    },
+    {
+      "id": "rq14",
+      "split": "development",
+      "domain": "economics",
+      "question": "How can estimates of income inequality be compared across countries?",
+      "criteria": [
+        "Distinguish income before and after transfers",
+        "Account for the reference year and unit of observation"
+      ]
+    },
+    {
+      "id": "rq15",
+      "split": "development",
+      "domain": "environment",
+      "question": "To what extent do bioplastics address the problem of plastic waste?",
+      "criteria": [
+        "Distinguish bio-based materials from biodegradability",
+        "Specify recycling and degradation conditions"
+      ]
+    },
+    {
+      "id": "rq16",
+      "split": "development",
+      "domain": "business",
+      "question": "What are the limitations of using Net Promoter Score (NPS) to predict company growth?",
+      "criteria": [
+        "Compare empirical studies",
+        "Discuss sampling and alternative metrics"
+      ]
+    },
+    {
+      "id": "rq17",
+      "split": "development",
+      "domain": "engineering",
+      "question": "What are the practical tradeoffs between event-driven architectures and synchronous APIs?",
+      "criteria": [
+        "Compare consistency and fault tolerance",
+        "Specify the conditions that favor each approach"
+      ]
+    },
+    {
+      "id": "rq18",
+      "split": "development",
+      "domain": "history",
+      "question": "Which sources can be used to assess the economic consequences of the Black Death in Europe?",
+      "criteria": [
+        "Distinguish regions and time periods",
+        "Explain the limitations of historical data"
+      ]
+    },
+    {
+      "id": "rq19",
+      "split": "development",
+      "domain": "science",
+      "question": "What is known about the degradation of sodium-ion batteries compared with lithium iron phosphate (LFP) batteries?",
+      "criteria": [
+        "Compare test conditions and battery chemistries",
+        "Distinguish commercial claims from independent measurements"
+      ]
+    },
+    {
+      "id": "rq20",
+      "split": "development",
+      "domain": "policy",
+      "question": "What evidence is available on the effects of a four-day workweek?",
+      "criteria": [
+        "Account for company self-selection",
+        "Compare working hours, pay, productivity, and observation periods"
+      ]
+    },
+    {
+      "id": "rq21",
+      "split": "holdout",
+      "domain": "engineering",
+      "question": "How should a search index be updated when documents change frequently?",
+      "criteria": [
+        "Compare full rebuilds with incremental updates",
+        "Address deletions, versioning, and consistency"
+      ]
+    },
+    {
+      "id": "rq22",
+      "split": "holdout",
+      "domain": "science",
+      "question": "What are the main lines of evidence for dark matter, and what alternative explanations exist?",
+      "criteria": [
+        "Compare independent types of observations",
+        "Identify open questions"
+      ]
+    },
+    {
+      "id": "rq23",
+      "split": "holdout",
+      "domain": "economics",
+      "question": "How have semiconductor supply chains changed since 2020?",
+      "criteria": [
+        "Use dated primary-source data",
+        "Distinguish announced capacity from capacity that is operational"
+      ]
+    },
+    {
+      "id": "rq24",
+      "split": "holdout",
+      "domain": "energy",
+      "question": "Under what conditions do heat pumps reduce costs and emissions compared with gas heating?",
+      "criteria": [
+        "Account for climate, energy tariffs, and coefficient of performance (COP)",
+        "Avoid combining figures from different countries or periods without qualification"
+      ]
+    },
+    {
+      "id": "rq25",
+      "split": "holdout",
+      "domain": "education",
+      "question": "What do meta-analyses show about the effectiveness of smaller class sizes?",
+      "criteria": [
+        "Report effect sizes and uncertainty",
+        "Distinguish student age groups and study designs"
+      ]
+    },
+    {
+      "id": "rq26",
+      "split": "holdout",
+      "domain": "environment",
+      "question": "What are the limitations of satellite monitoring of methane emissions?",
+      "criteria": [
+        "Compare sensitivity, resolution, and coverage",
+        "Explain differences from ground-based measurements"
+      ]
+    },
+    {
+      "id": "rq27",
+      "split": "holdout",
+      "domain": "business",
+      "question": "What factors determine the economic viability of robotaxis?",
+      "criteria": [
+        "Distinguish forecasts from actual operations",
+        "Compare costs, utilization, and regulatory conditions"
+      ]
+    },
+    {
+      "id": "rq28",
+      "split": "holdout",
+      "domain": "history",
+      "question": "How do historians assess the printing press's effect on the spread of literacy?",
+      "criteria": [
+        "Consider competing explanations",
+        "Identify limitations on causal inference"
+      ]
+    },
+    {
+      "id": "rq29",
+      "split": "holdout",
+      "domain": "software",
+      "question": "How can the reliability of benchmark evaluations of modern language models be compared?",
+      "criteria": [
+        "Examine data contamination, task selection, and variability",
+        "Propose verifiable comparison criteria"
+      ]
+    },
+    {
+      "id": "rq30",
+      "split": "holdout",
+      "domain": "science",
+      "question": "What is known about the benefits of urban green spaces for reducing heat?",
+      "criteria": [
+        "Distinguish air temperature from surface temperature",
+        "Account for climate, spatial scale, and measurement methods"
+      ]
+    }
+  ]
+}

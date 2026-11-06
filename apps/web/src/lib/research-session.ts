@@ -1,4 +1,4 @@
-import type { ReportStatus, ResearchProgress } from "@/lib/types";
+import type { ResearchDepth, ReportStatus, ResearchProgress } from "@/lib/types";
 
 export const PDF_LIMIT_BYTES = 10 * 1024 * 1024;
 export const STALL_MS = 45_000;
@@ -28,6 +28,7 @@ export interface StageView {
 }
 
 export interface SessionState {
+  depth: ResearchDepth;
   researchId: string;
   question: string;
   phase: SessionPhase;
@@ -45,6 +46,7 @@ export interface SessionState {
 }
 
 export type SessionAction =
+  | { type: "edit_depth"; depth: ResearchDepth }
   | { type: "edit_question"; question: string }
   | { type: "select_file"; name: string; size: number }
   | { type: "clear_file" }
@@ -93,6 +95,7 @@ const RETRYABLE: ReadonlySet<SessionPhase> = new Set([
 export function createSession(researchId: string): SessionState {
   return {
     researchId,
+    depth: "standard",
     question: "",
     phase: "idle",
     runId: null,
@@ -145,6 +148,9 @@ function resumeFromStall(state: SessionState, at: number): SessionState {
 
 export function researchSession(state: SessionState, action: SessionAction): SessionState {
   switch (action.type) {
+    case "edit_depth":
+      if (BUSY.has(state.phase)) return state;
+      return { ...state, depth: action.depth };
     case "edit_question":
       if (BUSY.has(state.phase)) return state;
       return { ...state, question: action.question };

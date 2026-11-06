@@ -77,6 +77,38 @@ async def test_forwarded_for_does_not_split_the_login_address_bucket(
     assert "198.51.100.8" not in hosts
 
 
+async def test_malformed_login_emails_fill_the_address_bucket(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def missing(factory: object, email: str) -> None:
+        del factory, email
+        return None
+
+    monkeypatch.setattr("nexus.api.v1.auth.get_user_by_email", missing)
+    app = create_app(make_settings(login_max_ip_failures=2))
+    origin = {"origin": "http://127.0.0.1:3000"}
+    async with client_for(app) as client:
+        statuses = [
+            (
+                await client.post(
+                    "/api/v1/auth/login",
+                    json={"email": f"not-an-email-{index}", "password": "x"},
+                    headers=origin,
+                )
+            ).status_code
+            for index in range(2)
+        ]
+        limited = await client.post(
+            "/api/v1/auth/login",
+            json={"email": "ada@example.com", "password": "correct-horse-1"},
+            headers=origin,
+        )
+
+    assert statuses == [401, 401]
+    assert limited.status_code == 429
+    assert app.state.limiter._email_failures == {}
+
+
 async def test_email_and_ip_buckets_share_a_window_and_success_clears_email() -> None:
     limiter, clock = _limiter()
     for _ in range(5):
@@ -263,3 +295,91 @@ async def test_a_dead_session_does_not_call_the_planner() -> None:
     assert update["status"] == "interrupted"
     assert update["error_code"] == "interrupted"
     assert planner.questions == []
+
+
+async def test_registration_reserves_attempts_atomically_and_expires() -> None:
+    import asyncio
+
+    limiter, clock = _limiter()
+    results = await asyncio.gather(
+        *(limiter.charge_registration(HOST) for _ in range(10)),
+        return_exceptions=True,
+    )
+    assert sum(result is None for result in results) == 5
+    failures = [result for result in results if isinstance(result, ResearchError)]
+    assert len(failures) == 5
+    assert all(failure.retry_after == 900 for failure in failures)
+    assert await limiter.login_retry_after(EMAIL, HOST) is None
+    await limiter.charge_registration("another-host")
+    clock["now"] += timedelta(seconds=900)
+    await limiter.charge_registration(HOST)
+
+
+async def test_password_change_budget_is_atomic_per_user_and_independent() -> None:
+    import asyncio
+
+    limiter, clock = _limiter(
+        password_change_max_attempts=2, password_change_window_seconds=60
+    )
+    results = await asyncio.gather(
+        *(limiter.charge_password_change(PRINCIPAL.id) for _ in range(5)),
+        return_exceptions=True,
+    )
+    assert sum(result is None for result in results) == 2
+    failures = [result for result in results if isinstance(result, ResearchError)]
+    assert len(failures) == 3 and all(failure.retry_after == 60 for failure in failures)
+    await limiter.charge_password_change(uuid4())
+    await limiter.charge_registration(HOST)
+    await limiter.charge_billable(PRINCIPAL.id)
+    assert await limiter.login_retry_after(EMAIL, HOST) is None
+    clock["now"] += timedelta(seconds=60)
+    await limiter.charge_password_change(PRINCIPAL.id)
+
+
+async def test_password_reset_limits_are_atomic_separate_and_expire() -> None:
+    import asyncio
+
+    limiter, clock = _limiter()
+    results = await asyncio.gather(
+        *(limiter.charge_password_reset_request(HOST, EMAIL) for _ in range(8)),
+        return_exceptions=True,
+    )
+    assert sum(result is None for result in results) == 3
+    await limiter.charge_password_reset_request(HOST, "other@example.com")
+    await limiter.charge_password_reset_request(HOST, "third@example.com")
+    with pytest.raises(ResearchError):
+        await limiter.charge_password_reset_request(HOST, "fourth@example.com")
+    with pytest.raises(ResearchError):
+        await limiter.charge_password_reset_request("other-host", EMAIL)
+    for _ in range(5):
+        await limiter.charge_password_reset_submission(HOST)
+    with pytest.raises(ResearchError):
+        await limiter.charge_password_reset_submission(HOST)
+    await limiter.charge_registration(HOST)
+    assert await limiter.login_retry_after(EMAIL, HOST) is None
+    clock["now"] += timedelta(seconds=900)
+    await limiter.charge_password_reset_request(HOST, EMAIL)
+    await limiter.charge_password_reset_submission(HOST)
+
+
+async def test_email_change_budget_is_atomic_and_independent() -> None:
+    import asyncio
+
+    limiter, clock = _limiter(
+        email_change_max_attempts=2, email_change_window_seconds=60
+    )
+    results = await asyncio.gather(
+        *(limiter.charge_email_change(PRINCIPAL.id) for _ in range(6)),
+        return_exceptions=True,
+    )
+    assert sum(result is None for result in results) == 2
+    assert all(
+        result.retry_after == 60
+        for result in results
+        if isinstance(result, ResearchError)
+    )
+    await limiter.charge_email_change(uuid4())
+    await limiter.charge_password_change(PRINCIPAL.id)
+    assert await limiter.login_retry_after(EMAIL, HOST) is None
+    clock["now"] += timedelta(seconds=60)
+    await limiter.charge_email_change(PRINCIPAL.id)

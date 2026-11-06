@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createResearchScope, getRun, listRuns, uploadPdf } from "@/lib/api";
+import { createResearchScope, deleteRun, getRun, listRuns, uploadPdf } from "@/lib/api";
 import { ApiError } from "@/lib/errors";
 
 const RUN = "11111111-1111-4111-8111-111111111111";
@@ -44,6 +44,16 @@ describe("api client", () => {
     });
     expect(page.items[0]?.run_id).toBe(RUN);
     expect(page.items[0]).not.toHaveProperty("report");
+  });
+
+  it("deletes a run with the csrf header", async () => {
+    vi.stubGlobal("document", { cookie: "nexus_csrf=token" });
+    const fetchImpl = vi.fn(async () => Response.json({ status: "ok" }));
+    await expect(deleteRun(RUN, fetchImpl)).resolves.toBeUndefined();
+    expect(fetchImpl).toHaveBeenCalledWith(`/api/v1/research/runs/${RUN}`, {
+      method: "DELETE",
+      headers: { "x-csrf-token": "token" },
+    });
   });
 
   it("loads run detail", async () => {

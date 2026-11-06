@@ -25,6 +25,11 @@ logger = logging.getLogger(__name__)
 _TOKEN_CACHE = Path(__file__).resolve().parent / "data"
 _BLANK_LINES = re.compile(r"\n{3,}")
 _SPACES = re.compile(r"[ \t]+")
+_WEB_CHUNKING_VERSION = "web-sections-tables-v2"
+_MARKDOWN_TABLE = re.compile(
+    r"(?m)^(?P<header>\|[^\n]+\|[ \t]*\n\|[- :|]+\|[ \t]*)(?:\n|$)"
+    r"(?:\|[^\n]*\|[ \t]*(?:\n|$))*"
+)
 
 
 @dataclass(frozen=True)
@@ -51,8 +56,23 @@ def pdf_content_hash(pages: Sequence[str]) -> str:
 
 
 def web_content_hash(text: str) -> str:
-    """Hash normalized article text."""
-    return hashlib.sha256(normalize_text(text).encode()).hexdigest()
+    """Version the article digest so changed chunking refreshes existing sources."""
+    payload = f"{_WEB_CHUNKING_VERSION}\0{normalize_text(text)}"
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def _article_blocks(text: str) -> list[tuple[str, str]]:
+    """Separate each Markdown table from prose and retain its own header."""
+    blocks: list[tuple[str, str]] = []
+    start = 0
+    for table in _MARKDOWN_TABLE.finditer(text):
+        if prose := text[start : table.start()].strip():
+            blocks.append((prose, ""))
+        blocks.append((table.group().strip(), table.group("header").strip()))
+        start = table.end()
+    if prose := text[start:].strip():
+        blocks.append((prose, ""))
+    return blocks
 
 
 class Chunker:
@@ -92,6 +112,36 @@ class Chunker:
                 if len(chunks) > self._max_chunks:
                     logger.warning("ingestion rejected: chunk limit")
                     raise payload_too_large()
+        if not chunks:
+            raise empty_document()
+        return chunks
+
+    def chunk_article(self, text: str) -> list[TextChunk]:
+        """Keep Markdown headings with their section, including continuation chunks.
+
+        Prose keeps the existing token-window behavior. Table boundaries prevent
+        unrelated column names and units from leaking into continuation chunks.
+        The versioned web digest refreshes sources using the previous strategy.
+        """
+        sections = re.split(r"(?m)(?=^#{1,6} )", normalize_text(text))
+        chunks: list[TextChunk] = []
+        for section in sections:
+            section = section.strip()
+            if not section:
+                continue
+            heading = (
+                section.split("\n", 1)[0] if re.match(r"^#{1,6} ", section) else ""
+            )
+            body = section.partition("\n")[2] if heading else section
+            for block, table_header in _article_blocks(body):
+                for window in self._windows(block):
+                    if table_header and not window.startswith(table_header):
+                        window = f"{table_header}\n{window}"
+                    if heading:
+                        window = f"{heading}\n{window}"
+                    chunks.append(TextChunk(len(chunks), window, None))
+                    if len(chunks) > self._max_chunks:
+                        raise payload_too_large()
         if not chunks:
             raise empty_document()
         return chunks

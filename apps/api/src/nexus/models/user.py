@@ -1,4 +1,4 @@
-"""Invited accounts and revocable server-side sessions.
+"""User accounts and revocable server-side sessions.
 
 The quarantine row is not a person. It exists so a later ownership migration
 has a non-loginable owner for pre-Alpha research. This revision does not
@@ -29,7 +29,7 @@ USER_STATUSES = ("active", "disabled", "quarantine")
 
 
 class User(Base):
-    """One invited account. Email is a normalized login identifier."""
+    """One user account. Email is a normalized login identifier."""
 
     __tablename__ = "users"
     __table_args__ = (
@@ -111,4 +111,33 @@ class AuthSession(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     last_used_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PasswordResetToken(Base):
+    """Single-use recovery verifier; never stores the emailed bearer token."""
+
+    __tablename__ = "password_reset_tokens"
+    __table_args__ = (
+        Index("ix_password_reset_tokens_user_id", "user_id"),
+        CheckConstraint("octet_length(token_hash) = 32", name="ck_reset_token_hash"),
+        CheckConstraint("expires_at > created_at", name="ck_reset_token_expiry"),
+        CheckConstraint(
+            "consumed_at IS NULL OR consumed_at >= created_at",
+            name="ck_reset_token_consumed",
+        ),
+        CheckConstraint(
+            "revoked_at IS NULL OR revoked_at >= created_at",
+            name="ck_reset_token_revoked",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE")
+    )
+    token_hash: Mapped[bytes] = mapped_column(LargeBinary(length=32), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

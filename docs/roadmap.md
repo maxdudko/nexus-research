@@ -2,7 +2,7 @@
 
 Nexus Research started as a seven-phase, approximately 14-day MVP build. The tagged [`v0.1.0`](https://github.com/maxdudko/nexus-research/releases/tag/v0.1.0) completes that milestone. Alpha `v0.2.0` is the next, **separately scoped engineering milestone**: evolve the research engine into a controlled multi-user application without assuming a validated commercial niche.
 
-The MVP day estimates are historical planning labels, not a timetable for Alpha. Phase 8–10 durations will be set after specifications and dependency reviews. Each phase is complete only when its deliverable is demonstrated and tested.
+The MVP day estimates are historical planning labels, not a timetable for Alpha. Each phase is complete only when its deliverable is demonstrated and tested.
 
 | Phase | Status |
 |---|---|
@@ -13,10 +13,10 @@ The MVP day estimates are historical planning labels, not a timetable for Alpha.
 | 5. Product UI | Done — MVP `v0.1.0` |
 | 6. Reliability | Done — MVP `v0.1.0` |
 | 7. Release | Done — MVP `v0.1.0` |
-| 8. Identity & Multi-User | Proposed — Alpha `v0.2.0` |
-| 9. Product Experience | Proposed — Alpha `v0.2.0` |
-| 10. Admin & Evaluation | Proposed — Alpha `v0.2.0` |
-| Alpha `v0.2.0` Release | Not started |
+| 8. Identity & Multi-User | Implemented, acceptance pending |
+| 9. Product Experience | Implemented, acceptance pending |
+| 10. Admin & Evaluation | Implemented, acceptance pending |
+| Alpha `v0.2.0` Release | Candidate verification in progress |
 
 ## MVP v0.1.0 — Completed
 
@@ -116,7 +116,7 @@ The MVP is complete when a user can submit a research question, optionally provi
 
 ---
 
-## Alpha v0.2.0 — Proposed
+## Alpha v0.2.0 — Candidate
 
 **Vision:** Turn the private single-operator research MVP into a controlled, multi-user research application with a clear user experience and restricted operator diagnostics. Preserve a reusable research core. Product & Market Intelligence is a candidate first specialization, not a prerequisite for Alpha.
 
@@ -126,7 +126,7 @@ The MVP is complete when a user can submit a research question, optionally provi
 
 ## Phase 8 — Identity & Multi-User
 
-**Status:** Phase 8 code is complete (2026-10-22). Gate C is waiting on the recorded two-account operator demo. Phase 8 is not done.
+**Status:** Implemented. The two-account checklist is filled in. Its original demo date and build are unknown. Verify the current account lifecycle and isolation on the candidate.
 
 **Goal:** Introduce authenticated users and ownership-aware authorization without exposing one user's research, reports or evidence to another.
 
@@ -140,7 +140,7 @@ The MVP is complete when a user can submit a research question, optionally provi
 
 ## Phase 9 — Product Experience
 
-**Status:** Proposed. Depends on Phase 8 identity and user-scoped API contracts.
+**Status:** Implemented. The invited walkthrough covered research, PDF, refresh, account switching and narrow screens. Failure states, pagination and reviewer acceptance remain open.
 
 **Goal:** Make Nexus Research understandable and usable by an invited non-technical user without setup instructions or knowledge of the underlying agent.
 
@@ -154,7 +154,7 @@ The MVP is complete when a user can submit a research question, optionally provi
 
 ## Phase 10 — Admin & Evaluation
 
-**Status:** Proposed. Depends on Phase 8 admin authorization; can be planned alongside Phase 9 after contracts are stable.
+**Status:** Implemented. The October diagnostics, privacy and evaluation checks are recorded. Candidate verification and reviewer acceptance remain open.
 
 **Goal:** Give the system operator secure visibility into AI evaluation, research run health and approximate usage without overstating factual accuracy or exposing private user data.
 
@@ -168,7 +168,7 @@ The MVP is complete when a user can submit a research question, optionally provi
 
 ## Alpha v0.2.0 — Integration & Release
 
-**Status:** Not started. Requires reviewed Phase 8–10 evidence.
+**Status:** Candidate verification in progress. Record the pilot, upgrade rehearsal, CI and reviewer decisions in the [Alpha checklist](release/alpha-checklist.md).
 
 **Goal:** Validate that the new application layers work together without regressing the MVP research engine or compromising user isolation.
 
@@ -198,4 +198,4 @@ A successful commercial validation, paid customers and public production launch 
 
 **Working direction:** a general-purpose research core with Product & Market Intelligence as the initial candidate specialization. Investigate ICP, Jobs-to-be-Done, competing workflows and willingness to pay with real users. Record findings separately from engineering specifications. Do not convert untested hypotheses into compulsory Alpha functionality.
 
-**Next decision:** write and review the Phase 8 identity/ownership specification and ADR before modifying storage schemas or adding authentication dependencies. Until the Phase 8 security gate passes, the limitations in [`release/limitations.md`](release/limitations.md) apply; do not publicly expose the existing anonymous application.
+**Next decision:** review the candidate evidence and record the release decision in the [Alpha checklist](release/alpha-checklist.md).

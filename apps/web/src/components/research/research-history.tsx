@@ -5,7 +5,8 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import { RunSummaryItem } from "@/components/research/run-summary";
-import { listRuns } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { deleteRun, listRuns } from "@/lib/api";
 import { isApiError, REQUEST_FAILED_MESSAGE } from "@/lib/errors";
 import { loginHref } from "@/lib/return-path";
 import type { RunSummary } from "@/lib/types";
@@ -107,6 +108,20 @@ export function ResearchHistory({
     setAttempt((current) => current + 1);
   }
 
+  async function removeRun(runId: string): Promise<void> {
+    try {
+      await deleteRun(runId);
+    } catch (cause: unknown) {
+      if (isApiError(cause) && cause.status === 401) {
+        setRedirecting(true);
+        router.replace(loginHref(pathname));
+        return;
+      }
+      throw cause;
+    }
+    setRuns((items) => items.filter((item) => item.run_id !== runId));
+  }
+
   if (redirecting) {
     return <p role="status">Sign-in is required.</p>;
   }
@@ -116,7 +131,7 @@ export function ResearchHistory({
 
   return (
     <section aria-labelledby={headingId} className="flex flex-col gap-3">
-      <h2 id={headingId} className="text-lg font-semibold">
+      <h2 id={headingId} className="text-lg font-semibold tracking-tight">
         {heading}
       </h2>
       {loading ? <p>{variant === "recent" ? "Loading recent runs." : "Loading history."}</p> : null}
@@ -126,13 +141,9 @@ export function ResearchHistory({
         </p>
       ) : null}
       {pageError ? (
-        <button
-          type="button"
-          className="w-fit cursor-pointer rounded border border-line-strong px-4 py-2"
-          onClick={retryPage}
-        >
+        <Button type="button" variant="secondary" onClick={retryPage}>
           Try again
-        </button>
+        </Button>
       ) : null}
       {olderError ? (
         <p role="alert" className="text-sm text-danger">
@@ -140,38 +151,38 @@ export function ResearchHistory({
         </p>
       ) : null}
       {olderError ? (
-        <button
+        <Button
           type="button"
-          className="w-fit cursor-pointer rounded border border-line-strong px-4 py-2"
+          variant="secondary"
           onClick={() => {
             void loadOlder();
           }}
         >
           Try again
-        </button>
+        </Button>
       ) : null}
       {!loading && !pageError && runs.length === 0 ? <p>No research runs yet.</p> : null}
       <ul className="flex flex-col gap-3">
         {runs.map((run) => (
-          <RunSummaryItem key={run.run_id} run={run} />
+          <RunSummaryItem key={run.run_id} run={run} onRemove={removeRun} />
         ))}
       </ul>
       {variant === "recent" && cursor ? (
-        <Link href="/history" className="underline">
+        <Link href="/history" className="text-link">
           View history
         </Link>
       ) : null}
       {variant === "history" && cursor && !pageError ? (
-        <button
+        <Button
           type="button"
-          className={`w-fit rounded border border-line-strong px-4 py-2 ${loadingOlder ? "cursor-not-allowed" : "cursor-pointer"}`}
+          variant="secondary"
           disabled={loadingOlder}
           onClick={() => {
             void loadOlder();
           }}
         >
           {loadingOlder ? "Loading older runs." : "Older runs"}
-        </button>
+        </Button>
       ) : null}
     </section>
   );

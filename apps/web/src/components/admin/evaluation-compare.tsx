@@ -11,6 +11,7 @@ import {
   warningLabel,
 } from "@/components/admin/evaluation-view";
 import { useSessionIdentity } from "@/components/auth/session-boundary";
+import { Button } from "@/components/ui/button";
 import { compareEvaluations } from "@/lib/admin-api";
 import type { EvaluationComparison, EvaluationDeltas } from "@/lib/admin-api";
 import { isApiError } from "@/lib/errors";
@@ -94,9 +95,9 @@ export function EvaluationCompareView({
         <p role="alert" className="text-sm text-danger">
           The research service is unavailable.
         </p>
-        <button
+        <Button
           type="button"
-          className="w-fit cursor-pointer rounded border border-line-strong px-4 py-2"
+          variant="secondary"
           onClick={() => {
             setLoading(true);
             setUnavailable(false);
@@ -104,7 +105,7 @@ export function EvaluationCompareView({
           }}
         >
           Try again
-        </button>
+        </Button>
       </div>
     );
   }
@@ -130,14 +131,14 @@ export function EvaluationCompareView({
         </div>
       )}
       <div className="flex flex-col gap-4">
-        <section className="flex flex-col gap-2">
+        <section className="surface flex flex-col gap-2 p-4">
           <h2 className="font-semibold">Left</h2>
           <EvaluationFacts item={comparison.left} />
           {comparison.left.calibration ? (
             <ConfusionMatrix calibration={comparison.left.calibration} counts={comparison.left.counts} />
           ) : null}
         </section>
-        <section className="flex flex-col gap-2">
+        <section className="surface flex flex-col gap-2 p-4">
           <h2 className="font-semibold">Right</h2>
           <EvaluationFacts item={comparison.right} />
           {comparison.right.calibration ? (
@@ -161,7 +162,7 @@ function DeltaTable({ deltas }: { deltas: EvaluationDeltas }) {
   ];
   return (
     <div className="overflow-x-auto">
-      <table aria-label="Metric deltas" className="w-full text-sm">
+      <table aria-label="Metric deltas" className="data-table">
         <thead>
           <tr>
             <th scope="col">Metric</th>
