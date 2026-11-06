@@ -408,6 +408,48 @@ async def test_read_api_hides_reports_and_rejects_a_bad_cursor(
         await engine.dispose()
 
 
+async def test_owner_can_delete_a_run_and_its_report(
+    test_database_url: str,
+) -> None:
+    await _upgrade(test_database_url)
+    engine = create_db_engine(test_database_url)
+    history = ResearchHistory(session_factory(engine))
+    run_id = uuid.uuid4()
+    research_id = uuid.uuid4()
+    app = signed_in(create_app(make_settings(database_url=test_database_url)))
+    try:
+        await quarantine_scopes(session_factory(engine), research_id)
+        await history.create_running(
+            run_id,
+            research_id,
+            QUESTION,
+            NOW,
+            owner_id=QUARANTINE_USER_ID,
+        )
+        await history.finalize_success(
+            run_id,
+            _report("completed"),
+            [],
+            _usage(),
+            NOW + timedelta(seconds=1),
+        )
+        async with client_for(app) as client:
+            removed = await client.delete(f"/api/v1/research/runs/{run_id}")
+            missing = await client.delete(f"/api/v1/research/runs/{run_id}")
+            listed = await client.get("/api/v1/research/runs")
+            detail = await client.get(f"/api/v1/research/runs/{run_id}")
+        assert removed.status_code == 200
+        assert removed.json() == {"status": "ok"}
+        assert missing.status_code == 404
+        assert missing.json()["error"]["code"] == "not_found"
+        assert listed.json()["items"] == []
+        assert detail.status_code == 404
+        async with session_factory(engine)() as session:
+            assert await session.get(ResearchReportRecord, run_id) is None
+    finally:
+        await engine.dispose()
+
+
 async def test_depth_limits_and_v2_blocks_survive_history_round_trip(
     test_database_url: str,
 ) -> None:

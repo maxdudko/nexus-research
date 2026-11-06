@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { RunSummaryItem } from "@/components/research/run-summary";
 import { Button } from "@/components/ui/button";
-import { listRuns } from "@/lib/api";
+import { deleteRun, listRuns } from "@/lib/api";
 import { isApiError, REQUEST_FAILED_MESSAGE } from "@/lib/errors";
 import { loginHref } from "@/lib/return-path";
 import type { RunSummary } from "@/lib/types";
@@ -108,6 +108,20 @@ export function ResearchHistory({
     setAttempt((current) => current + 1);
   }
 
+  async function removeRun(runId: string): Promise<void> {
+    try {
+      await deleteRun(runId);
+    } catch (cause: unknown) {
+      if (isApiError(cause) && cause.status === 401) {
+        setRedirecting(true);
+        router.replace(loginHref(pathname));
+        return;
+      }
+      throw cause;
+    }
+    setRuns((items) => items.filter((item) => item.run_id !== runId));
+  }
+
   if (redirecting) {
     return <p role="status">Sign-in is required.</p>;
   }
@@ -150,7 +164,7 @@ export function ResearchHistory({
       {!loading && !pageError && runs.length === 0 ? <p>No research runs yet.</p> : null}
       <ul className="flex flex-col gap-3">
         {runs.map((run) => (
-          <RunSummaryItem key={run.run_id} run={run} />
+          <RunSummaryItem key={run.run_id} run={run} onRemove={removeRun} />
         ))}
       </ul>
       {variant === "recent" && cursor ? (

@@ -258,6 +258,32 @@ class ResearchHistory:
                 report = _validated_report(run.status, record)
                 return RunDetailResponse(run=_detail(run), report=report)
 
+    async def delete_run(
+        self,
+        run_id: UUID,
+        *,
+        owner_id: UUID,
+    ) -> bool:
+        """Remove one owned run and its report. Checkpoints are not touched."""
+        async with self._sessions() as session:
+            async with session.begin():
+                run = await session.scalar(
+                    select(ResearchRun)
+                    .join(
+                        ResearchScope,
+                        ResearchScope.research_id == ResearchRun.research_id,
+                    )
+                    .where(
+                        ResearchRun.run_id == run_id,
+                        ResearchScope.owner_user_id == owner_id,
+                    )
+                    .with_for_update()
+                )
+                if run is None:
+                    return False
+                await session.delete(run)
+        return True
+
 
 def sanitize_warnings(warnings: list[str]) -> list[str]:
     """Keep a bounded list of warning codes. Free text is dropped."""

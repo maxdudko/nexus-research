@@ -46,3 +46,16 @@ async def get_research_run(
     if found is None:
         raise not_found()
     return found
+
+
+@router.delete("/runs/{run_id}")
+async def delete_research_run(
+    run_id: UUID,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    history: Annotated[ResearchHistory, Depends(get_history)],
+) -> dict[str, str]:
+    """Remove one owned run from history. Evidence scopes are kept."""
+    deleted = await history.delete_run(run_id, owner_id=current.id)
+    if not deleted:
+        raise not_found()
+    return {"status": "ok"}

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -20,12 +20,14 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/lib/api", () => ({
   listRuns: vi.fn(),
+  deleteRun: vi.fn(),
   createResearchScope: vi.fn(),
 }));
 
-import { createResearchScope, listRuns } from "@/lib/api";
+import { createResearchScope, deleteRun, listRuns } from "@/lib/api";
 
 const listRunsMock = vi.mocked(listRuns);
+const deleteRunMock = vi.mocked(deleteRun);
 const createResearchScopeMock = vi.mocked(createResearchScope);
 
 function run(id: string, question: string, status: RunSummary["status"] = "completed"): RunSummary {
@@ -130,5 +132,39 @@ describe("ResearchHistory", () => {
     expect(await screen.findByRole("link", { name: finished.question })).toBeTruthy();
     expect(listRunsMock).toHaveBeenNthCalledWith(1, 20);
     expect(listRunsMock).toHaveBeenNthCalledWith(2, 20);
+  });
+
+  it("removes a run from the list after confirmation", async () => {
+    // jsdom does not implement the native dialog methods.
+    if (!HTMLDialogElement.prototype.showModal) {
+      Object.defineProperty(HTMLDialogElement.prototype, "showModal", {
+        configurable: true,
+        value() {
+          this.setAttribute("open", "");
+        },
+      });
+      Object.defineProperty(HTMLDialogElement.prototype, "close", {
+        configurable: true,
+        value() {
+          this.removeAttribute("open");
+          this.dispatchEvent(new Event("close"));
+        },
+      });
+    }
+    const first = run("11111111-1111-4111-8111-111111111111", "How does remove clear history?");
+    const second = run("22222222-2222-4222-8222-222222222222", "How does the other row stay?");
+    listRunsMock.mockResolvedValueOnce({ items: [first, second], next_cursor: null });
+    deleteRunMock.mockResolvedValueOnce(undefined);
+    render(<ResearchHistory />);
+    expect(await screen.findByRole("link", { name: first.question })).toBeTruthy();
+    const row = screen.getByRole("link", { name: first.question }).closest("li");
+    expect(row).toBeTruthy();
+    await userEvent.click(within(row as HTMLElement).getByRole("button", { name: "Remove" }));
+    const dialog = screen.getByRole("dialog", { name: "Remove from history?" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Remove" }));
+    expect(deleteRunMock).toHaveBeenCalledWith(first.run_id);
+    expect(await screen.findByRole("link", { name: second.question })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: first.question })).toBeNull();
+    expect(createResearchScopeMock).not.toHaveBeenCalled();
   });
 });
