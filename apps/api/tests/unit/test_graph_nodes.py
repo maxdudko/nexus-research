@@ -109,8 +109,8 @@ async def test_discovery_charges_actual_counts_and_drops_snippets() -> None:
     update = await discover_node(state, runtime_for(context))
 
     assert "alpha one" in discovery.questions[0]
-    assert "alpha three" in discovery.questions[0]
-    assert "beta one" not in discovery.questions[0]
+    assert "beta one" in discovery.questions[0]
+    assert "alpha three" not in discovery.questions[0]
     assert update["usage"]["search_calls"] == 1  # type: ignore[index]
     assert update["usage"]["llm_calls"] == 2  # type: ignore[index]
     assert update["iteration"] == 1
@@ -207,7 +207,7 @@ async def test_retrieval_keeps_the_scope_the_better_score_and_a_short_excerpt() 
     assert evidence[0]["research_id"] == state["research_id"]  # type: ignore[index]
     assert evidence[0]["score"] == 0.9  # type: ignore[index]
     assert evidence[0]["url"] == "https://example.org/notes"  # type: ignore[index]
-    assert evidence[0]["excerpt"] == "e" * 500  # type: ignore[index]
+    assert evidence[0]["excerpt"] == "e" * 600  # type: ignore[index]
     assert state["evidence"] == []
 
 

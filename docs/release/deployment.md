@@ -148,9 +148,9 @@ HTTPS on its own is not access control. A TLS reverse proxy without authenticati
 
 The UI uses `POST /api/v1/research/stream`. Headers are sent immediately and a `: ping` comment follows every `NEXUS_STREAM_HEARTBEAT_SECONDS` (15 by default), so the stream stays active for the whole run.
 
-- **A reverse proxy in front of Web** needs a read timeout above `NEXUS_GRAPH_DEADLINE_SECONDS` plus 5 seconds; with the default 180, 200 is safe. Disable response buffering for `text/event-stream`. The API already sends `X-Accel-Buffering: no` and `Cache-Control: no-cache, no-transform`.
+- **A reverse proxy in front of Web** needs a read timeout above the selected profile deadline plus 5 seconds; use at least 620 seconds to support Deep mode. Disable response buffering for `text/event-stream`. The API already sends `X-Accel-Buffering: no` and `Cache-Control: no-cache, no-transform`.
 - **The Web proxy itself** uses Node `fetch`, which waits at most 300 seconds for response headers and 300 seconds between body chunks. Heartbeats keep the stream inside both limits.
-- **`POST /api/v1/research/run`** returns headers only after the graph finishes. Through the Web proxy it fails once a run exceeds about 290 seconds. Keep `NEXUS_GRAPH_DEADLINE_SECONDS` at 280 or lower if you call `/run` through port 3000. The UI does not use `/run`.
+- **`POST /api/v1/research/run`** returns headers only after the graph finishes. Through the Web proxy it fails once a run exceeds about 290 seconds. Use Standard mode for `/run` through port 3000. Deep runs through Web must use `/stream`, as the UI and benchmark harness do. Named profiles choose their limits independently of legacy `NEXUS_GRAPH_*` overrides.
 
 ## Secrets
 

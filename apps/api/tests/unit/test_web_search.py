@@ -188,6 +188,9 @@ async def test_client_receives_snippet_search_options(
         "include_answer": False,
         "include_raw_content": False,
         "timeout": 20.0,
+        "search_depth": "basic",
+        "time_range": None,
+        "include_domains": None,
     }
     assert captured["closed"] is True
 

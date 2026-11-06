@@ -16,7 +16,7 @@ import {
 } from "@/lib/research-session";
 import { loginHref } from "@/lib/return-path";
 import { isTerminalFrame, parseSse, type SseFrame } from "@/lib/sse";
-import type { RunDetailResponse, RunStatus } from "@/lib/types";
+import type { ResearchDepth, RunDetailResponse, RunStatus } from "@/lib/types";
 
 const RUNNING_UNCONFIRMED = "Last known state: running; execution is not confirmed.";
 
@@ -45,6 +45,7 @@ function runIdFrom(frame: SseFrame): string | null {
 export interface ResearchStream {
   state: SessionState;
   setQuestion: (question: string) => void;
+  setDepth: (depth: ResearchDepth) => void;
   setFile: (file: File | null) => void;
   start: () => void;
   stop: () => void;
@@ -81,6 +82,10 @@ export function useResearchStream(navigate?: (href: string) => void): ResearchSt
       submitLock.current = false;
       abortRef.current?.abort();
     };
+  }, []);
+
+  const setDepth = useCallback((depth: ResearchDepth) => {
+    dispatch({ type: "edit_depth", depth });
   }, []);
 
   const setQuestion = useCallback((question: string) => {
@@ -279,7 +284,7 @@ export function useResearchStream(navigate?: (href: string) => void): ResearchSt
 
         try {
           const response = await openResearchStream(
-            { question, research_id: researchId },
+            { question, research_id: researchId, depth: current.depth },
             controller.signal,
           );
           if (expired()) return;
@@ -342,5 +347,5 @@ export function useResearchStream(navigate?: (href: string) => void): ResearchSt
     })();
   }, [applyFrame, go, pathname, router]);
 
-  return { state, setQuestion, setFile, start, stop, retry };
+  return { state, setQuestion, setDepth, setFile, start, stop, retry };
 }

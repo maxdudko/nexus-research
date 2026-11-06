@@ -4,6 +4,8 @@
  * and apps/api/src/nexus/research/events.py.
  */
 
+export type ResearchDepth = "standard" | "deep";
+
 export type ReportStatus = "completed" | "partial" | "insufficient_evidence";
 
 export type RunStatus = ReportStatus | "running" | "failed" | "interrupted";
@@ -13,6 +15,8 @@ export type StageName =
   | "discovery"
   | "ingestion"
   | "retrieval"
+  | "analysis"
+  | "verification"
   | "evaluation"
   | "synthesis";
 
@@ -31,15 +35,33 @@ export interface EvidenceRef {
   research_id: string;
   url: string | null;
   page_number: number | null;
+  title?: string | null;
+  domain?: string | null;
+  published_at?: string | null;
+  retrieved_at?: string | null;
+  query?: string | null;
+  excerpt?: string | null;
+}
+
+export interface ReportBlock {
+  kind: "fact" | "inference" | "context" | "table";
+  text: string;
+  citations: string[];
+  columns: string[];
+  rows: string[][];
 }
 
 export interface ReportSection {
+  blocks?: ReportBlock[];
   heading: string;
   content: string;
   citations: string[];
 }
 
 export interface ResearchReport {
+  format_version?: 1 | 2;
+  summary_blocks?: ReportBlock[];
+  verification?: "not_checked" | "passed" | "incomplete";
   title: string;
   summary: string;
   sections: ReportSection[];
@@ -59,6 +81,8 @@ export interface RunSummary {
 }
 
 export interface RunDetail extends RunSummary {
+  depth?: ResearchDepth;
+  applied_limits?: Record<string, unknown>;
   warnings: string[];
   usage: GraphUsage | null;
   started_at: string | null;
@@ -84,6 +108,7 @@ export interface IngestionResponse {
 }
 
 export interface ResearchRunRequest {
+  depth?: ResearchDepth;
   question: string;
   research_id: string | null;
 }

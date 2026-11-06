@@ -1,3 +1,4 @@
+import { ReportV2 } from "@/components/research/report-v2";
 import { CitationLink } from "@/components/research/citation-link";
 import { StatusChip, statusTone } from "@/components/ui/status-chip";
 import { sourceMap } from "@/lib/report";
@@ -10,6 +11,7 @@ const STATUS_LABEL: Record<ReportStatus, string> = {
 };
 
 export function ResearchReportView({ report }: { report: ResearchReport }) {
+  if (report.format_version === 2) return <ReportV2 report={report} />;
   const sources = sourceMap(report);
   const sections = Array.isArray(report.sections) ? report.sections : [];
   const limitations = Array.isArray(report.limitations) ? report.limitations : [];

@@ -217,7 +217,7 @@ def test_naive_start_time_is_rejected() -> None:
 
 def test_schema_version_is_current() -> None:
     raw = json.loads(json.dumps(_state()))
-    raw["schema_version"] = 2
+    raw["schema_version"] = 1
     raw["started_at"] = (NOW - timedelta(seconds=1)).isoformat()
 
     with pytest.raises(GraphStateError):

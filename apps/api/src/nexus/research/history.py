@@ -5,7 +5,7 @@ import json
 import re
 from collections.abc import Awaitable, Callable
 from datetime import datetime
-from typing import cast
+from typing import Literal, cast
 from uuid import UUID
 
 from pydantic import ValidationError
@@ -76,6 +76,8 @@ class ResearchHistory:
         now: datetime,
         *,
         owner_id: UUID,
+        depth: str = "standard",
+        applied_limits: dict[str, object] | None = None,
     ) -> None:
         """Insert one running row when this user still owns the scope."""
         moment = _aware(now)
@@ -96,6 +98,8 @@ class ResearchHistory:
                         run_id=run_id,
                         research_id=research_id,
                         question=question,
+                        depth=depth,
+                        applied_limits=applied_limits or {},
                         status="running",
                         error_code=None,
                         warnings=[],
@@ -403,6 +407,8 @@ def _detail(run: ResearchRun) -> RunDetail:
         error_code=run.error_code,
         warnings=_warning_list(run.warnings),
         usage=usage,
+        depth=cast(Literal["standard", "deep"], run.depth),
+        applied_limits=run.applied_limits,
         created_at=run.created_at,
         started_at=run.started_at,
         finished_at=run.finished_at,

@@ -72,6 +72,14 @@ Stop with `docker compose --env-file .env.release -f compose.release.yml down`. 
 
 Environment variables, schema initialization, upgrades and remote access are in [`docs/release/deployment.md`](docs/release/deployment.md).
 
+## Research quality
+
+Research now offers Standard (up to 3 minutes) and Deep (up to 10 minutes).
+Adaptive gap searches, task-balanced evidence, claim analysis, and report support
+checks feed analytical reports with paragraph citations, tables and readable
+excerpts. Existing reports remain readable. See [behavior and upgrade notes](docs/research-quality.md)
+and the separate [30-case quality evaluation](docs/evaluation/research-quality/README.md).
+
 ## Evaluation
 
 CI runs the offline suite without any API key and fails when its output differs from [`docs/evaluation/baseline.json`](docs/evaluation/baseline.json):

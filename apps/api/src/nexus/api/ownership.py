@@ -15,7 +15,11 @@ from nexus.ai.errors import not_found
 from nexus.api.deps import CurrentUser, get_current_user
 from nexus.identity.scopes import mint_scope, owned_scope
 from nexus.schemas.evidence import SearchRequest, WebIngestionRequest
-from nexus.schemas.research import ResearchQuestionRequest, ResearchRunRequest
+from nexus.schemas.research import (
+    ResearchDepth,
+    ResearchQuestionRequest,
+    ResearchRunRequest,
+)
 
 
 @dataclass(frozen=True)
@@ -25,6 +29,7 @@ class OwnedRun:
     user: CurrentUser
     research_id: UUID
     question: str
+    depth: ResearchDepth = "standard"
 
 
 @dataclass(frozen=True)
@@ -65,7 +70,9 @@ async def resolve_run(
         if found is None:
             raise not_found()
         research_id = found
-    return OwnedRun(user=current, research_id=research_id, question=body.question)
+    return OwnedRun(
+        user=current, research_id=research_id, question=body.question, depth=body.depth
+    )
 
 
 async def authorize_pdf(

@@ -1,5 +1,6 @@
 """Request-scoped research planning. The route does not call the model."""
 
+from datetime import UTC, datetime
 from typing import Protocol
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
@@ -29,10 +30,16 @@ class Planner:
         self._settings = settings
         self._model = model
 
-    async def create_plan(self, question: str) -> ResearchPlan:
+    async def create_plan(
+        self, question: str, *, as_of: datetime | None = None
+    ) -> ResearchPlan:
         model = self._model or OpenAIStructuredModel(self._settings)
         messages: list[BaseMessage] = [
-            SystemMessage(content=PLANNER_SYSTEM_PROMPT),
+            SystemMessage(
+                content=PLANNER_SYSTEM_PROMPT
+                + "\nResearch date (UTC): "
+                + (as_of or datetime.now(UTC)).date().isoformat()
+            ),
             HumanMessage(content=question),
         ]
         try:

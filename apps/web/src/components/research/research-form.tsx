@@ -1,5 +1,7 @@
 "use client";
 
+import type { ResearchDepth } from "@/lib/types";
+
 import { PdfUpload } from "@/components/research/pdf-upload";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,6 +15,7 @@ import {
 export function ResearchForm({
   state,
   onQuestion,
+  onDepth,
   onFile,
   onStart,
   onStop,
@@ -20,6 +23,7 @@ export function ResearchForm({
 }: {
   state: SessionState;
   onQuestion: (question: string) => void;
+  onDepth?: (depth: ResearchDepth) => void;
   onFile: (file: File | null) => void;
   onStart: () => void;
   onStop: () => void;
@@ -63,6 +67,15 @@ export function ResearchForm({
             Enter a question between 10 and 2000 characters.
           </p>
         ) : null}
+      </div>
+      <div className="flex flex-col gap-2">
+        <label htmlFor="depth" className="text-sm font-medium">Research depth</label>
+        <select id="depth" className="field" value={state.depth} disabled={busy}
+          onChange={(event) => onDepth?.(event.target.value as ResearchDepth)}>
+          <option value="standard">Standard · up to 3 minutes</option>
+          <option value="deep">Deep · up to 10 minutes</option>
+        </select>
+        <p className="text-sm text-muted">Deep research examines more sources and evidence. It uses more provider credits.</p>
       </div>
       <PdfUpload
         fileName={state.fileName}

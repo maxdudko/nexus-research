@@ -95,6 +95,7 @@ async def get_runner(
                 store,
                 owner_user_id=owned.user.id,
                 session_id=owned.user.session_id,
+                depth=owned.depth,
             ),
         )
     finally:
@@ -174,6 +175,8 @@ async def stream_research(
                 owned.question,
                 runner.clock(),
                 owner_id=owned.user.id,
+                depth=owned.depth,
+                applied_limits=runner.context.limits.snapshot(),
             )
         except ResearchError:
             raise

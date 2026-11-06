@@ -422,3 +422,52 @@ async def test_abandon_failure_still_marks_the_row_failed(
         assert other_deletes == 1
     finally:
         await engine.dispose()
+
+
+async def test_identical_web_reprints_share_one_source_inside_each_scope(
+    test_database_url: str,
+    evidence_store: tuple[EvidenceVectorStore, Settings],
+) -> None:
+    store, settings = evidence_store
+    await _upgrade(test_database_url)
+    engine = create_db_engine(test_database_url)
+    factory = session_factory(engine)
+    scope, other_scope = uuid.uuid4(), uuid.uuid4()
+    await quarantine_scopes(factory, scope, other_scope)
+
+    async def fetch_page(url: str) -> FetchedPage:
+        return FetchedPage(
+            url=url,
+            body=ARTICLE.format(
+                title="Measurements",
+                body=(
+                    "Measurements are reported for the whole calendar year. "
+                    "The observed sample has a mass of ten kilograms. The methodology "
+                    "and units are unchanged across these repeated measurements."
+                ),
+            ).encode(),
+        )
+
+    service = IngestionService(
+        factory, store, DeterministicEmbedder(), settings, fetch_page=fetch_page
+    )
+    try:
+        original = await service.ingest_web(
+            scope, "https://example.org/a", owner_id=QUARANTINE_USER_ID
+        )
+        reprint = await service.ingest_web(
+            scope, "https://other.example.org/b", owner_id=QUARANTINE_USER_ID
+        )
+        independent_scope = await service.ingest_web(
+            other_scope, "https://example.org/a", owner_id=QUARANTINE_USER_ID
+        )
+        assert original.source_id == reprint.source_id
+        assert reprint.deduplicated
+        assert independent_scope.source_id != original.source_id
+        async with factory() as db:
+            sources = list(
+                await db.scalars(select(Source).where(Source.research_id == scope))
+            )
+        assert len(sources) == 1
+    finally:
+        await engine.dispose()

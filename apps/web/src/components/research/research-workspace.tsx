@@ -29,6 +29,7 @@ export function ResearchWorkspace() {
       <ResearchForm
         state={stream.state}
         onQuestion={stream.setQuestion}
+        onDepth={stream.setDepth}
         onFile={stream.setFile}
         onStart={stream.start}
         onStop={stream.stop}

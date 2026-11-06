@@ -92,7 +92,7 @@ uv run alembic upgrade head
 uv run python -m nexus.research.checkpoint
 ```
 
-Alembic owns the domain schema (`users`, `auth_sessions`, `password_reset_tokens`, `research_scopes`, `sources`, `research_runs`, `research_reports`, and evaluation history). Head is `a4d9c2f78106`, following `f6c1a8d04e27`. Running `upgrade head` again leaves the database at the current head. `uv run alembic downgrade base` is not a release rollback: scope downgrade aborts once a real owner exists, and the supported recovery is the paired volume restore in `docs/release/operations.md`.
+Alembic owns the domain schema (`users`, `auth_sessions`, `password_reset_tokens`, `research_scopes`, `sources`, `research_runs`, `research_reports`, and evaluation history). Head is `da73e1b94026`, following `a4d9c2f78106`. Apply migrations before starting updated API code; the new research history fields require this revision. Running `upgrade head` again leaves the database at the current head. `uv run alembic downgrade base` is not a release rollback: scope downgrade aborts once a real owner exists, and the supported recovery is the paired volume restore in `docs/release/operations.md`.
 
 LangGraph checkpoint tables are not managed by Alembic, and a request does not create them. `python -m nexus.research.checkpoint` creates or migrates them and is safe to run more than once. The release stack runs both commands in its one-shot `init` service.
 
@@ -331,7 +331,9 @@ NEXUS_RUN_LIVE_AI=1 \
 
 ## Research run
 
-`POST /api/v1/research/run` accepts a question and an optional `research_id`. The server always mints a new `run_id`. A client `run_id` or `thread_id` is 422 `invalid_request`. The same `research_id` on a later request is a new thread that can see evidence already indexed for that scope. It does not continue the previous thread.
+`POST /api/v1/research/run` accepts a question, an optional `research_id`, and `depth` (`standard` by default, or `deep`). The server always mints a new `run_id`. A client `run_id` or `thread_id` is 422 `invalid_request`. The same `research_id` on a later request is a new thread that can see evidence already indexed for that scope. It does not continue the previous thread.
+
+Reports now support version 2 with cited blocks, tables, source excerpts and model support checks. Version 1 reports remain readable. See [research quality and upgrade notes](research-quality.md) for profile limits and contracts.
 
 The request waits until the graph finishes. There is no worker and no queue. `/run` does not stream. The product UI uses `POST /api/v1/research/stream`, described in [Run the web app](#run-the-web-app). `completed`, `partial`, and `insufficient_evidence` return 200 with the report, identifier warnings, and usage. `failed` and a hard deadline return the `{ "error": { "code", "message" } }` envelope and no report. A missing OpenAI key is 503 `provider_not_configured`. A checkpoint store that is down or not migrated is 503 `checkpoint_unavailable`. The message does not include the database URL.
 

@@ -168,6 +168,7 @@ describe("useResearchStream", () => {
       run: {
         run_id: RUN,
         research_id: RESEARCH,
+        depth: "standard",
         question: "How does the proxy stream results?",
         status: "completed",
         error_code: null,
@@ -197,7 +198,7 @@ describe("useResearchStream", () => {
     );
     expect(uploadPdfMock).toHaveBeenCalledWith(RESEARCH, file, expect.any(AbortSignal));
     expect(openResearchStreamMock).toHaveBeenCalledWith(
-      { question: "How does the proxy stream results?", research_id: RESEARCH },
+      { depth: "standard", question: "How does the proxy stream results?", research_id: RESEARCH },
       expect.any(AbortSignal),
     );
     expect(getRunMock).toHaveBeenCalledWith(RUN);
@@ -270,6 +271,7 @@ describe("useResearchStream", () => {
     expect(result.current.state.researchId).toBe("33333333-3333-4333-8333-333333333331");
     expect(openResearchStreamMock).toHaveBeenLastCalledWith(
       {
+        depth: "standard",
         question: "How does the proxy stream results?",
         research_id: "33333333-3333-4333-8333-333333333331",
       },
@@ -402,6 +404,7 @@ describe("useResearchStream", () => {
       run: {
         run_id: RUN,
         research_id: RESEARCH,
+        depth: "standard",
         question: "How does the proxy stream results?",
         status: "completed",
         error_code: null,
@@ -445,7 +448,7 @@ describe("useResearchStream", () => {
     expect(createResearchScopeMock.mock.calls.length).toBe(scopesBeforeRetry + 1);
     expect(uploadPdfMock).toHaveBeenCalledWith(secondId, file, expect.any(AbortSignal));
     expect(openResearchStreamMock).toHaveBeenLastCalledWith(
-      { question: "How does the proxy stream results?", research_id: secondId },
+      { depth: "standard", question: "How does the proxy stream results?", research_id: secondId },
       expect.any(AbortSignal),
     );
 
@@ -483,7 +486,7 @@ describe("useResearchStream", () => {
     const fourthId = "55555555-5555-4555-8555-555555555555";
     expect(uploadPdfMock).not.toHaveBeenCalled();
     expect(openResearchStreamMock).toHaveBeenLastCalledWith(
-      { question: "How does the proxy stream results?", research_id: fourthId },
+      { depth: "standard", question: "How does the proxy stream results?", research_id: fourthId },
       expect.any(AbortSignal),
     );
   });
@@ -563,7 +566,7 @@ describe("useResearchStream", () => {
     expect(uploadPdfMock).toHaveBeenLastCalledWith(nextId, replacement, expect.any(AbortSignal));
     expect(openResearchStreamMock).toHaveBeenCalledTimes(1);
     expect(openResearchStreamMock).toHaveBeenLastCalledWith(
-      { question: "How does the proxy stream results?", research_id: nextId },
+      { depth: "standard", question: "How does the proxy stream results?", research_id: nextId },
       expect.any(AbortSignal),
     );
   });
@@ -595,6 +598,7 @@ describe("useResearchStream", () => {
     expect(uploadPdfMock).not.toHaveBeenCalled();
     expect(openResearchStreamMock).toHaveBeenLastCalledWith(
       {
+        depth: "standard",
         question: "How does the proxy stream results?",
         research_id: "33333333-3333-4333-8333-333333333331",
       },

@@ -97,3 +97,19 @@ def test_filename_keeps_only_the_base_name() -> None:
     assert filename_display_name("../secret/notes.pdf") == "notes.pdf"
     assert filename_display_name(None) is None
     assert filename_display_name("..") is None
+
+
+def test_table_continuations_keep_column_names_and_units() -> None:
+    chunker = Chunker(
+        chunk_tokens=45,
+        overlap_tokens=10,
+        max_chunks=30,
+        model_name="text-embedding-3-small",
+    )
+    article = "# Results\n\n| Year | Mass (kg) |\n|---|---|\n" + "\n".join(
+        f"| {2000 + i} | {i + 10} |" for i in range(30)
+    )
+    chunks = chunker.chunk_article(article)
+    assert len(chunks) > 2
+    assert all("Mass (kg)" in chunk.text for chunk in chunks if "|" in chunk.text)
+    assert all(chunk.text.startswith("# Results") for chunk in chunks)

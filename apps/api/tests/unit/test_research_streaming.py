@@ -60,6 +60,8 @@ class MemoryHistory:
         now: datetime,
         *,
         owner_id: UUID | None = None,
+        depth: str = "standard",
+        applied_limits: dict[str, object] | None = None,
     ) -> None:
         del owner_id
         if self.fail_create:

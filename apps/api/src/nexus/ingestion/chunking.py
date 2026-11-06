@@ -96,6 +96,39 @@ class Chunker:
             raise empty_document()
         return chunks
 
+    def chunk_article(self, text: str) -> list[TextChunk]:
+        """Keep Markdown headings with their section, including continuation chunks.
+
+        No-heading text retains the existing token-window behavior. The Markdown
+        extraction is included in the source digest, so old plain-text sources
+        are not silently reinterpreted under their accepted digest.
+        """
+        sections = re.split(r"(?m)(?=^#{1,6} )", normalize_text(text))
+        chunks: list[TextChunk] = []
+        for section in sections:
+            section = section.strip()
+            if not section:
+                continue
+            heading = section.split("\n", 1)[0] if section.startswith("#") else ""
+            table_headers = re.findall(
+                r"(?m)^(\|[^\n]+\|)[ \t]*\n(\|[- :|]+\|)[ \t]*(?:\n|$)", section
+            )
+            for window in self._windows(section):
+                if "|" in window:
+                    missing = [
+                        "\n".join(h) for h in table_headers if h[0] not in window
+                    ]
+                    if missing:
+                        window = "\n".join(missing) + "\n" + window
+                if heading and not window.startswith(heading):
+                    window = f"{heading}\n{window}"
+                chunks.append(TextChunk(len(chunks), window, None))
+                if len(chunks) > self._max_chunks:
+                    raise payload_too_large()
+        if not chunks:
+            raise empty_document()
+        return chunks
+
     def _windows(self, text: str) -> list[str]:
         tokens = self._encoding.encode(text)
         if not tokens:

@@ -6,6 +6,7 @@ import asyncio
 from typing import TYPE_CHECKING
 
 from nexus.ai.errors import ResearchError
+from nexus.ai.planner import Planner
 from nexus.research.budgets import charge_planner
 from nexus.research.nodes.common import before_provider, failed
 from nexus.research.state import ResearchState, UsageSnapshot, copy_usage
@@ -26,7 +27,13 @@ async def plan_node(
         return gate
     limits = runtime.context.limits
     try:
-        plan = await runtime.context.planner.create_plan(state["question"])
+        if isinstance(runtime.context.planner, Planner):
+            plan = await runtime.context.planner.create_plan(
+                state["question"],
+                as_of=runtime.context.clock(),
+            )
+        else:
+            plan = await runtime.context.planner.create_plan(state["question"])
     except asyncio.CancelledError:
         raise
     except ResearchError as exc:

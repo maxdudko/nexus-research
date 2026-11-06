@@ -406,3 +406,56 @@ async def test_read_api_hides_reports_and_rejects_a_bad_cursor(
     finally:
         event.remove(engine.sync_engine, "before_cursor_execute", capture)
         await engine.dispose()
+
+
+async def test_depth_limits_and_v2_blocks_survive_history_round_trip(
+    test_database_url: str,
+) -> None:
+    from nexus.schemas.report import ReportBlock
+
+    await _upgrade(test_database_url)
+    engine = create_db_engine(test_database_url)
+    factory = session_factory(engine)
+    history = ResearchHistory(factory)
+    scope, run_id = uuid.uuid4(), uuid.uuid4()
+    await quarantine_scopes(factory, scope)
+    try:
+        await history.create_running(
+            run_id,
+            scope,
+            QUESTION,
+            NOW,
+            owner_id=QUARANTINE_USER_ID,
+            depth="deep",
+            applied_limits={"max_iterations": 4},
+        )
+        block = ReportBlock(
+            kind="fact",
+            text="The deadline ends the run.",
+            citations=["E1"],
+            columns=[],
+            rows=[],
+        )
+        legacy = _report("completed")
+        report = ResearchReport(
+            **{
+                **legacy.model_dump(),
+                "format_version": 2,
+                "verification": "passed",
+                "summary_blocks": [block],
+                "sections": [
+                    {**legacy.sections[0].model_dump(), "blocks": [block.model_dump()]}
+                ],
+            }
+        )
+        await history.finalize_success(
+            run_id, report, [], _usage(), NOW + timedelta(seconds=2)
+        )
+        detail = await history.get_run(run_id, owner_id=QUARANTINE_USER_ID)
+        assert detail is not None and detail.report is not None
+        assert detail.run.depth == "deep"
+        assert detail.run.applied_limits == {"max_iterations": 4}
+        assert detail.report.format_version == 2
+        assert detail.report.summary_blocks[0].citations == ["E1"]
+    finally:
+        await engine.dispose()

@@ -12,10 +12,13 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.runtime import Runtime
 
+from nexus.ai.analysis import EvidenceAnalyzer
+from nexus.ai.verification import ReportVerifier
 from nexus.ingestion.service import IngestionResult
 from nexus.observability.context import bind_run
 from nexus.observability.spans import operation
 from nexus.research.budgets import BudgetLimits
+from nexus.research.nodes.analysis import analyze_node
 from nexus.research.nodes.discovery import discover_node
 from nexus.research.nodes.evaluation import evaluate_node
 from nexus.research.nodes.failure import fail_node
@@ -23,6 +26,7 @@ from nexus.research.nodes.ingestion import ingest_node
 from nexus.research.nodes.planning import plan_node
 from nexus.research.nodes.retrieval import retrieve_node
 from nexus.research.nodes.synthesis import synthesize_node
+from nexus.research.nodes.verification import verify_node
 from nexus.research.outcomes import EvaluationOutcome, SynthesisOutcome
 from nexus.research.routing import RouteName, decide, route_after_plan
 from nexus.research.state import ResearchState
@@ -30,7 +34,7 @@ from nexus.retrieval.vector_store import EvidenceMatch
 from nexus.schemas.report import ReportStatus
 from nexus.schemas.research import DiscoveryResult, ResearchPlan
 
-RECURSION_LIMIT = 25
+RECURSION_LIMIT = 50
 
 
 class PlannerProtocol(Protocol):
@@ -107,6 +111,8 @@ class GraphContext:
     clock: Callable[[], datetime]
     owner_user_id: UUID
     session_active: Callable[[], Awaitable[bool]] = session_stays_active
+    analyzer: EvidenceAnalyzer | None = None
+    verifier: ReportVerifier | None = None
 
 
 def build_graph(
@@ -118,8 +124,10 @@ def build_graph(
     graph.add_node("discover", _observe("discover", discover_node))
     graph.add_node("ingest", _observe("ingest", ingest_node))
     graph.add_node("retrieve", _observe("retrieve", retrieve_node))
+    graph.add_node("analyze", _observe("analyze", analyze_node))
     graph.add_node("evaluate", _observe("evaluate", evaluate_node))
     graph.add_node("synthesize", _observe("synthesize", synthesize_node))
+    graph.add_node("verify", _observe("verify", verify_node))
     graph.add_node("fail", _observe("fail", fail_node))
     graph.add_edge(START, "plan")
     graph.add_conditional_edges(
@@ -129,7 +137,8 @@ def build_graph(
     )
     graph.add_edge("discover", "ingest")
     graph.add_edge("ingest", "retrieve")
-    graph.add_edge("retrieve", "evaluate")
+    graph.add_edge("retrieve", "analyze")
+    graph.add_edge("analyze", "evaluate")
     graph.add_conditional_edges(
         "evaluate",
         route_after_evaluation,
@@ -140,7 +149,8 @@ def build_graph(
             "fail": "fail",
         },
     )
-    graph.add_edge("synthesize", END)
+    graph.add_edge("synthesize", "verify")
+    graph.add_edge("verify", END)
     graph.add_edge("fail", END)
     return graph.compile(checkpointer=checkpointer)
 

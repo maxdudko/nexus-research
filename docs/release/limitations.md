@@ -24,7 +24,7 @@ The current private build adds login and owner-scoped research on the single-ope
 - Closing the tab, pressing Stop, a proxy timeout, an API restart or a crash ends the run. Nothing resumes it. LangGraph checkpoints are stored but never used to continue a thread.
 - A run cut off before its status write completes stays `running` permanently ([Stale `running` rows](operations.md#stale-running-rows)). There is no cleanup tool. The report page shows that row as the last recorded state. It does not mean the request is still running.
 - Each user can have one active stream. Across users, at most `NEXUS_STREAM_MAX_CONCURRENT` (default 2, maximum 8) streams run at once per API process; more get 429.
-- A run is bounded by default to 2 iterations, 6 searches, 13 logical model calls, 5 fetched pages, 12 passages and 180 seconds. Hitting a cap produces `partial` or `insufficient_evidence`, not a longer run.
+- Standard runs allow 2 rounds, 6 searches, 20 logical model calls, 8 attempted pages, 24 passages and 180 seconds. Deep runs allow 4 rounds, 12 searches, 40 model calls, 20 attempted pages, 50 passages and 600 seconds. Hitting a cap produces `partial` or `insufficient_evidence`; see [research quality](../research-quality.md).
 - Checkpoint rows are never deleted.
 
 ## PDF processing
@@ -38,6 +38,7 @@ The current private build adds login and owner-scoped research on the single-ope
 ## Report grounding
 
 - Citation ids are assigned by the server to retrieved passages, and the API rejects unknown ids and URLs outside the retrieved snapshot. A valid citation means the passage was retrieved for this run. It does not prove the sentence is entailed by the passage.
+- Version 2 reports check each block against cited evidence, allow one repair, and remain partial when checking fails or coverage is incomplete. The checker is a model assessment, not a proof of entailment.
 - Text copied from a retrieved page, including injected instructions, can remain in a cited section. It cannot add sources or call other tools ([failure matrix](../evaluation/failure-matrix.md)).
 
 ## Evaluation
@@ -45,7 +46,7 @@ The current private build adds login and owner-scoped research on the single-ope
 - The CI gate is the offline suite: frozen fixture rank lists and authored citation and grounding cases, compared byte for byte with [`baseline.json`](../evaluation/baseline.json). Its Recall@5, Precision@5 and MRR@5 describe those fixtures. They are not measurements of live `text-embedding-3-small` or Qdrant retrieval quality, and not a quality threshold for production.
 - The optional live judge and the live embedding test are manual, informational and not compared with the baseline. Their labels are estimates on a small authored set. Saved outputs such as `docs/evaluation/outputs/nexus-eval-live.json` are examples, not release metrics.
 - An imported evaluation stores `executed_at` as null. The admin UI says the execution time is unknown. The import clock is not the time the suite ran.
-- No benchmark of report accuracy, latency or cost on real questions is part of this release. See [`methodology.md`](../evaluation/methodology.md).
+- The [30-case quality benchmark](../evaluation/research-quality/README.md) has capture and blinded-review tools; no before/after acceptance result is claimed. See [`methodology.md`](../evaluation/methodology.md).
 
 ## Cost telemetry
 

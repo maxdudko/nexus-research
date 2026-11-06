@@ -5,10 +5,18 @@ from typing import Literal, Self
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic.config import JsonDict
 
 from nexus.schemas.report import GraphUsage, ReportStatus, ResearchReport
 
+ResearchDepth = Literal["standard", "deep"]
+
 QUERY_MAX_LENGTH = 200
+
+
+def _omit_schema_default(schema: JsonDict) -> None:
+    """Keep provider JSON schema default-free while accepting legacy plans."""
+    schema.pop("default", None)
 
 
 class ResearchQuestionRequest(BaseModel):
@@ -31,6 +39,7 @@ class ResearchRunRequest(BaseModel):
 
     question: str = Field(min_length=10, max_length=2000)
     research_id: UUID | None = None
+    depth: ResearchDepth = "standard"
 
     @field_validator("question", mode="before")
     @classmethod
@@ -58,6 +67,12 @@ class ResearchTask(BaseModel):
 
     question: str
     search_queries: list[str]
+    sufficiency_criteria: list[str] = Field(default_factory=list, max_length=5)
+    time_range: Literal["day", "week", "month", "year"] | None = Field(
+        default=None,
+        json_schema_extra=_omit_schema_default,
+    )
+    include_domains: list[str] = Field(default_factory=list, max_length=5)
 
 
 class ResearchPlan(BaseModel):
@@ -89,7 +104,11 @@ class ResearchPlan(BaseModel):
             if not 1 <= len(queries) <= 3:
                 raise ValueError("each task must contain 1 to 3 search queries")
             total_queries += len(queries)
-            tasks.append(ResearchTask(question=question, search_queries=queries))
+            tasks.append(
+                task.model_copy(
+                    update={"question": question, "search_queries": queries}
+                )
+            )
 
         if total_queries > 9:
             raise ValueError("total search queries must be at most 9")
@@ -108,6 +127,9 @@ class SearchResult(BaseModel):
     url: str
     snippet: str
     published_at: datetime | None = None
+    query: str | None = None
+    retrieved_at: datetime | None = None
+    relevance_score: float = 0
 
 
 class DiscoveryResult(BaseModel):

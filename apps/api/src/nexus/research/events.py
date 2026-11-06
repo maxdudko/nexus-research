@@ -13,6 +13,8 @@ StageName = Literal[
     "ingestion",
     "retrieval",
     "evaluation",
+    "analysis",
+    "verification",
     "synthesis",
 ]
 

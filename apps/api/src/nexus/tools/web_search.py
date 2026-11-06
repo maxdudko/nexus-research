@@ -2,8 +2,10 @@
 
 import asyncio
 from collections.abc import Awaitable, Callable
-from datetime import datetime
-from urllib.parse import urlsplit, urlunsplit
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import Literal
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
 from tavily import AsyncTavilyClient  # type: ignore[import-untyped]
@@ -36,6 +38,13 @@ _TRANSIENT_ERRORS = (TavilyTimeoutError, httpx.TimeoutException, httpx.NetworkEr
 SearchFn = Callable[[str, int], Awaitable[object]]
 
 
+@dataclass(frozen=True)
+class SearchOptions:
+    search_depth: Literal["basic", "advanced"] = "basic"
+    time_range: Literal["day", "week", "month", "year"] | None = None
+    include_domains: tuple[str, ...] = ()
+
+
 class WebSearch:
     """Normalize Tavily search results. Tests can inject the provider call."""
 
@@ -48,6 +57,7 @@ class WebSearch:
         query: str,
         *,
         max_results: int = MAX_RESULTS,
+        options: SearchOptions | None = None,
     ) -> list[SearchResult]:
         stripped = query.strip()
         if not stripped:
@@ -56,13 +66,20 @@ class WebSearch:
             raise ValueError("query must be at most 200 characters")
         if not 1 <= max_results <= MAX_RESULTS:
             raise ValueError("max_results must be from 1 to 5")
-        payload = await self._fetch(stripped, max_results)
+        payload = await self._fetch(stripped, max_results, options)
         try:
-            return normalize_results(payload, max_results=max_results)
+            results = normalize_results(payload, max_results=max_results)
+            now = datetime.now(UTC)
+            return [
+                r.model_copy(update={"query": stripped, "retrieved_at": now})
+                for r in results
+            ]
         except MalformedSearchResponse:
             raise search_failed() from None
 
-    async def _fetch(self, query: str, max_results: int) -> object:
+    async def _fetch(
+        self, query: str, max_results: int, options: SearchOptions | None = None
+    ) -> object:
         search_fn = self._search_fn
         if search_fn is not None:
             return await self._call_with_retries(lambda: search_fn(query, max_results))
@@ -76,6 +93,9 @@ class WebSearch:
                 return await client.search(
                     query,
                     max_results=max_results,
+                    search_depth=(options or SearchOptions()).search_depth,
+                    time_range=options.time_range if options else None,
+                    include_domains=list(options.include_domains) if options else None,
                     include_answer=False,
                     include_raw_content=False,
                     timeout=self._settings.ai_timeout_seconds,
@@ -144,6 +164,7 @@ def normalize_results(payload: object, *, max_results: int) -> list[SearchResult
                 url=url,
                 snippet=content if isinstance(content, str) else "",
                 published_at=_published_at(item.get("published_date")),
+                relevance_score=_score(item.get("score")),
             )
         )
     return results[:max_results]
@@ -173,7 +194,27 @@ def normalize_url(value: str) -> str | None:
         netloc = normalized_host
     else:
         netloc = f"{normalized_host}:{port}"
-    return urlunsplit((scheme, netloc, parts.path, parts.query, ""))
+    query = urlencode(
+        sorted(
+            (k, v)
+            for k, v in parse_qsl(parts.query, keep_blank_values=True)
+            if not k.lower().startswith("utm_")
+            and k.lower() not in {"fbclid", "gclid", "msclkid"}
+        )
+    )
+    return urlunsplit((scheme, netloc, parts.path, query, ""))
+
+
+def _score(value: object) -> float:
+    import math
+
+    if (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+    ):
+        return max(0.0, min(1.0, float(value)))
+    return 0.0
 
 
 def _published_at(value: object) -> datetime | None:

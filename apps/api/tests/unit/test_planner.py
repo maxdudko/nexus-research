@@ -64,7 +64,8 @@ async def test_valid_plan_keeps_system_and_human_messages_separate() -> None:
     assert len(model.messages) == 2
     assert isinstance(model.messages[0], SystemMessage)
     assert isinstance(model.messages[1], HumanMessage)
-    assert model.messages[0].content == PLANNER_SYSTEM_PROMPT
+    assert str(model.messages[0].content).startswith(PLANNER_SYSTEM_PROMPT)
+    assert "Research date (UTC):" in str(model.messages[0].content)
     assert model.messages[1].content == QUESTION
     assert QUESTION not in str(model.messages[0].content)
 

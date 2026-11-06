@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import TYPE_CHECKING
+from urllib.parse import urlsplit
 
 from nexus.ai.errors import ResearchError
 from nexus.research.budgets import (
@@ -12,7 +13,9 @@ from nexus.research.budgets import (
     can_discover,
     charge_discovery,
     discovery_question,
+    work_seconds,
 )
+from nexus.research.discovery import PlannedDiscovery
 from nexus.research.nodes.common import before_provider, failed, warnings_with
 from nexus.research.state import (
     ResearchState,
@@ -49,9 +52,15 @@ async def discover_node(
         "query_batches": [*state["query_batches"], batch],
     }
     try:
-        result = await runtime.context.discovery.discover(
-            discovery_question(state["question"], batch)
-        )
+        async with asyncio.timeout(
+            work_seconds(state, limits, runtime.context.clock())
+        ):
+            if isinstance(runtime.context.discovery, PlannedDiscovery):
+                result = await runtime.context.discovery.discover_queries(batch, state)
+            else:
+                result = await runtime.context.discovery.discover(
+                    discovery_question(state["question"], batch)
+                )
     except asyncio.CancelledError:
         raise
     except ResearchError:
@@ -82,8 +91,25 @@ async def discover_node(
     for code in result.warnings:
         if code.isidentifier() and code not in warnings:
             warnings.append(code)
+    metadata = dict(state["source_metadata"])
+    for source in result.sources:
+        previous = metadata.get(source.url, {})
+        metadata[source.url] = {
+            **previous,
+            "title": source.title[:200],
+            "domain": urlsplit(source.url).hostname,
+            "published_at": source.published_at.isoformat()
+            if source.published_at
+            else previous.get("published_at"),
+            "retrieved_at": source.retrieved_at.isoformat()
+            if source.retrieved_at
+            else None,
+            "query": source.query,
+            "relevance_score": source.relevance_score,
+        }
     return {
         **started,
+        "source_metadata": metadata,
         "usage": usage,
         "warnings": warnings,
         "candidate_urls": add_candidates(
