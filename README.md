@@ -19,7 +19,7 @@ Nexus Research answers a research question with a bounded LangGraph workflow. It
 - **Discovery.** Bounded Tavily search through model tool calls, returning only sources that were actually retrieved.
 - **Evidence.** Text PDFs (up to 10 MiB and 100 pages) and public HTML pages are chunked, embedded with `text-embedding-3-small` and stored in Qdrant, filtered by `research_id`. Private, loopback and metadata URLs are refused.
 - **Research run.** A LangGraph workflow (planning, discovery, ingestion, retrieval, evaluation, synthesis) with caps on iterations, searches, model calls, pages, passages and wall-clock time. Outcomes are `completed`, `partial`, `insufficient_evidence`, `failed` or `interrupted`. PostgreSQL stores checkpoints and the domain history.
-- **Web UI.** Register or sign in, change your email or password from Account, recover a forgotten password by email when SMTP is configured, ask a question, optionally attach a text PDF, watch stage progress and heartbeats over SSE, stop a run, and later open that account's reports and history. Follow `https` citations or read `PDF · page N` labels. The original PDF is not kept. Light and dark themes.
+- **Web UI.** Register or sign in, change your email or password from Account, recover a forgotten password by email when SMTP is configured, ask a question, optionally attach a text PDF, watch stage progress and heartbeats over SSE, stop a run after a confirmation, later open that account's reports and history, and remove a finished run from history (its sources and indexed evidence are kept). Follow `https` citations or read `PDF · page N` labels. The original PDF is not kept. Light and dark themes.
 - **Reliability.** JSON logs with an allowlist, optional OpenTelemetry tracing (off by default), partial cost estimates in logs, a failure matrix, and an offline evaluation suite locked to a committed baseline.
 - **Release packaging.** Non-root API and Web images built from lockfiles, a private full-stack `compose.release.yml` with one-shot schema initialization, static Compose checks and a packaged smoke script.
 
@@ -114,7 +114,8 @@ That import does not change the offline byte gate, and this checkout does not ta
 | [`docs/release/operations.md`](docs/release/operations.md) | Health, logs, failed init, persistence, backups, rollback, stale runs |
 | [`docs/release/demo.md`](docs/release/demo.md) | Mocked CI smoke versus manual paid-provider demo |
 | [`docs/release/limitations.md`](docs/release/limitations.md) | Known limitations and production restrictions |
-| [`docs/release/checklist.md`](docs/release/checklist.md) | Gate C release checklist |
+| [`docs/release/alpha-checklist.md`](docs/release/alpha-checklist.md) | 0.2.0 Alpha candidate evidence and release decision |
+| [`docs/release/checklist.md`](docs/release/checklist.md) | MVP 0.1.0 Gate C release record |
 | [`docs/development.md`](docs/development.md) | Local development, API reference, tests, CI |
 | [`docs/roadmap.md`](docs/roadmap.md) | MVP phases and the Alpha milestone |
 | [`CHANGELOG.md`](CHANGELOG.md) | Release notes |

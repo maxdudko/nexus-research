@@ -4,8 +4,8 @@ The current private build adds login and owner-scoped research on the single-ope
 
 ## Authentication and access
 
-- Research, evidence, and history require a session. Anyone who can reach the app can register a regular account and sign in immediately. Email addresses are unverified. The operator CLI also provisions accounts. Pilot access must be restricted before the registration page. An admin can read evaluation history, diagnostics, and usage at `GET /api/v1/admin`. Those responses are aggregates and allowlisted fields. They do not return another account's question, report, or source name, and they do not start a run. The pages do not make this build a public host, and they do not tag `v0.2.0`.
-- Login allows 5 failures per 15 minutes for one normalized email and 30 for the address on the API socket. A full bucket returns 429 before the password hash runs. The API ignores `X-Forwarded-For` and `Forwarded`. Through the web proxy the socket address is the web container, so the address cap is instance-wide. Trusting a client-supplied forwarding header would let a caller choose a fresh bucket.
+- Research, evidence, and history require a session. Anyone who can reach the app can register a regular account and sign in immediately. Email addresses are unverified. The operator CLI also provisions accounts. Pilot access must be restricted before the registration page. An admin can read evaluation history, diagnostics, and usage through the `GET /api/v1/admin/...` routes. Those responses are aggregates and allowlisted fields. They do not return another account's question, report, or source name, and they do not start a run. The pages do not make this build a public host, and they do not tag `v0.2.0`.
+- Login allows 5 failures per 15 minutes for one normalized email and 30 for the address on the API socket. A full bucket returns 429 before the password hash runs. An email that cannot be normalized counts only against the address. The API ignores `X-Forwarded-For` and `Forwarded`. Through the web proxy the socket address is the web container, so the address cap is instance-wide. Trusting a client-supplied forwarding header would let a caller choose a fresh bucket.
 - Plan, discover, run, stream, PDF upload, web ingestion, and search share 10 requests per 60 seconds per user. Minting a scope is a separate 30 per hour. Each user can hold one `/run` and one `/stream`. The process still allows at most `NEXUS_STREAM_MAX_CONCURRENT` streams (default 2, maximum 8).
 - Those counters are process memory. A restart clears them. There is one API process and no TLS in this stack.
 - Logout, password reset, or a disabled account ends a live stream at the next heartbeat. A provider call already in flight can finish and spend its cost. The successful history write then re-reads the locked session and stores `interrupted` with no report when that session is gone. `/run` has no history row and notices at the next provider node.
@@ -22,10 +22,16 @@ The current private build adds login and owner-scoped research on the single-ope
 
 - A research run executes only while its HTTP request is open. There is no worker, queue, scheduler or background job.
 - Closing the tab, pressing Stop, a proxy timeout, an API restart or a crash ends the run. Nothing resumes it. LangGraph checkpoints are stored but never used to continue a thread.
-- A run cut off before its status write completes stays `running` permanently ([Stale `running` rows](operations.md#stale-running-rows)). There is no cleanup tool. The report page shows that row as the last recorded state. It does not mean the request is still running.
+- A run cut off before its status write completes stays `running` ([Stale `running` rows](operations.md#stale-running-rows)). There is no operator cleanup tool; the owner can remove the row from History. The report page shows that row as the last recorded state. It does not mean the request is still running.
 - Each user can have one active stream. Across users, at most `NEXUS_STREAM_MAX_CONCURRENT` (default 2, maximum 8) streams run at once per API process; more get 429.
 - Standard runs allow 2 rounds, 6 searches, 20 logical model calls, 8 attempted pages, 24 passages and 180 seconds. Deep runs allow 4 rounds, 12 searches, 40 model calls, 20 attempted pages, 50 passages and 600 seconds. Hitting a cap produces `partial` or `insufficient_evidence`; see [research quality](../research-quality.md).
-- Checkpoint rows are never deleted.
+- Checkpoint rows are never deleted, including when a run is removed from history.
+
+## Removing a run from history
+
+- **Remove** in History calls `DELETE /api/v1/research/runs/{run_id}`. It deletes that owned run row and its report. Another account receives 404.
+- It keeps the source rows, the indexed passages in Qdrant, the research scope, and the LangGraph checkpoints. Checkpoints still contain the question. Removal hides a run; it does not erase the data behind it.
+- A run this API process is still streaming returns 409 `run_in_progress`. Stop it first. After an API restart, a stale `running` row can be removed.
 
 ## PDF processing
 
@@ -64,4 +70,4 @@ The current private build adds login and owner-scoped research on the single-ope
 - Secrets live in `.env.release`, a plain file read by Docker Compose. Values are visible to anyone who can run `docker inspect` on the host. It is not a secret manager.
 - Backups are manual cold volume copies; restoration is documented but not exercised by CI ([Backups](operations.md#backups)). Rollback to the MVP requires the paired pre-upgrade backup. Export new v2 reports before restoring.
 - Container logs are not rotated by the stack. Tracing is off by default, and Jaeger keeps traces in memory only.
-- No public SaaS security posture: no WAF, no data retention policy, and no data deletion API. The process-local limits above are not a substitute for one.
+- No public SaaS security posture: no WAF, no data retention policy, and no account or evidence deletion. Removing a run from history is not data erasure (see above). The process-local limits above are not a substitute for one.

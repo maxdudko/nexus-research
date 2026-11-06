@@ -7,7 +7,7 @@ All notable changes to Nexus Research are recorded here. The format follows [Kee
 Alpha candidate prepared for a controlled pilot. Publication awaits the [release decision](docs/release/alpha-checklist.md).
 
 - Register and manage a regular account on a private deployment. Research history, reports and evidence are owner-scoped. Administrators can bootstrap accounts and explicitly adopt quarantined MVP data.
-- Follow research progress, stop a stream, attach a text PDF, reopen cited reports in account history, and remove a run from history. Standard and deep research use separate budgets. Analytical v2 reports coexist with v1 history.
+- Follow research progress, stop a stream, attach a text PDF, reopen cited reports in account history, and remove a finished or stale run from history. Removal keeps sources, indexed evidence and checkpoints; a run that is still streaming returns 409. Standard and deep research use separate budgets. Analytical v2 reports coexist with v1 history.
 - Administrators can compare compatible evaluation artifacts and inspect privacy-filtered diagnostics. Usage coverage can be unknown.
 - Upgrade both data stores using the [paired backup and restore procedure](docs/release/operations.md#backups). The database head is `da73e1b94026`. Export new v2 reports before rollback.
 - Offline regression and the live research benchmark measure different outcomes. The [benchmark protocol](docs/evaluation/research-quality/README.md) has 30 cases. A blinded before/after result is pending.

@@ -134,7 +134,7 @@ npm run dev
 
 A text PDF is optional. The API accepts up to 10 MiB and 100 pages by default and does not store the original bytes. The same draft id is sent with the upload and with `POST /api/v1/research/stream`. When the stream finishes, the UI opens `/research/{run_id}` and loads the saved report. `https` citations open in a new tab. A PDF citation is a page label, not a file link. Refreshing that URL reads the domain row again.
 
-Stop uses the label "Stop this request; research may be interrupted." That aborts the request. It does not resume later. A row left at `running` after a crash says execution is not confirmed. There is no authentication. Do not expose the API or the UI on the public internet. `research_id` is an evidence scope, not an access token.
+**Stop this request** opens a confirmation dialog. **Stop request** aborts the request, and **Keep researching** closes the dialog. A stopped run does not resume later. A row left at `running` after a crash says execution is not confirmed. **Remove** on a History row deletes that run and its report after a confirmation; sources, indexed passages and checkpoints stay, and a run that is still streaming returns 409 `run_in_progress`. Every research route requires a session, and every `research_id` is checked against the signed-in account. Do not expose the API or the UI on the public internet.
 
 A short local check, with provider keys only if you want a real report:
 
@@ -143,6 +143,7 @@ A short local check, with provider keys only if you want a real report:
 3. Follow an `https` citation, or read a `PDF · page N` label.
 4. Stop a second run and confirm the status is interrupted.
 5. Open an older history page if one exists, and open a `running` row directly if one was left behind.
+6. Remove a finished run from History and confirm it no longer opens.
 
 ## Tests
 
@@ -191,12 +192,13 @@ The Phase 3 retrieval fixture in `nexus.retrieval.evaluate` is a different, olde
 | Trigger | Fast lane | Full lane |
 | --- | --- | --- |
 | Push to `development` | yes | no |
+| Push to `codex/release-candidate/**` | yes, all paths | yes |
 | Pull request to `master` | yes | yes |
 | Push to `master` (after a merge) | yes | yes |
 | Release tag `v*` ([`release.yml`](../.github/workflows/release.yml)) | yes | yes, plus release verification |
 | Manual run (`workflow_dispatch`) | yes | only when `full` is checked |
 
-Pushes to other branches do not trigger CI on their own. Open a pull request instead.
+Pushes to other branches do not trigger CI on their own. Open a pull request instead. A release-candidate branch runs every job regardless of changed paths.
 
 Fast lane, with no services and no Docker:
 
@@ -210,21 +212,50 @@ Full lane. It starts only after the fast lane passes:
 
 A **Changes** job skips jobs whose paths did not change. API jobs need a change under `apps/api/`, Web jobs under `apps/web/`, and the image job under either. A change to `.github/`, `scripts/`, the Compose files, `.env.release.example` or `docs/evaluation/baseline.json` runs everything. A commit that touches only docs runs no checks. Tags and manual runs always run everything.
 
-Branch protection should require only the **ci-ok** check. It passes when every job either succeeded or was skipped. Superseded runs on `development` and on pull requests are cancelled. Runs on `master` and on tags are never cancelled.
+Branch protection should require only the **ci-ok** check. It passes when every job either succeeded or was skipped. Superseded runs on `development`, release-candidate branches and pull requests are cancelled. Runs on `master` and on tags are never cancelled.
 
 Caches: uv, npm, Ruff/mypy and the Docker layer cache (`type=gha`). GitHub only lets a run restore caches from its own ref or from `master`, so the full-lane run after each merge to `master` is what keeps pull-request builds warm. Pull requests write Docker layers to their own `pr-<number>-` scope, so they never evict the `master` entries.
 
-Release tags run [`.github/workflows/release.yml`](../.github/workflows/release.yml). It runs `scripts/check_release_version.py --tag <tag>`, which checks that the tag, `pyproject.toml`, `package.json`, `package-lock.json`, the `compose.release.yml` default, `.env.release.example` and a dated `CHANGELOG.md` entry agree. It also checks that the tag is annotated and reachable from `master`. It then runs the full CI and uploads `release-images-<version>`: gzipped `docker save` tarballs, `image-ids.txt`, `commit.txt` and `SHA256SUMS`, kept for 90 days. Nothing is pushed to a registry. Run `python3 scripts/check_release_version.py` locally before tagging.
+Release tags run [`.github/workflows/release.yml`](../.github/workflows/release.yml). It runs `scripts/check_release_version.py --tag <tag>`, which checks that the tag, `pyproject.toml`, `nexus.__version__`, `uv.lock`, `package.json`, `package-lock.json`, the `compose.release.yml` and `compose.smoke.yml` defaults, `.env.release.example` and a dated `CHANGELOG.md` entry agree. It also checks that the tag is annotated and reachable from `master`. It then runs the full CI and uploads `release-images-<version>`: gzipped `docker save` tarballs, `image-ids.txt`, `commit.txt` and `SHA256SUMS`, kept for 90 days. Nothing is pushed to a registry. Run `python3 scripts/check_release_version.py` locally before tagging.
 
 ## Evidence
 
 `RetrievalService` loads the accepted digest of each source in one `research_id`, embeds the query, and searches Qdrant with that filter on the server. The HTTP handler does not contain that logic.
 
-`research_id` selects which evidence a query may see. It is not authentication or tenant isolation. Do not expose this API as a multi-user service without authorization.
+`research_id` selects which evidence a query may see. Authorization is separate: the API first checks in PostgreSQL that the scope belongs to the signed-in account, and returns 404 otherwise. Qdrant payloads carry no owner, so that check is what isolates accounts.
 
 A search score is cosine similarity between the query and a passage. It is not a probability that the passage is true. `POST /api/v1/evidence/search` returns the passages and their stored page number or URL. It does not call a chat model and it does not write an answer.
 
 The original PDF bytes are not stored. Rebuilding a lost PDF index means uploading the file again. Scanned pages are not read. There is no keyword index and no reranker. Changing the chunk size or the point-id formula requires a new `NEXUS_RAG_COLLECTION`.
+
+## API reference
+
+All routes are under `/api/v1`. The OpenAPI document at `/openapi.json` (development only) is the full schema.
+
+| Area | Routes | Access |
+|---|---|---|
+| Health | `GET /health/live`, `GET /health/ready` | anonymous |
+| Auth | `POST /auth/register`, `POST /auth/login`, `POST /auth/forgot-password`, `POST /auth/reset-password` | anonymous, trusted `Origin` |
+| Account | `GET /auth/me`, `POST /auth/logout`, `POST /auth/change-password`, `POST /auth/change-email` | session |
+| Research | `POST /research/scopes`, `POST /research/plan`, `POST /research/discover`, `POST /research/run`, `POST /research/stream` | session |
+| History | `GET /research/runs`, `GET /research/runs/{run_id}`, `DELETE /research/runs/{run_id}` | session, owner only |
+| Evidence | `POST /evidence/pdf`, `POST /evidence/web`, `POST /evidence/search` | session, owner of the `research_id` |
+| Admin | `GET /admin/overview`, `GET /admin/evaluations`, `GET /admin/evaluations/compare`, `GET /admin/evaluations/{id}`, `GET /admin/evaluations/{id}/cases`, `GET /admin/diagnostics`, `GET /admin/diagnostics/runs`, `GET /admin/usage` | admin session; 401 anonymous, 403 regular user |
+
+Another account's run or scope returns 404, not 403. Unsafe requests that carry a session cookie also need an allowlisted `Origin` and an `X-CSRF-Token` header equal to the `nexus_csrf` cookie.
+
+To call private routes with `curl` against a local API, sign in once into a cookie jar and reuse it:
+
+```bash
+ORIGIN=http://127.0.0.1:3000
+JAR=/tmp/nexus-cookies.txt
+curl -sS -c "$JAR" -X POST http://127.0.0.1:8000/api/v1/auth/login \
+  -H "Origin: $ORIGIN" -H 'Content-Type: application/json' \
+  -d '{"email":"user@example.com","password":"a-long-password"}'
+CSRF=$(awk '$6 == "nexus_csrf" { print $7 }' "$JAR")
+```
+
+The examples below send `-b "$JAR" -H "Origin: $ORIGIN" -H "X-CSRF-Token: $CSRF"`. Create the account first with `/register` in the UI or `POST /auth/register`.
 
 ## Research plan
 
@@ -236,6 +267,7 @@ With the API running:
 
 ```bash
 curl -sS -X POST http://127.0.0.1:8000/api/v1/research/plan \
+  -b "$JAR" -H "Origin: $ORIGIN" -H "X-CSRF-Token: $CSRF" \
   -H 'Content-Type: application/json' \
   -d '{"question":"How do AI coding agents improve software development workflows?"}'
 ```
@@ -315,6 +347,7 @@ Provider failures use the same `{ "error": { "code", "message" } }` envelope as 
 
 ```bash
 curl -sS -X POST http://127.0.0.1:8000/api/v1/research/discover \
+  -b "$JAR" -H "Origin: $ORIGIN" -H "X-CSRF-Token: $CSRF" \
   -H 'Content-Type: application/json' \
   -d '{"question":"How do AI coding agents improve software development workflows?"}'
 ```
@@ -343,11 +376,11 @@ A checkpoint row is durable state. It can be read after the pool is closed and a
 
 Three stops are different:
 
-- The graph deadline (`NEXUS_GRAPH_DEADLINE_SECONDS`, default 180) can still return 200 with a partial or insufficient report.
-- The HTTP wait is that deadline plus 5 seconds. A proxy read timeout must sit above that sum; 200 seconds is a safe start. If this hard wait fires, the handler writes `interrupted` while the request is alive and returns 504 `deadline_exceeded` with no report.
-- Closing the client, or killing the process, does not write a new status and does not continue the graph. The last completed node may stay `running`.
+- The graph deadline comes from the depth profile: 180 seconds for `standard` and 600 for `deep`. The `NEXUS_GRAPH_*` settings do not change these profiles. A run that reaches the deadline can still return 200 with a partial or insufficient report.
+- The HTTP wait is that deadline plus 5 seconds. A proxy read timeout must sit above that sum; 620 seconds covers Deep. If this hard wait fires, the handler writes `interrupted` to the checkpoint state while the request is alive and returns 504 `deadline_exceeded` with no report.
+- For `/run`, closing the client or killing the process does not write a new status and does not continue the graph. The last completed node may stay `running`. `/stream` is different: Stop or a closed tab stores `interrupted` in history (see [Stale `running` rows](release/operations.md#stale-running-rows)).
 
-There is no resume API, no authentication, no durable PDF storage, and no checkpoint cleanup. Checkpoint tables are not a history API. A later run with the same `research_id` repeats Tavily and OpenAI calls. Fetching the same page again goes through Phase 3 ingestion, which keeps one source when the content is unchanged.
+There is no resume API, no durable PDF storage, and no checkpoint cleanup. Checkpoint tables are not a history API. A later run with the same `research_id` repeats Tavily and OpenAI calls. Fetching the same page again goes through Phase 3 ingestion, which keeps one source when the content is unchanged.
 
 Index a PDF with `POST /api/v1/evidence/pdf` before the run, then pass that `research_id`. `/run` does not accept PDF bytes.
 

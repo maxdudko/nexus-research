@@ -194,15 +194,15 @@ nr exec -T postgres psql -U nexus -d nexus -c \
   "select run_id, created_at, started_at from research_runs where status = 'running' order by created_at"
 ```
 
-Any row listed while no research request is in flight is stale. The release provides no cleanup command and no supported way to change its status. Start a new run with the same question if you need a result.
+Any row listed while no research request is in flight is stale. The release provides no operator cleanup command and no supported way to change its status. The owner can choose **Remove** in History, which calls `DELETE /api/v1/research/runs/{run_id}`. That deletes the run row and any report. Sources, Qdrant passages, the research scope and checkpoint rows stay. A run this API process is still streaming returns 409 `run_in_progress`; after a restart the process no longer knows the run, so the stale row can be removed. Start a new run with the same question if you need a result.
 
 ## Accounts, quotas, and residual risk
 
-Research, evidence, and history require a session. Accounts are created with `python -m nexus.identity` (`bootstrap-admin`, `create-user`, `disable-user`, `reset-password`, `adopt-scope`). There is no HTTP admin API. An administrator does not receive another user's research.
+Research, evidence, and history require a session. Accounts are created with `python -m nexus.identity` (`bootstrap-admin`, `create-user`, `disable-user`, `reset-password`, `adopt-scope`). The admin HTTP routes under `/api/v1/admin` are read-only and cannot create or change accounts. An administrator does not receive another user's research.
 
 A session lasts 12 hours from creation and goes idle after 4 hours. `nexus_session` is HttpOnly. `nexus_csrf` is the MAC of that session token, not a separate random value. Unsafe requests also send `Origin` and `X-CSRF-Token`. This stack does not terminate TLS. Production cookies are Secure unless `NEXUS_COOKIE_INSECURE_LOOPBACK` is set for the loopback bind.
 
-Limits are memory inside the one API process. A restart clears them. Login throttling counts the address on the API socket and ignores `X-Forwarded-For` and `Forwarded`. Through the Next.js proxy that socket address is the web container, so the login address bucket is an instance-wide cap on failed sign-ins. The proxy does not send a verified client address. Trusting a forwarding header would let a caller choose a fresh bucket.
+Limits are memory inside the one API process. A restart clears them. Login throttling counts the address on the API socket and ignores `X-Forwarded-For` and `Forwarded`. A login whose email cannot be normalized counts only against that address bucket. Through the Next.js proxy that socket address is the web container, so the login address bucket is an instance-wide cap on failed sign-ins. The proxy does not send a verified client address. Trusting a forwarding header would let a caller choose a fresh bucket.
 
 Each account may hold one `/run` and one `/stream`. Plan, discover, run, stream, PDF upload, web ingestion, and search share 10 requests per minute. Minting a scope is 30 per hour. Excess is HTTP 429 `too_many_requests` with `Retry-After`, except the process-wide stream cap, which keeps its own message. That cap is still `NEXUS_STREAM_MAX_CONCURRENT`.
 
@@ -224,6 +224,7 @@ These controls are not approval for a public deployment and do not tag `v0.2.0`.
 | 413 | `payload_too_large` | PDF over `NEXUS_PDF_MAX_BYTES` / `NEXUS_PDF_MAX_PAGES`, or an oversized web page |
 | 415 / 422 | `unsupported_media` / `empty_document` | Not a PDF, an unreadable or encrypted PDF, or a document with no extractable text (for example a scan) |
 | 422 | `unsafe_url` | A private, loopback, link-local or metadata address |
+| 409 | `run_in_progress` | Removing a run from history while this API process is still streaming it |
 
 The HTTP status applies when the error happens before a response starts. Once `POST /api/v1/research/stream` has sent its headers, a failure arrives as one terminal `research.failed` event carrying the same `code`, and the run is stored as `failed` with that `error_code`. A deadline or cancellation ends the stream with `research.interrupted`.
 

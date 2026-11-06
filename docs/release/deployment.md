@@ -34,16 +34,24 @@ Then edit `.env.release`. The file has two kinds of variables:
 | Kind | Variables | Who reads them |
 |---|---|---|
 | Compose interpolation | `POSTGRES_PASSWORD` (required), `POSTGRES_USER`, `POSTGRES_DB`, `NEXUS_WEB_PORT`, `NEXUS_VERSION` | Docker Compose, while rendering `compose.release.yml`. They configure the PostgreSQL container, build `NEXUS_DATABASE_URL`, choose the host port and tag the images. |
+| Session secret | `NEXUS_SESSION_PEPPER` (required) | `init` and the API. At least 32 bytes and different from `POSTGRES_PASSWORD`. Changing it signs every user out. Keep it with the backups: an Alpha restore needs the same pepper. |
 | API runtime | `NEXUS_OPENAI_API_KEY`, `NEXUS_TAVILY_API_KEY`, the optional `NEXUS_*` tunables, `NEXUS_OTEL_*`, `NEXUS_LOG_FORMAT`, `NEXUS_TAVILY_USD_PER_SEARCH` | The API container only. Each name is listed explicitly in the `api` service; a name that is not listed there never reaches the container. |
+| Account limits | `NEXUS_REGISTRATION_MAX_IP_ATTEMPTS` / `_WINDOW_SECONDS` (5 per 900 s), `NEXUS_PASSWORD_CHANGE_MAX_ATTEMPTS` / `_WINDOW_SECONDS` (5 per 900 s), `NEXUS_EMAIL_CHANGE_MAX_ATTEMPTS` / `_WINDOW_SECONDS` (5 per 900 s) | The API. Process-local budgets; registration counts the API socket address, which is the Web container for every browser. |
+| Password recovery | `NEXUS_SMTP_*`, `NEXUS_PASSWORD_RESET_*` | The API. See [Optional password recovery email](#optional-password-recovery-email). |
 
-`compose.release.yml` sets `NEXUS_ENVIRONMENT=production`, `NEXUS_DATABASE_URL` and `NEXUS_QDRANT_URL=http://qdrant:6333` itself. Do not put them in `.env.release`. Web receives only `API_PROXY_TARGET=http://api:8000`. No variable uses the `NEXT_PUBLIC_` prefix, so nothing from this file is compiled into the browser bundle.
+`compose.release.yml` sets these itself. Do not put them in `.env.release`:
+
+- `NEXUS_ENVIRONMENT=production`, `NEXUS_DATABASE_URL` and `NEXUS_QDRANT_URL=http://qdrant:6333`.
+- `NEXUS_TRUSTED_ORIGINS=http://127.0.0.1:${NEXUS_WEB_PORT}`. It is the only allowed browser `Origin`.
+- `NEXUS_COOKIE_SECURE=false` and `NEXUS_COOKIE_INSECURE_LOOPBACK=true`. The stack serves plain HTTP on loopback, so cookies are not marked Secure. Web receives only `API_PROXY_TARGET=http://api:8000`. No variable uses the `NEXT_PUBLIC_` prefix, so nothing from this file is compiled into the browser bundle.
 
 Rules that the stack enforces:
 
-- A missing `POSTGRES_PASSWORD` stops `docker compose config` and `up` with `set POSTGRES_PASSWORD in .env.release`.
+- A missing `POSTGRES_PASSWORD` stops `docker compose config` and `up` with `set POSTGRES_PASSWORD in .env.release`. A missing `NEXUS_SESSION_PEPPER` stops them the same way.
 - In production the API refuses the development password `nexus`. `init` exits 1 and the API does not start.
 - Use URL-safe characters for the password. It is embedded in `NEXUS_DATABASE_URL`. `openssl rand -hex 32` is safe.
-- A tunable left commented keeps the API default. An empty value (`NEXUS_GRAPH_DEADLINE_SECONDS=`) is invalid and stops the API with the variable name. The keys, `NEXUS_OTEL_ENDPOINT` and `NEXUS_TAVILY_USD_PER_SEARCH` are the exceptions: empty means unset.
+- A tunable left commented keeps the API default. An empty value (`NEXUS_GRAPH_DEADLINE_SECONDS=`) is invalid and stops the API with the variable name. The keys, `NEXUS_OTEL_ENDPOINT` and `NEXUS_TAVILY_USD_PER_SEARCH` are the exceptions: empty means unset. The account-limit, SMTP and reset variables have Compose defaults, so an empty value falls back to that default instead of failing.
+- The `NEXUS_GRAPH_*` tunables are validated but do not change research runs. Standard and Deep use fixed server profiles ([limitations](limitations.md#request-scoped-execution)).
 - Without provider keys the stack starts and is healthy, and research routes return 503 `provider_not_configured`.
 
 `NEXUS_RAG_COLLECTION` and the chunking settings are not passed to the API container, so the release stack always uses the defaults (`nexus_evidence_v1`, 800-token chunks with 120 overlap).
@@ -228,7 +236,7 @@ docker compose --env-file .env.release -f compose.release.yml down -v   # delete
 
 Password recovery is available at `/forgot-password`, linked from login, after configuring SMTP in `.env.release`. Set `NEXUS_SMTP_HOST`, `NEXUS_SMTP_SENDER`, and `NEXUS_PASSWORD_RESET_ORIGIN`; configure `NEXUS_SMTP_USERNAME` and `NEXUS_SMTP_PASSWORD` together if authentication is required. Defaults are port `587`, `NEXUS_SMTP_TLS=starttls`, and a 10-second socket timeout. Use `implicit` with port `465` for implicit TLS. Plaintext SMTP is rejected in production. Keep credentials private with the rest of `.env.release`.
 
-The reset origin must be an origin without a trailing slash or path, reachable from the user's browser and allowed by `NEXUS_TRUSTED_ORIGINS`. HTTPS is required in production, except the existing explicit loopback HTTP configuration. For this loopback-only release stack, `http://127.0.0.1:3000` works only when the link is opened on the machine or through a matching private tunnel. This feature does not publish additional ports or change private deployment requirements.
+The reset origin must be an origin without a trailing slash or path and reachable from the user's browser. In this stack use `http://127.0.0.1:<NEXUS_WEB_PORT>`, the origin Compose sets as `NEXUS_TRUSTED_ORIGINS`; the reset page submits from that origin. HTTPS is required in production, except the existing explicit loopback HTTP configuration. For this loopback-only release stack, `http://127.0.0.1:3000` works only when the link is opened on the machine or through a matching private tunnel. This feature does not publish additional ports or change private deployment requirements.
 
 Rebuild and start the stack normally; init applies migration `a4d9c2f78106`, which adds `password_reset_tokens`. The API receives the SMTP settings; Web and init do not receive mail credentials. Configure reset limits with `NEXUS_PASSWORD_RESET_MAX_IP_REQUESTS` (5), `NEXUS_PASSWORD_RESET_MAX_EMAIL_REQUESTS` (3), `NEXUS_PASSWORD_RESET_MAX_IP_SUBMISSIONS` (5), and `NEXUS_PASSWORD_RESET_WINDOW_SECONDS` (900).
 

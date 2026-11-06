@@ -226,7 +226,7 @@ Persistence after restart
    Run `python3 scripts/check_release_version.py --tag v0.1.0` before tagging. After the push, wait for the Release workflow to go green. Record its run link and the `SHA256SUMS` from the `release-images-<version>` artifact as release evidence.
 
 3. Create the GitHub release from the tag with the notes below, edited to match the recorded evidence.
-4. Open the Alpha milestone for Phases 8–10 ([roadmap](../roadmap.md#after-the-mvp-alpha-v020)). Do not implement any of it on the release branch.
+4. Open the Alpha milestone for Phases 8–10 ([roadmap](../roadmap.md#alpha-v020--candidate)). Do not implement any of it on the release branch.
 
 ## Draft release notes
 
