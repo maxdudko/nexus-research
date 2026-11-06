@@ -5,9 +5,8 @@
     python3 scripts/check_release_version.py --tag v0.2.0 # and match the tag
     python3 scripts/check_release_version.py --print      # print the version
 
-Sources: apps/api/pyproject.toml, apps/web/package.json and package-lock.json,
-the NEXUS_VERSION default in compose.release.yml, NEXUS_VERSION in
-.env.release.example, and a "## [x.y.z]" heading in CHANGELOG.md. Exit status is
+Checks the API, Web, lockfiles, Compose image defaults, release env template
+and dated changelog heading. Exit status is
 0 when every check passes.
 """
 
@@ -50,6 +49,18 @@ def sources() -> dict[str, set[str]]:
         "apps/api/pyproject.toml": {
             tomllib.loads(read("apps/api/pyproject.toml"))["project"]["version"]
         },
+        "apps/api/src/nexus/__init__.py": set(
+            re.findall(
+                r'^__version__ = "([^"]+)"$',
+                read("apps/api/src/nexus/__init__.py"),
+                re.M,
+            )
+        ),
+        "apps/api/uv.lock": {
+            package["version"]
+            for package in tomllib.loads(read("apps/api/uv.lock"))["package"]
+            if package["name"] == "nexus"
+        },
         "apps/web/package.json": {json.loads(read("apps/web/package.json"))["version"]},
         "apps/web/package-lock.json": {
             lock["version"],
@@ -57,6 +68,9 @@ def sources() -> dict[str, set[str]]:
         },
         "compose.release.yml": set(
             re.findall(r"\$\{NEXUS_VERSION:-([^}]+)\}", read("compose.release.yml"))
+        ),
+        "compose.smoke.yml": set(
+            re.findall(r"\$\{NEXUS_VERSION:-([^}]+)\}", read("compose.smoke.yml"))
         ),
         ".env.release.example": {env_template_version()},
     }

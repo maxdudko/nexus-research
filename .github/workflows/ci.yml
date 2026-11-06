@@ -2,10 +2,10 @@ name: CI
 
 # Fast lane (lint, types, unit tests, offline evaluation) runs on every trigger.
 # Full lane (integration tests, images and packaged smoke) runs on PRs to master,
-# pushes to master and release tags; master runs also warm the caches PRs restore.
+# pushes to master, candidate branches and release tags; master runs also warm the caches PRs restore.
 on:
   push:
-    branches: [development, master]
+    branches: [development, master, "codex/release-candidate/**"]
   pull_request:
     branches: [master]
   workflow_dispatch:
@@ -41,11 +41,11 @@ jobs:
       api: ${{ steps.force.outputs.all == 'true' || steps.filter.outputs.api == 'true' || steps.filter.outputs.shared == 'true' }}
       web: ${{ steps.force.outputs.all == 'true' || steps.filter.outputs.web == 'true' || steps.filter.outputs.shared == 'true' }}
       smoke: ${{ steps.force.outputs.all == 'true' || steps.filter.outputs.api == 'true' || steps.filter.outputs.web == 'true' || steps.filter.outputs.shared == 'true' }}
-      full: ${{ inputs.full == true || github.event_name == 'pull_request' || github.ref == 'refs/heads/master' }}
+      full: ${{ inputs.full == true || github.event_name == 'pull_request' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/heads/codex/release-candidate/') }}
     steps:
       - name: Force all paths
         id: force
-        run: echo "all=${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') }}" >> "$GITHUB_OUTPUT"
+        run: echo "all=${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') || startsWith(github.ref, 'refs/heads/codex/release-candidate/') }}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout
         if: steps.force.outputs.all != 'true'
@@ -222,6 +222,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check release version sources
+        run: python3 scripts/check_release_version.py
 
       - name: Read release version
         id: version

@@ -2,6 +2,16 @@
 
 All notable changes to Nexus Research are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] - 2026-11-06
+
+Alpha candidate prepared for a controlled pilot. Publication awaits the [release decision](docs/release/alpha-checklist.md).
+
+- Register and manage a regular account on a private deployment. Research history, reports and evidence are owner-scoped. Administrators can bootstrap accounts and explicitly adopt quarantined MVP data.
+- Follow research progress, stop a stream, attach a text PDF and reopen cited reports in account history. Standard and deep research use separate budgets. Analytical v2 reports coexist with v1 history.
+- Administrators can compare compatible evaluation artifacts and inspect privacy-filtered diagnostics. Usage coverage can be unknown.
+- Upgrade both data stores using the [paired backup and restore procedure](docs/release/operations.md#backups). The database head is `da73e1b94026`. Export new v2 reports before rollback.
+- Offline regression and the live research benchmark measure different outcomes. The [benchmark protocol](docs/evaluation/research-quality/README.md) has 30 cases. A blinded before/after result is pending.
+
 ## [0.1.0] - 2026-10-20
 
 First MVP release. Gate C evidence is in [`docs/release/checklist.md`](docs/release/checklist.md).
@@ -25,5 +35,6 @@ First MVP release. Gate C evidence is in [`docs/release/checklist.md`](docs/rele
 
 No authentication or per-user isolation; do not expose the stack publicly. Research is request-scoped, with no background execution or resume, and a run can be left `running`. PDF originals are not stored, there is no OCR, and PDF citations are page labels. Offline evaluation scores frozen fixtures, not live retrieval quality. Cost figures are partial estimates in logs only. Single host, linux/amd64 only. Full list: [`docs/release/limitations.md`](docs/release/limitations.md).
 
-[Unreleased]: https://github.com/maxdudko/nexus-research/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/maxdudko/nexus-research/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/maxdudko/nexus-research/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/maxdudko/nexus-research/releases/tag/v0.1.0

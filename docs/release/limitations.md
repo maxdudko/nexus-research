@@ -1,10 +1,10 @@
 # Limitations
 
-The current private build adds login and owner-scoped research on the single-operator MVP. It is still one host, one API process, and loopback-only. These notes are not approval to deploy it on the public internet, and they do not tag `v0.2.0`. The contract is [ADR-008](../adr/ADR-008.md). Phase 8 stays open until the operator demo in [Gate C](../specs/phase-8-identity/gate-c.md) is recorded.
+The current private build adds login and owner-scoped research on the single-operator MVP. It is still one host, one API process, and loopback-only. These notes are not approval to deploy it on the public internet, and they do not tag `v0.2.0`. The contract is [ADR-008](../adr/ADR-008.md). Current acceptance evidence belongs in the [Alpha checklist](alpha-checklist.md).
 
 ## Authentication and access
 
-- Research, evidence, and history require a session. The operator CLI creates accounts. There is no self-signup. An admin can read evaluation history, diagnostics, and usage at `GET /api/v1/admin`. Those responses are aggregates and allowlisted fields. They do not return another account's question, report, or source name, and they do not start a run. The pages do not make this build a public host, and they do not tag `v0.2.0`.
+- Research, evidence, and history require a session. Anyone who can reach the app can register a regular account and sign in immediately. Email addresses are unverified. The operator CLI also provisions accounts. Pilot access must be restricted before the registration page. An admin can read evaluation history, diagnostics, and usage at `GET /api/v1/admin`. Those responses are aggregates and allowlisted fields. They do not return another account's question, report, or source name, and they do not start a run. The pages do not make this build a public host, and they do not tag `v0.2.0`.
 - Login allows 5 failures per 15 minutes for one normalized email and 30 for the address on the API socket. A full bucket returns 429 before the password hash runs. The API ignores `X-Forwarded-For` and `Forwarded`. Through the web proxy the socket address is the web container, so the address cap is instance-wide. Trusting a client-supplied forwarding header would let a caller choose a fresh bucket.
 - Plan, discover, run, stream, PDF upload, web ingestion, and search share 10 requests per 60 seconds per user. Minting a scope is a separate 30 per hour. Each user can hold one `/run` and one `/stream`. The process still allows at most `NEXUS_STREAM_MAX_CONCURRENT` streams (default 2, maximum 8).
 - Those counters are process memory. A restart clears them. There is one API process and no TLS in this stack.
@@ -62,6 +62,6 @@ The current private build adds login and owner-scoped research on the single-ope
 - Tested on linux/amd64 only. No multi-architecture images are published; images are built locally from the repository.
 - Images are built from lockfiles with digest-pinned base images. Bit-for-bit reproducible images are not claimed.
 - Secrets live in `.env.release`, a plain file read by Docker Compose. Values are visible to anyone who can run `docker inspect` on the host. It is not a secret manager.
-- Backups are manual cold volume copies; restoration is documented but not exercised by CI ([Backups](operations.md#backups)). There is no automated rollback, and `v0.1.0` has no earlier release to roll back to.
+- Backups are manual cold volume copies; restoration is documented but not exercised by CI ([Backups](operations.md#backups)). Rollback to the MVP requires the paired pre-upgrade backup. Export new v2 reports before restoring.
 - Container logs are not rotated by the stack. Tracing is off by default, and Jaeger keeps traces in memory only.
 - No public SaaS security posture: no WAF, no data retention policy, and no data deletion API. The process-local limits above are not a substitute for one.

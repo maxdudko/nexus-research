@@ -1,6 +1,8 @@
 # Gate C — Hardening and Phase 8 exit
 
-Phase 8 code is in place. This gate stays open until an operator records the two-account demo below. That record is a separate change. It does not tag `v0.2.0`, and it is not approval for a public deployment.
+The seven observed steps below were checked in at `3670a8c` on 2026-10-23. This identifies the **record**, while the original demo date and tested SHA are unknown. Record a fresh two-account observation in the [Alpha checklist](../../release/alpha-checklist.md).
+
+Phase 8 implementation and the historical test results follow. Candidate sign-off is pending.
 
 ## Automated evidence
 

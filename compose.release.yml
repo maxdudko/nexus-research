@@ -4,7 +4,7 @@
 #   docker compose --env-file .env.release -f compose.release.yml up -d --build
 #
 # Only Web is published, on host loopback. API, PostgreSQL and Qdrant are reachable
-# only from other containers. There is no authentication: do not expose port 3000
+# only from other containers. Web supports self-registration. Do not expose port 3000
 # publicly. Tested on linux/amd64 only.
 #
 # This file is standalone. `docker compose up -d` still starts the development
@@ -65,7 +65,7 @@ services:
   # Domain migrations (Alembic) and LangGraph checkpoint tables have separate owners.
   # Both commands are idempotent; this service runs on every `up` and then exits.
   init:
-    image: nexus-api:${NEXUS_VERSION:-0.1.0}
+    image: nexus-api:${NEXUS_VERSION:-0.2.0}
     build: *api-build
     restart: "no"
     command:
@@ -90,7 +90,7 @@ services:
         condition: service_healthy
 
   api:
-    image: nexus-api:${NEXUS_VERSION:-0.1.0}
+    image: nexus-api:${NEXUS_VERSION:-0.2.0}
     build: *api-build
     restart: unless-stopped
     environment:
@@ -170,7 +170,7 @@ services:
       start_period: 10s
 
   web:
-    image: nexus-web:${NEXUS_VERSION:-0.1.0}
+    image: nexus-web:${NEXUS_VERSION:-0.2.0}
     build:
       context: ./apps/web
     restart: unless-stopped

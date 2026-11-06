@@ -10,7 +10,7 @@
 
 services:
   stub-openai:
-    image: nexus-api:${NEXUS_VERSION:-0.1.0}
+    image: nexus-api:${NEXUS_VERSION:-0.2.0}
     command: ["python", "/stub/stub_openai.py"]
     volumes:
       - ./scripts/smoke:/stub:ro

@@ -1,6 +1,6 @@
 # Operations
 
-Day-to-day operation of the `v0.1.0` release stack. Setup is in [`deployment.md`](deployment.md). Commands run from the repository root and use the same Compose invocation:
+Day-to-day operation of the `0.2.0` candidate release stack. Setup is in [`deployment.md`](deployment.md). Commands run from the repository root and use the same Compose invocation:
 
 ```bash
 alias nr='docker compose --env-file .env.release -f compose.release.yml'
@@ -90,9 +90,9 @@ The two volumes describe one evidence state. Retrieval reads the accepted digest
 
 Original PDF bytes are not stored anywhere. Lost PDF evidence can be rebuilt only by uploading the file again.
 
-Cold-copy both volumes before an upgrade that adds ownership. `init` only runs `alembic upgrade head`. Identity and scope are `c8e4a1b27d05` and `e3b7d91c4a20`. Evaluation history is the later revision `f6c1a8d04e27`, which creates `evaluation_runs` and `evaluation_case_results` only. Pre-Alpha research ids become scopes owned by the non-loginable quarantine user `00000000-0000-4000-8000-000000000001`. They stay unreadable through the API until an operator adopts a reviewed id.
+Cold-copy both volumes before an upgrade that adds ownership. For the domain schema, `init` runs `alembic upgrade head`. Identity and scope are `c8e4a1b27d05` and `e3b7d91c4a20`. Evaluation history is the later revision `f6c1a8d04e27`, which creates `evaluation_runs` and `evaluation_case_results` only. Password recovery follows at `a4d9c2f78106` and research-depth metadata at `da73e1b94026`, the Alpha head. Pre-Alpha research ids become scopes owned by the non-loginable quarantine user `00000000-0000-4000-8000-000000000001`. They stay unreadable through the API until an operator adopts a reviewed id.
 
-Each revision is its own transaction. A failure inside one rolls that revision back and leaves Qdrant and checkpoint bytes unchanged. A database left at `c8e4a1b27d05` has accounts but no scope foreign keys; the repair is another `upgrade head`, which adds scopes and then the evaluation tables. It does not rewrite research rows. Do not start the previous image against `c8e4a1b27d05` or `e3b7d91c4a20`. Its Alembic scripts do not contain them, and `init` never downgrades.
+Each revision is its own transaction. A failure inside one rolls that revision back and leaves Qdrant and checkpoint bytes unchanged. A database left at `c8e4a1b27d05` has accounts but no scope foreign keys; the repair is another `upgrade head`, which adds scopes and then the evaluation tables. Legacy runs receive standard depth and an empty historical limits object. Do not start the previous image against `c8e4a1b27d05` or `e3b7d91c4a20`. Its Alembic scripts do not contain them, and `init` never downgrades.
 
 Operator sequence after the new stack is healthy:
 
@@ -168,7 +168,7 @@ To restore only the logical dump into an initialized database: `nr exec -T postg
 
 The supported recovery after a real owner exists, or after invited users have written data, is the cold restore in [Restoration](#restoration). Stop the stack, restore `postgres_data` and `qdrant_data` from the same backup, check out the commit recorded with that backup, and point `.env.release` at the password that volume was using. Restoring only one volume is not supported. Writes after the backup are lost. Do not run the previous image against the new schema.
 
-- `v0.1.0` is the first release. There is no earlier release stack to roll back to.
+- Export new v2 reports before restoring the pre-upgrade volumes. The MVP parser cannot open their JSON. Preserve the session pepper separately for any Alpha restore.
 - For later releases, rolling back the images alone (checking out the previous tag, setting the previous `NEXUS_VERSION`, `up -d --build`) works only when the database schema is still compatible with the older code. `init` runs `alembic upgrade head` for whatever code it was built from; it never downgrades.
 - If an upgrade ran a migration that the old code cannot use, the only supported rollback is to restore the backup taken before the upgrade, which discards everything written since.
 - Running `alembic downgrade` by hand is not a supported release procedure. Checkpoint tables and Qdrant are not covered by Alembic. Downgrade of `f6c1a8d04e27` drops `evaluation_case_results`, then `ix_evaluation_runs_imported_at_id`, then `evaluation_runs`. Research, identity, Qdrant, and checkpoints stay. The older order, if someone continues, is `e3b7d91c4a20` and then `c8e4a1b27d05`. The scope revision aborts while any owner is not the quarantine user and does not delete runs, reports, or sources. The identity revision then drops `auth_sessions` and `users`, and it aborts if `research_scopes` still exists. After a real owner exists, use the paired volume restore instead. That cold restore remains the release rollback.

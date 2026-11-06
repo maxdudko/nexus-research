@@ -1,6 +1,6 @@
 # Deployment
 
-This guide covers `v0.1.0`. The release stack is `compose.release.yml`: Web, API, PostgreSQL, Qdrant and a one-shot `init` service on one host, in the Compose project `nexus-release`. Only Web is published, on `127.0.0.1`. There is no authentication and no per-user isolation. `research_id` scopes evidence; it does not authorize anyone.
+This guide covers the `0.2.0` Alpha candidate. The release stack is `compose.release.yml`: Web, API, PostgreSQL, Qdrant and a one-shot `init` service on one host, in the Compose project `nexus-release`. Only Web is published, on `127.0.0.1`. The API authenticates research requests and checks ownership in PostgreSQL before retrieving evidence. Limit access to the host because anyone reaching Web can self-register.
 
 Every command below runs from the repository root. To shorten them:
 
@@ -26,6 +26,7 @@ Local Python, uv and Node are not needed; both images are built inside Docker fr
 cp .env.release.example .env.release
 chmod 600 .env.release
 openssl rand -hex 32   # paste the output into POSTGRES_PASSWORD
+openssl rand -hex 32   # use this separate value for NEXUS_SESSION_PEPPER
 ```
 
 Then edit `.env.release`. The file has two kinds of variables:
@@ -76,7 +77,7 @@ In production the API serves neither `/docs` nor `/openapi.json`.
 
 PostgreSQL holds two schemas with different owners:
 
-- **Domain schema**, owned by Alembic: `users`, `auth_sessions`, `research_scopes`, `sources`, `research_runs`, `research_reports` and `alembic_version`. Head is `e3b7d91c4a20`, after `c8e4a1b27d05`.
+- **Domain schema**, owned by Alembic: `users`, `auth_sessions`, `research_scopes`, `sources`, `research_runs`, `research_reports` and `alembic_version`. The Alpha head is `da73e1b94026`. It includes evaluation history, password recovery and research-depth metadata.
 - **LangGraph checkpoint tables**, created by `python -m nexus.research.checkpoint`. Alembic does not manage them.
 
 The `init` service is built from the API image and runs both, in order, on every `up`:
@@ -191,7 +192,7 @@ An upgrade replaces the images and reruns `init` against the existing volumes. I
 1. Let running research finish, or accept that it will be interrupted.
 2. Take a backup as described in [Backups](operations.md#backups). Restoring that backup is the only rollback path if a migration cannot be undone.
 3. Read [`CHANGELOG.md`](../../CHANGELOG.md) for the target version, including new or renamed variables in `.env.release.example`.
-4. Fetch the reviewed revision, for example `git fetch --tags && git checkout v0.1.0`.
+4. Check out the exact candidate SHA recorded for the pilot. After publication, use the reviewed release tag.
 5. Set `NEXUS_VERSION` in `.env.release` to the new version so the old images keep their tag.
 6. Rebuild and restart:
 
@@ -204,7 +205,7 @@ An upgrade replaces the images and reruns `init` against the existing volumes. I
 
 7. Confirm both `init -` lines are present and readiness is 200. If `init` failed, stop here and follow [Failed initialization](operations.md#failed-initialization).
 
-`v0.1.0` is the first release, so there is no earlier release stack to upgrade from. A development database from `docker-compose.yml` is a different project with different volumes and is not migrated into the release stack.
+For an upgrade from `v0.1.0`, keep the same database credentials, set a persistent random session pepper and verify legacy scope quarantine and adoption as described in [operations](operations.md). A development database from `docker-compose.yml` is a different project with different volumes and is not migrated into the release stack.
 
 ## Shutdown
 

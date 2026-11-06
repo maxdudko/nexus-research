@@ -8,9 +8,12 @@ Nexus Research answers a research question with a bounded LangGraph workflow. It
 
 ## Status
 
-**MVP `v0.1.0`.** Phases 1–7 are done. CI builds both images and runs a packaged smoke test with a mocked model. The paid-provider demo and the rest of Gate C are recorded in [`docs/release/checklist.md`](docs/release/checklist.md). Multi-user Alpha (`v0.2.0`) is a separate milestone in the [roadmap](docs/roadmap.md).
+**0.2.0 Alpha candidate.** Private pilot acceptance is in progress. Track the candidate build, tests and release decision in the [Alpha checklist](docs/release/alpha-checklist.md). The previous published milestone is [MVP v0.1.0](docs/release/checklist.md).
 
-## Features in v0.1.0
+## Candidate features
+
+- **Research depth and reports.** Choose standard or deep research. Analytical v2 reports show cited excerpts and coverage gaps. Older reports remain readable.
+- **Administration.** Restricted views show evaluation history, compatible-run comparisons, diagnostics and usage coverage.
 
 - **Planning.** `POST /api/v1/research/plan` returns a structured plan from OpenAI (strict JSON schema).
 - **Discovery.** Bounded Tavily search through model tool calls, returning only sources that were actually retrieved.
