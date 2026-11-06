@@ -222,3 +222,26 @@ async def test_retrieval_failure_does_not_invent_a_report() -> None:
     assert update["error_code"] == "search_failed"
     assert state["status"] == "running"
     assert state["report"] is None
+
+
+async def test_ingestion_tries_other_candidates_after_initial_page_failures() -> None:
+    from dataclasses import replace
+
+    state = merge_update(
+        make_state(),
+        {
+            "iteration": 1,
+            "candidate_urls": [
+                {"url": f"https://example.org/{i}", "title": f"Page {i}"}
+                for i in range(8)
+            ],
+        },
+    )
+    ingestion = FakeIngestion([fetch_failed() for _ in range(4)])
+    context = _context(ingestion=ingestion)
+    context = replace(context, limits=replace(context.limits, max_web_pages=8))
+    update = await ingest_node(state, runtime_for(context))
+    assert len(ingestion.calls) == 8
+    assert update["usage"]["pages_failed"] == 4
+    assert update["usage"]["pages_indexed"] == 4
+    assert len(update["accepted_urls"]) == 4

@@ -32,14 +32,26 @@ function Block({ block, sources }: { block: ReportBlock; sources: ReadonlyMap<st
 
 export function ReportV2({ report }: { report: ResearchReport }) {
   const sources = sourceMap(report);
+  const hasFindings = report.sections.some((section) => section.blocks?.some(
+    (block) => block.kind !== "context" && block.citations.length > 0,
+  ));
+  const bodyIncomplete = Boolean(report.body_gaps?.length) || !hasFindings;
+  const displayStatus = bodyIncomplete && report.status === "completed" ? "partial" : report.status;
   const documents = new Map<string, EvidenceRef>();
   for (const source of report.sources) if (!documents.has(source.source_id)) documents.set(source.source_id, source);
   return (
     <article aria-labelledby="report-title" className="flex flex-col gap-6 leading-relaxed">
-      <p role="status">{report.status === "completed" ? "Completed" : report.status === "partial" ? "Partial" : "Insufficient evidence"}</p>
+      <p role="status">{displayStatus === "completed" ? "Completed" : displayStatus === "partial" ? "Partial" : "Insufficient evidence"}</p>
       <h2 id="report-title" className="break-words text-xl font-semibold">{report.title}</h2>
       <p className="text-sm text-muted">{report.verification === "passed" ? "Model support checks passed." : "Support checking is incomplete."} Model verification does not guarantee factual accuracy.</p>
+      {bodyIncomplete ? <aside role="note" className="surface flex flex-col gap-2 p-4">
+        <h3 className="font-semibold">Report body is incomplete</h3>
+        <p>{hasFindings
+          ? "Some planned subquestions have no verified analytical section. The gaps are shown below."
+          : "Only introductory or methodological sections are available. The summary does not replace the full analysis."}</p>
+      </aside> : null}
       <section aria-label="Summary" className="flex flex-col gap-4">
+        <h3 className="text-lg font-semibold">Summary</h3>
         {report.summary_blocks?.length
           ? report.summary_blocks.map((block, i) => <Block key={i} block={block} sources={sources} />)
           : <p>{report.summary}</p>}

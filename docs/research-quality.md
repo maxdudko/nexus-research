@@ -28,7 +28,9 @@ specific gaps. Tavily uses basic search for standard and advanced for deep.
 Task-specific domain/time filters apply to that task's original queries; new gap
 queries stay broad to avoid trapping refinement inside an inadequate source set.
 
-Page allocation leaves capacity for subsequent rounds. Candidate ranking considers
+Page allocation leaves capacity for subsequent rounds. Failed page attempts consume
+the global cap; other candidates can still fill the current round. The HTTP client
+advertises only the compression codecs supported by its bounded decoder. Candidate ranking considers
 primary sources, relevance, date and independence. This is a model assessment of
 search results, not a credibility guarantee. Search snippets are never used as
 report evidence. Fetched HTML retains Markdown headings and tables; web chunks
@@ -47,7 +49,9 @@ Reports retain the legacy `title`, `summary`, `sections`, `limitations`, `status
 and `sources` fields. `format_version` defaults to 1 when old data is read.
 Version 2 adds:
 
-- `summary_blocks`, and `blocks` on each section;
+- `summary_blocks` (a brief overview), and `blocks` on each section;
+- section `task_ids`, linking dedicated analytical sections to planned tasks;
+- server-derived `body_gaps`, naming tasks without verified body analysis;
 - block `kind` (`fact`, `inference`, `context`, `table`), `text`, `citations`,
   `columns` and `rows` (empty arrays for paragraphs);
 - source `title`, `domain`, `published_at`, `retrieved_at`, `query`, `excerpt`;
@@ -62,6 +66,16 @@ table cells, against its cited passages, and flags planned tasks missing from
 the report even when their evidence was retrieved. One repair and one recheck are permitted.
 Known unsupported blocks remaining after checking are removed. Unavailable checks
 preserve the draft with `partial` and an explicit limitation.
+
+Each planned task requires its own cited analytical body section. Summary facts
+and scope/method paragraphs do not count as body coverage. Missing sections are
+completed with separate task-specific generation calls when budget permits.
+Up to five synthesis calls are reserved inside each profile's existing total model
+cap, including bounded malformed-output retries. Existing analytical sections are
+preserved, and a repair that removes them is rejected. Missing sections are
+shown explicitly as gaps; a model support check cannot override this structural
+requirement. The UI also flags older summary-only reports without changing the
+stored history.
 
 Only an unrepaired report with complete task coverage and passing support checks
 can become `completed`. A repaired report remains conservatively `partial`, since

@@ -86,7 +86,7 @@ def draft():
     return {
         "title": "Measured value",
         "summary_blocks": [block],
-        "sections": [{"heading": "Results", "blocks": [block]}],
+        "sections": [{"heading": "Results", "task_ids": ["T1"], "blocks": [block]}],
         "limitations": [],
     }
 
@@ -296,7 +296,12 @@ async def test_failed_claims_get_one_repair_and_are_removed_if_still_unsupported
     assert result["status"] == "partial"
     assert result["report"]["verification"] == "incomplete"
     assert not result["report"]["summary_blocks"]
-    assert not result["report"]["sections"]
+    assert result["report"]["body_gaps"] == ["T1"]
+    assert all(
+        b["kind"] == "context"
+        for s in result["report"]["sections"]
+        for b in s["blocks"]
+    )
     assert len(repair.messages) == 1
     assert result["usage"]["llm_calls"] == 3
 
@@ -524,6 +529,203 @@ async def test_recheck_failure_keeps_checked_draft_and_removes_known_bad_claims(
     )
     assert result["status"] == "partial"
     assert result["report"]["summary"] == "In 2025 the value was 10 kg."
-    assert result["report"]["sections"] == []
-    assert "999" not in json.dumps(result["report"])
+    assert result["report"]["body_gaps"] == ["T1"]
+    assert all(
+        b["kind"] == "context"
+        for s in result["report"]["sections"]
+        for b in s["blocks"]
+    )
+    assert "The value was 999 kg." not in json.dumps(result["report"])
     assert result["usage"]["llm_calls"] == 3
+
+
+def summary_only_draft():
+    payload = draft()
+    payload["sections"] = [
+        {
+            "heading": "Scope and Method",
+            "task_ids": [],
+            "blocks": [
+                {
+                    "kind": "context",
+                    "text": "This report reviews the supplied evidence.",
+                    "citations": [],
+                    "columns": [],
+                    "rows": [],
+                }
+            ],
+        }
+    ]
+    return payload
+
+
+async def test_writer_marks_summary_with_only_methodology_as_incomplete():
+    from nexus.ai.synthesis import OpenAIReportSynthesizer
+
+    outcome = await OpenAIReportSynthesizer(
+        make_settings(), Model(summary_only_draft())
+    ).synthesize(
+        quality_state(),
+        status="completed",
+        max_calls=2,
+    )
+    assert outcome.report is not None
+    assert outcome.warning == "report_body_incomplete"
+    assert outcome.report.body_gaps == ["T1"]
+    assert outcome.report.status == "partial"
+    assert len(outcome.report.sections) == 2
+    assert outcome.report.sections[1].task_ids == ["T1"]
+
+
+async def test_summary_answers_cannot_replace_report_body_even_if_checker_agrees():
+    state = quality_state()
+    report = assemble_report_v2(
+        summary_only_draft(),
+        status="completed",
+        snapshot=enrich_refs(state, assign_evidence_ids(state["evidence"])),
+    )
+    state = merge_update(
+        state,
+        {
+            "report": report.model_dump(),
+            "status": "partial",
+            "coverage": {
+                "sufficient": True,
+                "covered_task_ids": ["T1"],
+                "missing_task_ids": [],
+                "gaps": [],
+                "uncertainty": "",
+            },
+        },
+    )
+    verifier = ReportVerifier(
+        make_settings(), Model(checks(), checks()), Model(summary_only_draft())
+    )
+    result = await verify_node(
+        state, runtime_for(replace(context(), verifier=verifier))
+    )
+    assert result["status"] == "partial"
+    assert result["report"]["verification"] == "incomplete"
+    assert result["report"]["body_gaps"] == ["T1"]
+    assert "report_body_incomplete" in result["warnings"]
+
+
+async def test_all_task_sections_survive_verification_and_are_required_for_completion():
+    from nexus.ai.verification import report_blocks
+
+    state = with_plan(quality_state(), [f"query {i}" for i in range(9)])
+    payload = draft()
+    payload["sections"] = [
+        {
+            "heading": f"Findings for task {i}",
+            "task_ids": [f"T{i}"],
+            "blocks": [draft()["summary_blocks"][0]],
+        }
+        for i in range(1, 4)
+    ]
+    report = assemble_report_v2(
+        payload,
+        status="completed",
+        snapshot=enrich_refs(state, assign_evidence_ids(state["evidence"])),
+    )
+    state = merge_update(
+        state,
+        {
+            "report": report.model_dump(),
+            "status": "partial",
+            "coverage": {
+                "sufficient": True,
+                "covered_task_ids": ["T1", "T2", "T3"],
+                "missing_task_ids": [],
+                "gaps": [],
+                "uncertainty": "",
+            },
+        },
+    )
+    checked = {
+        "checks": [
+            {"block_id": block_id, "verdict": "supported", "reason": "Supported."}
+            for block_id in report_blocks(report)
+        ],
+        "missing_task_ids": [],
+    }
+    verifier = ReportVerifier(make_settings(), Model(checked))
+    result = await verify_node(
+        state, runtime_for(replace(context(), verifier=verifier))
+    )
+    assert result["status"] == "completed"
+    assert len(result["report"]["sections"]) == 3
+    assert [s["task_ids"] for s in result["report"]["sections"]] == [
+        ["T1"],
+        ["T2"],
+        ["T3"],
+    ]
+    assert result["report"]["body_gaps"] == []
+
+
+@pytest.mark.parametrize("max_calls,missing", [(3, []), (2, ["T3"])])
+async def test_writer_completes_missing_sections_without_rewriting_valid_body(
+    max_calls, missing
+):
+    from nexus.ai.synthesis import OpenAIReportSynthesizer
+
+    state = with_plan(quality_state(), [f"query {i}" for i in range(7)])
+    sections = Model(
+        {"heading": "Second task", "blocks": draft()["sections"][0]["blocks"]},
+        {"heading": "Third task", "blocks": draft()["sections"][0]["blocks"]},
+    )
+    outcome = await OpenAIReportSynthesizer(
+        make_settings(), Model(draft()), section_model=sections
+    ).synthesize(state, status="completed", max_calls=max_calls)
+    assert outcome.llm_calls == max_calls
+    assert outcome.report is not None
+    assert outcome.report.body_gaps == missing
+    assert outcome.report.sections[0].heading == "Results"
+    assert outcome.report.sections[0].task_ids == ["T1"]
+    assert outcome.report.sections[1].task_ids == ["T2"]
+    assert len(sections.messages) == max_calls - 1
+
+
+def test_profile_reserves_section_completion_within_global_budget():
+    from nexus.research.budgets import (
+        charge_synthesis,
+        synthesis_calls_allowed,
+    )
+
+    limits = profile_limits(make_settings(), "deep")
+    from nexus.research.state import empty_usage
+
+    usage = empty_usage()
+    assert synthesis_calls_allowed(usage, limits) == 5
+    charged = charge_synthesis(usage, limits, calls=5)
+    assert charged["llm_calls"] == 5
+    assert synthesis_calls_allowed(charged, limits) == 0
+
+
+async def test_missing_section_retries_malformed_output_within_budget():
+    from nexus.ai.synthesis import OpenAIReportSynthesizer
+
+    sections = Model(ValueError("malformed section"), draft()["sections"][0])
+    outcome = await OpenAIReportSynthesizer(
+        make_settings(), Model(summary_only_draft()), section_model=sections
+    ).synthesize(quality_state(), status="partial", max_calls=3)
+    assert outcome.llm_calls == 3
+    assert outcome.report is not None
+    assert outcome.report.body_gaps == []
+    assert outcome.warning is None
+
+
+async def test_repair_cannot_remove_existing_analytical_sections():
+    state = quality_state()
+    report = assemble_report_v2(
+        draft(),
+        status="partial",
+        snapshot=enrich_refs(state, assign_evidence_ids(state["evidence"])),
+    )
+    verifier = ReportVerifier(make_settings(), repair_model=Model(summary_only_draft()))
+    with pytest.raises(ValueError, match="removed analytical task sections"):
+        await verifier.repair(
+            state,
+            report,
+            await ReportVerifier(make_settings(), Model(checks())).check(report),
+        )

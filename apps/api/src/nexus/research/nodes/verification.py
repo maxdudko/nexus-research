@@ -6,6 +6,7 @@ import asyncio
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from nexus.ai.report_body import explain_body_gaps
 from nexus.ai.verification import report_blocks
 from nexus.research.nodes.common import before_provider, warnings_with
 from nexus.research.state import ResearchState, copy_usage
@@ -169,11 +170,22 @@ async def verify_node(
                 ]
             }
         )
+    if report.format_version == 2:
+        report = explain_body_gaps(report, state["plan"])
+        if report.body_gaps:
+            report = report.model_copy(update={"verification": "incomplete"})
     report = ResearchReport.model_validate(report.model_dump())
     return {
         "report": report.model_dump(mode="json"),
         "status": report.status,
         "usage": usage,
         "quality_calls": state["quality_calls"] + calls,
-        "warnings": state["warnings"] if passed else warnings_with(state, warning),
+        "warnings": list(
+            dict.fromkeys(
+                [
+                    *(state["warnings"] if passed else warnings_with(state, warning)),
+                    *(["report_body_incomplete"] if report.body_gaps else []),
+                ]
+            )
+        ),
     }

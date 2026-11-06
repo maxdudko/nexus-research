@@ -45,6 +45,7 @@ class BudgetLimits:
     discovery_llm_ceiling: int
     depth: ResearchDepth = "standard"
     finish_reserve_seconds: float = 45
+    max_synthesis_calls: int = SYNTHESIS_LLM_RESERVE
 
     def snapshot(self) -> dict[str, object]:
         return asdict(self)
@@ -62,6 +63,7 @@ def profile_limits(settings: Settings, depth: ResearchDepth) -> BudgetLimits:
         deadline_seconds=180,
         excerpt_chars=2000,
         discovery_search_ceiling=3,
+        max_synthesis_calls=5,
         discovery_llm_ceiling=1,
     )
     if depth == "deep":
@@ -127,7 +129,9 @@ def can_discover(usage: UsageSnapshot, limits: BudgetLimits, iteration: int) -> 
     remaining_search = limits.max_search_calls - usage["search_calls"]
     if remaining_search < limits.discovery_search_ceiling:
         return False
-    remaining_llm = limits.max_llm_calls - usage["llm_calls"] - _held_reserve(usage)
+    remaining_llm = (
+        limits.max_llm_calls - usage["llm_calls"] - _held_reserve(usage, limits)
+    )
     return remaining_llm >= limits.discovery_llm_ceiling
 
 
@@ -159,7 +163,7 @@ def charge_synthesis(
 ) -> UsageSnapshot:
     """Count logical synthesis calls, including one malformed retry."""
     calls = _count(calls, "synthesis calls")
-    if usage["synthesis_calls"] + calls > SYNTHESIS_LLM_RESERVE:
+    if usage["synthesis_calls"] + calls > limits.max_synthesis_calls:
         raise ValueError("synthesis budget exceeded")
     updated = _charge_llm(usage, limits, calls)
     updated["synthesis_calls"] += calls
@@ -170,14 +174,14 @@ def evaluation_call_allowed(usage: UsageSnapshot, limits: BudgetLimits) -> bool:
     """True when this visit can spend one call and still leave synthesis funded."""
     if usage["evaluation_calls"] >= EVALUATION_LLM_RESERVE:
         return False
-    synthesis_left = max(0, SYNTHESIS_LLM_RESERVE - usage["synthesis_calls"])
+    synthesis_left = max(0, limits.max_synthesis_calls - usage["synthesis_calls"])
     remaining = limits.max_llm_calls - usage["llm_calls"] - synthesis_left
     return remaining >= 1
 
 
 def synthesis_calls_allowed(usage: UsageSnapshot, limits: BudgetLimits) -> int:
     """How many synthesis attempts still fit in the reserve and the global cap."""
-    reserve_left = max(0, SYNTHESIS_LLM_RESERVE - usage["synthesis_calls"])
+    reserve_left = max(0, limits.max_synthesis_calls - usage["synthesis_calls"])
     budget_left = max(0, limits.max_llm_calls - usage["llm_calls"] - 3)
     return min(reserve_left, budget_left)
 
@@ -435,9 +439,9 @@ def merge_passages(
     return ordered[:limit]
 
 
-def _held_reserve(usage: UsageSnapshot) -> int:
+def _held_reserve(usage: UsageSnapshot, limits: BudgetLimits) -> int:
     evaluation_left = max(0, EVALUATION_LLM_RESERVE - usage["evaluation_calls"])
-    synthesis_left = max(0, SYNTHESIS_LLM_RESERVE - usage["synthesis_calls"])
+    synthesis_left = max(0, limits.max_synthesis_calls - usage["synthesis_calls"])
     return evaluation_left + synthesis_left + QUALITY_LLM_RESERVE
 
 

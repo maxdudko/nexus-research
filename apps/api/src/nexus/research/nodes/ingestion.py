@@ -12,6 +12,7 @@ from nexus.ai.errors import ResearchError
 from nexus.research.budgets import (
     BudgetLimits,
     charge_pages,
+    pages_remaining,
     pending_urls,
     work_seconds,
 )
@@ -60,7 +61,7 @@ async def ingest_node(
     chosen: list[str] = []
     domains: dict[str, int] = {}
     queries: dict[str, int] = {}
-    while urls and len(chosen) < per_round:
+    while urls and len(chosen) < capacity:
 
         def priority(url: str) -> tuple[int, int, int, float]:
             info = metadata.get(url, {})
@@ -89,7 +90,12 @@ async def ingest_node(
     source_metadata = {
         url: dict(info) for url, info in state["source_metadata"].items()
     }
+    indexed_this_round = 0
     for url in urls:
+        # Failed candidates consume the global attempt cap, but should not
+        # prevent other available pages from filling this round's evidence set.
+        if indexed_this_round >= per_round or pages_remaining(usage, limits) <= 0:
+            break
         seconds = work_seconds(state, limits, runtime.context.clock())
         if seconds <= 0:
             break
@@ -120,6 +126,7 @@ async def ingest_node(
         if url not in accepted_urls:
             accepted_urls.append(url)
         usage = charge_pages(usage, limits, indexed=1)
+        indexed_this_round += 1
     return {
         "source_metadata": source_metadata,
         "accepted_source_ids": accepted_ids,

@@ -105,6 +105,7 @@ class ModelSectionV2(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     heading: str = Field(min_length=1, max_length=200)
+    task_ids: list[str] = Field(default_factory=list, max_length=3)
     blocks: list[ReportBlock] = Field(min_length=1, max_length=20)
 
 
@@ -112,7 +113,7 @@ class ModelReportV2(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     title: str = Field(min_length=1, max_length=200)
-    summary_blocks: list[ReportBlock] = Field(min_length=1, max_length=10)
+    summary_blocks: list[ReportBlock] = Field(min_length=1, max_length=4)
     sections: list[ModelSectionV2] = Field(min_length=1, max_length=20)
     limitations: list[str] = Field(max_length=20)
 
@@ -129,6 +130,7 @@ class ReportSection(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     heading: str = Field(min_length=1, max_length=200)
+    task_ids: list[str] = Field(default_factory=list, max_length=3)
     content: str = Field(min_length=1, max_length=30000)
     blocks: list[ReportBlock] = Field(default_factory=list, max_length=20)
     citations: list[str] = Field(default_factory=list, max_length=50)
@@ -146,6 +148,7 @@ class ResearchReport(BaseModel):
     format_version: Literal[1, 2] = 1
     summary_blocks: list[ReportBlock] = Field(default_factory=list, max_length=10)
     verification: Literal["not_checked", "passed", "incomplete"] = "not_checked"
+    body_gaps: list[str] = Field(default_factory=list, max_length=3)
     title: str = Field(min_length=1, max_length=200)
     summary: str = Field(min_length=1, max_length=12000)
     sections: list[ReportSection] = Field(default_factory=list, max_length=20)
@@ -169,9 +172,11 @@ class ResearchReport(BaseModel):
         if (
             self.format_version == 2
             and self.status == "completed"
-            and self.verification != "passed"
+            and (self.verification != "passed" or self.body_gaps)
         ):
-            raise ValueError("completed v2 report requires verification")
+            raise ValueError(
+                "completed v2 report requires verification and a full body"
+            )
         if self.status == "insufficient_evidence" and (
             self.sources or any(section.citations for section in self.sections)
         ):

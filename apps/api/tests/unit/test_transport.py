@@ -482,3 +482,19 @@ async def test_fetch_deadline_cancels_a_slow_connection() -> None:
         )
     assert exc_info.value.code == "fetch_timeout"
     assert time.monotonic() - started < 2
+
+
+async def test_fetcher_only_advertises_supported_compression() -> None:
+    async def resolver(host: str, port: int) -> list[str]:
+        return [PUBLIC]
+
+    connection = RecordingTransport([_response(_html("Public article"))])
+    await fetch_public_page(
+        f"https://{HOST}/article",
+        max_bytes=10000,
+        max_redirects=3,
+        timeout_seconds=1,
+        resolver=resolver,
+        connection=connection,
+    )
+    assert connection.requests[0].headers["accept-encoding"] == "gzip, deflate"

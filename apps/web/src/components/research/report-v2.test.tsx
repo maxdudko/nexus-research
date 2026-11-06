@@ -54,3 +54,31 @@ describe("Detailed research reports", () => {
     expect((screen.getByLabelText("Research depth") as HTMLSelectElement).disabled).toBe(true);
   });
 });
+
+describe("Report body completeness", () => {
+  it("identifies a stored summary-only report even when its old status says completed", () => {
+    render(<ResearchReportView report={{ ...report, body_gaps: [], sections: [{
+      heading: "Scope and Method", content: "Method only", citations: [],
+      blocks: [{ kind: "context", text: "Method only", citations: [], columns: [], rows: [] }],
+    }] }} />);
+    expect(screen.getByRole("status").textContent).toBe("Partial");
+    expect(screen.getByText("Report body is incomplete")).toBeTruthy();
+    expect(screen.getByText(/The summary does not replace the full analysis/)).toBeTruthy();
+  });
+
+  it("renders every analytical section alongside the summary and contents", () => {
+    render(<ResearchReportView report={{ ...report, body_gaps: [], sections: [
+      ...report.sections,
+      { heading: "Limitations of the measurements", content: "Limited to 2025.", citations: ["E1"],
+        blocks: [{ ...paragraph, text: "The evidence covers the 2025 period only." }] },
+      { heading: "Comparison", content: "A separate analysis.", citations: ["E1"],
+        blocks: [{ ...paragraph, text: "A separate analytical finding." }] },
+    ] }} />);
+    expect(screen.getByRole("heading", { name: "Summary" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Results" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Limitations of the measurements" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Comparison" })).toBeTruthy();
+    expect(screen.getByText("A separate analytical finding.")).toBeTruthy();
+    expect(screen.queryByText("Report body is incomplete")).toBeNull();
+  });
+});

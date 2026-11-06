@@ -52,6 +52,7 @@ export interface ReportBlock {
 }
 
 export interface ReportSection {
+  task_ids?: string[];
   blocks?: ReportBlock[];
   heading: string;
   content: string;
@@ -60,6 +61,7 @@ export interface ReportSection {
 
 export interface ResearchReport {
   format_version?: 1 | 2;
+  body_gaps?: string[];
   summary_blocks?: ReportBlock[];
   verification?: "not_checked" | "passed" | "incomplete";
   title: string;

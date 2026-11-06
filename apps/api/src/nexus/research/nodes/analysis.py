@@ -24,8 +24,9 @@ async def analyze_node(
     if runtime.context.analyzer is None or not state["evidence"]:
         return {"analysis": None}
     usage = copy_usage(state["usage"])
-    # Keep two synthesis calls, verification, repair and verification funded.
-    if usage["llm_calls"] + 6 > runtime.context.limits.max_llm_calls:
+    # Fund this analysis call, section completion and three verification calls.
+    limits = runtime.context.limits
+    if usage["llm_calls"] + limits.max_synthesis_calls + 4 > limits.max_llm_calls:
         return {"analysis": None, "warnings": warnings_with(state, "budget_exhausted")}
     usage["llm_calls"] += 1
     try:
