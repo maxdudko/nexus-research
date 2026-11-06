@@ -8,6 +8,19 @@ The candidate working tree based on `3568684` passed 125 PostgreSQL/Qdrant integ
 
 A separate drill created a synthetic v1 report and a Qdrant point at the MVP schema head. Both stopped volumes were archived and restored into fresh volumes under a different Compose project. After upgrading to Alpha, both regular accounts received 404 for the quarantined run. After explicit adoption and restart the owner read the v1 report through Web, the second account received 404 and the restored vector retained the expected scope. This drill used synthetic data. Actual pilot participants, external reachability and reviewer decisions remain pending.
 
+## Local evidence on `e81209a` (2026-11-06)
+
+After `3568684` the candidate gained the stop confirmation dialog, removal of a run from history, a 409 guard for removing a run that is still streaming, and address-bucket counting for malformed login emails. Code is unchanged from `e81209a` to the documentation commit after it. On that code, locally:
+
+- Ruff, format check and mypy (125 files) pass.
+- 595 API unit and evaluation tests pass.
+- 126 PostgreSQL/Qdrant integration tests pass.
+- Web lint and typecheck pass, and 194 Vitest tests pass.
+- The offline output equals `baseline.json`.
+- `check_release_version.py --tag v0.2.0` and `check_release_compose.py` pass.
+
+Not yet run on this SHA: CI on a `codex/release-candidate/**` push, both image builds, packaged smoke, and the upgrade drill. The smoke and pilot observations above predate these changes. Repeat the Phase 8 and 9 rows on the tagged SHA, including removing a finished run, a stale `running` row and a live run (expect 409).
+
 ## Candidate and evidence
 
 Record the tested Git SHA, UTC timestamp, CI URL, image IDs, Alembic head, operator and reviewer. On any candidate change, identify affected observations and rerun CI on the exact SHA proposed for the tag.
