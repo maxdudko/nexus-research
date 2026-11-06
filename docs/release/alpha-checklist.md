@@ -10,7 +10,7 @@ A separate drill created a synthetic v1 report and a Qdrant point at the MVP sch
 
 ## Local evidence on `e81209a` (2026-11-06)
 
-After `3568684` the candidate gained the stop confirmation dialog, removal of a run from history, a 409 guard for removing a run that is still streaming, and address-bucket counting for malformed login emails. Code is unchanged from `e81209a` to the documentation commit after it. On that code, locally:
+After `3568684` the candidate gained the stop confirmation dialog, removal of a run from history, a 409 guard for removing a run that is still streaming, and address-bucket counting for malformed login emails. No Alembic revision changed after that drill, so the schema head is still `da73e1b94026`. Code is unchanged from `e81209a` through `cd82648`. On that code, locally:
 
 - Ruff, format check and mypy (125 files) pass.
 - 595 API unit and evaluation tests pass.
@@ -19,7 +19,22 @@ After `3568684` the candidate gained the stop confirmation dialog, removal of a 
 - The offline output equals `baseline.json`.
 - `check_release_version.py --tag v0.2.0` and `check_release_compose.py` pass.
 
-Not yet run on this SHA: CI on a `codex/release-candidate/**` push, both image builds, packaged smoke, and the upgrade drill. The smoke and pilot observations above predate these changes. Repeat the Phase 8 and 9 rows on the tagged SHA, including removing a finished run, a stale `running` row and a live run (expect 409).
+The upgrade drill was not repeated. The pilot notes above predate removal from history and the 409 guard. Repeat the Phase 8 and 9 rows on the SHA proposed for the tag, including removing a finished run, a stale `running` row, and a live run (expect 409).
+
+## Full CI on `cd82648` (2026-11-06)
+
+[Pull request #22](https://github.com/maxdudko/nexus-research/pull/22) targets `master`, so CI runs the full lane. [Run 42296460294](https://github.com/maxdudko/nexus-research/actions/runs/42296460294) on `cd826483c47342f4d22721cefebe44296a3cab33` completed success at 2026-11-06T21:29:39Z.
+
+| Job | Result |
+|---|---|
+| API checks (Ruff, mypy, unit tests, offline baseline diff) | success |
+| Web checks (lint, typecheck, Vitest) | success |
+| API integration (PostgreSQL and Qdrant, Alembic upgrade) | success |
+| Release images and smoke (version check, both image builds, Compose checks, `release-smoke.sh --no-build`) | success |
+
+The same SHA’s push to `development`, [run 42296452775](https://github.com/maxdudko/nexus-research/actions/runs/42296452775), is the fast lane only. Image export did not run: that step is for the tag workflow, and `v0.2.0` is not tagged, so image digests are not recorded. No `codex/release-candidate/**` branch points at this SHA. The pull request is the full-lane evidence. The packaged smoke described under `3568684` is an earlier run.
+
+Recording this result changes only this checklist. The pull request full lane has to be green on that documentation commit before a tag. This CI result is not a GO.
 
 ## Candidate and evidence
 
@@ -45,5 +60,7 @@ Use two regular accounts A and B and a separate administrator. Record observed r
 ## Decision and release
 
 The maintainer records GO or HOLD with date, reviewer, evidence links and outstanding risks. GO requires all three acceptance decisions, the external boundary check, approved pilot spend, restore evidence and full green CI. After GO, verify the tested SHA is reachable from master, create the annotated `v0.2.0` tag there, verify the tag workflow and publish the [changelog entry](../../CHANGELOG.md) as release notes.
+
+**Status on 2026-11-06:** packaging CI for `cd82648` is green on pull request #22. Phase 8, Phase 9, Phase 10, the external boundary check, and approved pilot spend are still open. No GO is recorded. The pull request stays unmerged, and `v0.2.0` stays untagged.
 
 Report offline regression and paid pilot observations separately. A claim of improved research quality requires the [blinded benchmark](../evaluation/research-quality/README.md), including all 10 holdouts, at least seven candidate wins and preserved supported-claim share.
