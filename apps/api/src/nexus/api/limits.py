@@ -57,6 +57,7 @@ class UsageLimiter:
         self._mints: dict[UUID, list[datetime]] = {}
         self._runs: set[UUID] = set()
         self._streams: set[UUID] = set()
+        self._active_runs: set[UUID] = set()
 
     async def charge_password_reset_request(self, host: str, email: str) -> None:
         """Reserve both anonymous request budgets in a single critical section."""
@@ -131,6 +132,19 @@ class UsageLimiter:
             _append(self._email_failures, email, now, self._login_window)
             _append(self._ip_failures, host, now, self._login_window)
 
+    async def address_retry_after(self, host: str) -> int | None:
+        """Check only the address bucket, for an email that cannot be normalized."""
+        async with self._lock:
+            now = self.clock()
+            stamps = _remember(self._ip_failures, host, now, self._login_window)
+            if len(stamps) < self._ip_limit:
+                return None
+            return _retry_after(stamps, now, self._login_window)
+
+    async def record_address_failure(self, host: str) -> None:
+        async with self._lock:
+            _append(self._ip_failures, host, self.clock(), self._login_window)
+
     async def clear_email_failures(self, email: str) -> None:
         """A successful login forgets that email. The address bucket stays."""
         async with self._lock:
@@ -187,6 +201,19 @@ class UsageLimiter:
     async def release_stream(self, user_id: UUID) -> None:
         """Return the /stream slot, including when the process cap rejects it."""
         await self._release(self._streams, user_id)
+
+    async def mark_run_active(self, run_id: UUID) -> None:
+        """Record a streamed run whose history row this process still writes."""
+        async with self._lock:
+            self._active_runs.add(run_id)
+
+    async def mark_run_finished(self, run_id: UUID) -> None:
+        await self._release(self._active_runs, run_id)
+
+    async def run_is_active(self, run_id: UUID) -> bool:
+        """False for a stale ``running`` row left by a restart or crash."""
+        async with self._lock:
+            return run_id in self._active_runs
 
     async def _charge(
         self,

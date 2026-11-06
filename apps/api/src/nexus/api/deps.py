@@ -1,4 +1,4 @@
-"""Authenticated principal. Research routes do not use this yet."""
+"""Authenticated principal and admin guard for private routes."""
 
 from dataclasses import dataclass
 from datetime import UTC, datetime

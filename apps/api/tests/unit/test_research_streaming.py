@@ -498,6 +498,7 @@ async def test_http_stream_returns_sse_headers_and_one_run() -> None:
     assert len(history.rows) == 1
     assert recording is not None
     assert recording.astream_calls == 1
+    assert app.state.limiter._active_runs == set()
 
 
 async def test_short_question_stays_a_json_error() -> None:
@@ -547,6 +548,7 @@ async def test_a_second_stream_is_rejected_while_one_is_running() -> None:
             client.post("/api/v1/research/stream", json={"question": QUESTION})
         )
         await planner.started.wait()
+        active = set(app.state.limiter._active_runs)
         second = await client.post(
             "/api/v1/research/stream",
             json={"question": QUESTION},
@@ -558,6 +560,7 @@ async def test_a_second_stream_is_rejected_while_one_is_running() -> None:
     assert second.status_code == 429
     assert second.json()["error"]["code"] == "too_many_requests"
     assert len(history.rows) == 1
+    assert active == set(history.rows)
 
 
 class _HoldPlanner:

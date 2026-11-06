@@ -100,7 +100,8 @@ export function RunSummaryItem({
                 Remove from history?
               </h2>
               <p id={`remove-run-description-${run.run_id}`}>
-                This removes the saved run and its report from your history. It cannot be undone.
+                This removes the saved run and its report from your history. Indexed sources are
+                kept on the server. It cannot be undone.
               </p>
               {error ? (
                 <p role="alert" className="text-sm text-danger">

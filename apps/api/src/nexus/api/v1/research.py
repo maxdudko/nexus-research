@@ -183,6 +183,7 @@ async def stream_research(
         except Exception as exc:
             logger.warning("could not store a research run: %s", type(exc).__name__)
             raise history_unavailable() from None
+        await limiter.mark_run_active(run_id)
     except BaseException:
         if semaphore_held:
             semaphore.release()
@@ -218,6 +219,7 @@ async def stream_research(
                 yield frame
         finally:
             semaphore.release()
+            await limiter.mark_run_finished(run_id)
             await limiter.release_stream(owned.user.id)
 
     return StreamingResponse(

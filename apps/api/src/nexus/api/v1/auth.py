@@ -205,13 +205,20 @@ async def login(body: LoginRequest, request: Request) -> Response:
     settings: Settings = request.app.state.settings
     if not origin_allowed(request, settings):
         raise forbidden()
+    host = client_host(None if request.client is None else request.client.host)
+    limiter = request.app.state.limiter
     try:
         email_key = normalize_email(body.email)
     except IdentityError:
+        retry_after = await limiter.address_retry_after(host)
+        if retry_after is not None:
+            raise too_many_requests(
+                retry_after=retry_after,
+                message=LOGIN_LIMIT_MESSAGE,
+            ) from None
         verify_password(body.password, request.app.state.dummy_password_hash)
+        await limiter.record_address_failure(host)
         raise invalid_credentials() from None
-    host = client_host(None if request.client is None else request.client.host)
-    limiter = request.app.state.limiter
     retry_after = await limiter.login_retry_after(email_key, host)
     if retry_after is not None:
         raise too_many_requests(

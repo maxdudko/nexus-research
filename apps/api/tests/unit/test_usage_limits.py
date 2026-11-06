@@ -77,6 +77,38 @@ async def test_forwarded_for_does_not_split_the_login_address_bucket(
     assert "198.51.100.8" not in hosts
 
 
+async def test_malformed_login_emails_fill_the_address_bucket(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def missing(factory: object, email: str) -> None:
+        del factory, email
+        return None
+
+    monkeypatch.setattr("nexus.api.v1.auth.get_user_by_email", missing)
+    app = create_app(make_settings(login_max_ip_failures=2))
+    origin = {"origin": "http://127.0.0.1:3000"}
+    async with client_for(app) as client:
+        statuses = [
+            (
+                await client.post(
+                    "/api/v1/auth/login",
+                    json={"email": f"not-an-email-{index}", "password": "x"},
+                    headers=origin,
+                )
+            ).status_code
+            for index in range(2)
+        ]
+        limited = await client.post(
+            "/api/v1/auth/login",
+            json={"email": "ada@example.com", "password": "correct-horse-1"},
+            headers=origin,
+        )
+
+    assert statuses == [401, 401]
+    assert limited.status_code == 429
+    assert app.state.limiter._email_failures == {}
+
+
 async def test_email_and_ip_buckets_share_a_window_and_success_clears_email() -> None:
     limiter, clock = _limiter()
     for _ in range(5):

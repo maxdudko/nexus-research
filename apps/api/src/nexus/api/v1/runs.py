@@ -6,7 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from nexus.ai.errors import not_found
+from nexus.ai.errors import not_found, run_in_progress
 from nexus.api.deps import CurrentUser, get_current_user
 from nexus.research.history import ResearchHistory
 from nexus.schemas.history import RunDetailResponse, RunListResponse
@@ -51,10 +51,20 @@ async def get_research_run(
 @router.delete("/runs/{run_id}")
 async def delete_research_run(
     run_id: UUID,
+    request: Request,
     current: Annotated[CurrentUser, Depends(get_current_user)],
     history: Annotated[ResearchHistory, Depends(get_history)],
 ) -> dict[str, str]:
-    """Remove one owned run from history. Evidence scopes are kept."""
+    """Remove one owned run and its report.
+
+    Sources, Qdrant evidence and checkpoints are kept. A run this process is
+    still streaming returns 409; a stale ``running`` row can be removed.
+    """
+    if await request.app.state.limiter.run_is_active(run_id):
+        # Ownership first, so another account's live run stays a 404.
+        if await history.get_run(run_id, owner_id=current.id) is None:
+            raise not_found()
+        raise run_in_progress()
     deleted = await history.delete_run(run_id, owner_id=current.id)
     if not deleted:
         raise not_found()
