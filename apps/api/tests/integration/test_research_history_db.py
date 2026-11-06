@@ -10,6 +10,7 @@ from tests.integration.conftest import run_alembic
 from tests.integration.scopes import quarantine_scopes
 
 from nexus.ai.errors import ResearchError
+from nexus.api.deps import CurrentUser
 from nexus.infrastructure.database import create_db_engine, session_factory
 from nexus.main import create_app
 from nexus.models.run import ResearchReportRecord
@@ -416,7 +417,15 @@ async def test_owner_can_delete_a_run_and_its_report(
     history = ResearchHistory(session_factory(engine))
     run_id = uuid.uuid4()
     research_id = uuid.uuid4()
-    app = signed_in(create_app(make_settings(database_url=test_database_url)))
+    app = signed_in(
+        create_app(make_settings(database_url=test_database_url)),
+        CurrentUser(
+            id=QUARANTINE_USER_ID,
+            email="quarantine@example.com",
+            role="user",
+            session_id=uuid.uuid4(),
+        ),
+    )
     try:
         await quarantine_scopes(session_factory(engine), research_id)
         await history.create_running(
