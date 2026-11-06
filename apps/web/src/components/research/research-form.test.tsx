@@ -2,7 +2,7 @@
 
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ResearchForm } from "@/components/research/research-form";
 import { ResearchProgress } from "@/components/research/research-progress";
@@ -10,8 +10,24 @@ import { createSession, PDF_LIMIT_BYTES, type SessionState } from "@/lib/researc
 
 const QUESTION = "How does the proxy stream results?";
 
+beforeEach(() => {
+  // jsdom does not implement the native dialog methods.
+  Object.defineProperties(HTMLDialogElement.prototype, {
+    showModal: {
+      configurable: true,
+      value: function (this: HTMLDialogElement) { this.open = true; },
+    },
+    close: {
+      configurable: true,
+      value: function (this: HTMLDialogElement) { this.open = false; },
+    },
+  });
+});
+
 afterEach(() => {
   cleanup();
+  Reflect.deleteProperty(HTMLDialogElement.prototype, "showModal");
+  Reflect.deleteProperty(HTMLDialogElement.prototype, "close");
 });
 
 function startButton(): HTMLButtonElement {
@@ -19,17 +35,18 @@ function startButton(): HTMLButtonElement {
 }
 
 function renderForm(state: SessionState, onFile = vi.fn()) {
+  const onStop = vi.fn();
   render(
     <ResearchForm
       state={state}
       onQuestion={vi.fn()}
       onFile={onFile}
       onStart={vi.fn()}
-      onStop={vi.fn()}
+      onStop={onStop}
       onRetry={vi.fn()}
     />,
   );
-  return { onFile };
+  return { onFile, onStop };
 }
 
 describe("research form", () => {
@@ -73,10 +90,37 @@ describe("research form", () => {
     expect(startButton().disabled).toBe(true);
     expect(
       screen.getByRole("button", {
-        name: "Stop this request. Stopping does not pause or resume, it can take a moment, and provider cost may already have been incurred.",
+        name: "Stop this request",
       }),
     ).toBeTruthy();
     expect(screen.getByText(/Closing the tab stops the request/)).toBeTruthy();
+  });
+
+  it("only stops after confirmation and lets the user keep researching", async () => {
+    const user = userEvent.setup();
+    const { onStop } = renderForm({
+      ...createSession("draft-1"),
+      question: QUESTION,
+      phase: "streaming",
+      runId: "run-1",
+    });
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Stop this request" }));
+    expect(screen.getByRole("dialog", { name: "Stop this request?" })).toBeTruthy();
+    expect(screen.getByText(/Stopping does not pause or resume/).textContent).toContain(
+      "may already have been incurred.",
+    );
+    expect(onStop).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Keep researching" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(onStop).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Stop this request" }));
+    await user.click(screen.getByRole("button", { name: "Stop request" }));
+    expect(onStop).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("lists arrived stages and the stalled state without a percent", () => {

@@ -1,5 +1,7 @@
 "use client";
 
+import { useRef } from "react";
+
 import type { ResearchDepth } from "@/lib/types";
 
 import { PdfUpload } from "@/components/research/pdf-upload";
@@ -29,6 +31,7 @@ export function ResearchForm({
   onStop: () => void;
   onRetry: () => void;
 }) {
+  const stopDialogRef = useRef<HTMLDialogElement>(null);
   const busy = canStop(state.phase);
   const trimmed = state.question.trim().length;
   const invalid = questionError(state.question) !== null;
@@ -90,10 +93,36 @@ export function ResearchForm({
         </Button>
         {busy ? (
           <div className="flex flex-col gap-2">
-            <Button type="button" variant="secondary" className="whitespace-normal text-left" onClick={onStop}>
-              Stop this request. Stopping does not pause or resume, it can take a moment, and
-              provider cost may already have been incurred.
+            <Button type="button" variant="secondary" onClick={() => stopDialogRef.current?.showModal()}>
+              Stop this request
             </Button>
+            <dialog
+              ref={stopDialogRef}
+              aria-labelledby="stop-request-title"
+              aria-describedby="stop-request-description"
+              className="surface m-auto w-[calc(100%_-_2rem)] max-w-md p-5 text-ink shadow-[0_18px_50px_rgb(20_20_19/0.18)] backdrop:bg-overlay"
+            >
+              <div className="flex flex-col gap-4">
+                <h2 id="stop-request-title" className="text-lg font-semibold tracking-tight">
+                  Stop this request?
+                </h2>
+                <p id="stop-request-description">
+                  Stopping does not pause or resume, it can take a moment, and provider cost
+                  may already have been incurred.
+                </p>
+                <div className="flex flex-wrap gap-3">
+                  <Button type="button" variant="secondary" autoFocus onClick={() => stopDialogRef.current?.close()}>
+                    Keep researching
+                  </Button>
+                  <Button type="button" variant="primary" onClick={() => {
+                    stopDialogRef.current?.close();
+                    onStop();
+                  }}>
+                    Stop request
+                  </Button>
+                </div>
+              </div>
+            </dialog>
             <p className="text-sm text-muted">
               Closing the tab stops the request. This page cannot warn you before the browser
               closes it.
